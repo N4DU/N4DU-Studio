@@ -1,11 +1,11 @@
 // N4DU Studio — punto de entrada. Carga la imagen y coordina los módulos.
-// El procesamiento pesado corre en el backend (server.py); este archivo
-// arma la interfaz y delega en la API.
+// Todo el procesamiento corre en el navegador; si main.py está corriendo,
+// el puente (bridge) agrega abrir con diálogo nativo y reemplazar en disco.
 (function (N4DU) {
 
-  const { state, resetForImage, buildParams, toast } = N4DU;
+  const { state, resetForImage, toast, bridge } = N4DU;
   const { loadImage, decodeErrorMessage } = N4DU.loader;
-  const { api } = N4DU;
+  const { exportBlob, download, FORMATS } = N4DU.exporter;
   const { initDropzone, openPicker } = N4DU.dropzone;
   const { initEditorCanvas, drawEditor, syncCanvasUI } = N4DU.editorCanvas;
   const { initControls, syncControls, updateEstimate } = N4DU.controls;
@@ -20,25 +20,34 @@
     drawEditor();
     drawThumb();
     updateEstimate();
+    syncSaveUI();
   }
 
-  async function onFile(file) {
-    let bmp;
+  // Elegir archivo: diálogo nativo si hay puente; si no, el del navegador.
+  async function chooseFile() {
+    if (bridge.active) {
+      try {
+        const picked = await bridge.pickFile();
+        if (picked) await onFile(picked.file, true);
+        return;
+      } catch (err) {
+        toast(err.message, 'err'); // cae al selector del navegador
+      }
+    }
+    openPicker();
+  }
+
+  async function onFile(file, fromBridge = false) {
     try {
-      bmp = await loadImage(file);
+      const bmp = await loadImage(file);
+      resetForImage(bmp, file);
     } catch {
       toast(decodeErrorMessage(file), 'err');
       return;
     }
-    resetForImage(bmp, file);
-
-    // Subir la imagen al backend (una sola vez) para estimar y exportar.
-    try {
-      await api.upload(bmp);
-    } catch (err) {
-      toast(err.message || 'No se pudo conectar con el backend.', 'err');
-      return;
-    }
+    // Si vino por drag & drop / Ctrl+V / selector del navegador no hay ruta
+    // en disco, así que no se puede reemplazar.
+    if (!fromBridge) bridge.clearFile();
 
     document.getElementById('fileInfo').innerHTML =
       `<strong>${escapeHtml(file.name)}</strong><br>` +
@@ -62,10 +71,20 @@
     btn.disabled = true;
     btn.textContent = 'Procesando…';
     try {
-      const { blob, filename } = await api.process(buildParams());
-      download(blob, filename);
+      const { blob, filename } = await exportBlob(state);
       const kb = blob.size / 1024;
-      toast(`Guardado ${filename} · ${kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(0) + ' KB'}`, 'ok');
+      const peso = kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(0) + ' KB';
+
+      if (replaceChecked()) {
+        const out = await bridge.replaceOriginal(blob, FORMATS[state.fmt].ext);
+        document.getElementById('titleFile').textContent =
+          `${out.name} — ${state.origW}×${state.origH} px`;
+        toast(`Reemplazado en disco: ${out.name} · ${peso}`, 'ok');
+        syncSaveUI();
+      } else {
+        download(blob, filename);
+        toast(`Guardado ${filename} · ${peso}`, 'ok');
+      }
     } catch (err) {
       toast('Error al exportar: ' + err.message, 'err');
     } finally {
@@ -74,15 +93,30 @@
     }
   }
 
-  function download(blob, filename) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+  // ── Casilla "Reemplazar el archivo original" ──
+  function replaceChecked() {
+    return bridge.canReplace() && document.getElementById('replaceChk').checked;
+  }
+
+  function syncSaveUI() {
+    const section = document.getElementById('saveSection');
+    if (!bridge.active) { section.style.display = 'none'; return; }
+    section.style.display = 'flex';
+
+    const chk = document.getElementById('replaceChk');
+    const hint = document.getElementById('replaceHint');
+    if (bridge.canReplace()) {
+      chk.disabled = false;
+      const orig = bridge.path.split(/[\\/]/).pop();
+      const dest = orig.replace(/\.[^.]+$/, '') + '.' + FORMATS[state.fmt].ext;
+      hint.textContent = chk.checked
+        ? (orig === dest ? `Se sobreescribirá ${orig}.` : `${orig} → ${dest} (el original se elimina).`)
+        : 'Al exportar, el resultado sustituye al archivo abierto (aunque cambie la extensión).';
+    } else {
+      chk.disabled = true;
+      chk.checked = false;
+      hint.textContent = 'Disponible al abrir con el botón 📂 Abrir (con arrastrar o pegar no hay ruta en disco).';
+    }
   }
 
   function escapeHtml(s) {
@@ -91,32 +125,19 @@
     }[c]));
   }
 
-  // Si se abrió el HTML sin el servidor (file://), avisar cómo arrancar.
-  function checkBackend() {
-    if (api.hasBackend()) return;
-    const label = document.getElementById('titleFile');
-    label.textContent = 'Iniciá con start.bat (Windows) o start.command (Mac/Linux)';
-    label.style.color = 'var(--danger)';
-    const dz = document.getElementById('dropzone');
-    dz.querySelector('.drop-label').textContent = 'Falta iniciar el servidor';
-    dz.querySelector('.drop-sub').textContent =
-      'Cerrá esta pestaña y abrí N4DU Studio con el lanzador (start.bat / start.command).';
-    dz.style.cursor = 'default';
-    dz.style.borderColor = 'var(--danger)';
-  }
-
   // Atajos de teclado de escritorio
   window.addEventListener('keydown', e => {
     if (!(e.ctrlKey || e.metaKey)) return;
     const k = e.key.toLowerCase();
-    if (k === 'o') { e.preventDefault(); openPicker(); }
+    if (k === 'o') { e.preventDefault(); chooseFile(); }
     if ((k === 's' || k === 'e') && state.img) { e.preventDefault(); onExport(); }
   });
 
-  initDropzone(onFile);
+  initDropzone(onFile, chooseFile);
   initEditorCanvas(refresh);
   initControls(refresh);
   document.getElementById('btnExport').addEventListener('click', onExport);
-  checkBackend();
+  document.getElementById('replaceChk').addEventListener('change', syncSaveUI);
+  bridge.init().then(syncSaveUI);
 
 })(window.N4DU ??= {});

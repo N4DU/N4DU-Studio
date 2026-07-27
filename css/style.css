@@ -273,6 +273,20 @@ body.has-image .canvas-wrap { display: block; }
 .lock-btn:hover  { border-color: var(--accent); }
 .lock-btn.active { color: var(--accent); border-color: var(--accent); }
 
+/* Checkbox de guardado */
+.check {
+  display: flex; align-items: center; gap: 8px;
+  font-size: .8rem; color: var(--text);
+  cursor: pointer; user-select: none;
+}
+.check input[type=checkbox] {
+  width: 15px; height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.check input[type=checkbox]:disabled { cursor: not-allowed; }
+.check:has(input:disabled) { color: var(--faint); cursor: not-allowed; }
+
 .hint { font-size: .7rem; color: var(--muted); line-height: 1.5; }
 .hint:empty { display: none; }
 .estimate {
