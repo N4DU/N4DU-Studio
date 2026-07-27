@@ -1,9 +1,11 @@
 // N4DU Studio — punto de entrada. Carga la imagen y coordina los módulos.
+// El procesamiento pesado corre en el backend (server.py); este archivo
+// arma la interfaz y delega en la API.
 (function (N4DU) {
 
-  const { state, resetForImage, toast } = N4DU;
+  const { state, resetForImage, buildParams, toast } = N4DU;
   const { loadImage, decodeErrorMessage } = N4DU.loader;
-  const { exportBlob, download } = N4DU.exporter;
+  const { api } = N4DU;
   const { initDropzone, openPicker } = N4DU.dropzone;
   const { initEditorCanvas, drawEditor, syncCanvasUI } = N4DU.editorCanvas;
   const { initControls, syncControls, updateEstimate } = N4DU.controls;
@@ -21,11 +23,20 @@
   }
 
   async function onFile(file) {
+    let bmp;
     try {
-      const bmp = await loadImage(file);
-      resetForImage(bmp, file);
+      bmp = await loadImage(file);
     } catch {
       toast(decodeErrorMessage(file), 'err');
+      return;
+    }
+    resetForImage(bmp, file);
+
+    // Subir la imagen al backend (una sola vez) para estimar y exportar.
+    try {
+      await api.upload(bmp);
+    } catch (err) {
+      toast(err.message || 'No se pudo conectar con el backend.', 'err');
       return;
     }
 
@@ -51,7 +62,7 @@
     btn.disabled = true;
     btn.textContent = 'Procesando…';
     try {
-      const { blob, filename } = await exportBlob(state);
+      const { blob, filename } = await api.process(buildParams());
       download(blob, filename);
       const kb = blob.size / 1024;
       toast(`Guardado ${filename} · ${kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(0) + ' KB'}`, 'ok');
@@ -63,10 +74,35 @@
     }
   }
 
+  function download(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   function escapeHtml(s) {
     return s.replace(/[&<>"']/g, c => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
     }[c]));
+  }
+
+  // Si se abrió el HTML sin el servidor (file://), avisar cómo arrancar.
+  function checkBackend() {
+    if (api.hasBackend()) return;
+    const label = document.getElementById('titleFile');
+    label.textContent = 'Iniciá con start.bat (Windows) o start.command (Mac/Linux)';
+    label.style.color = 'var(--danger)';
+    const dz = document.getElementById('dropzone');
+    dz.querySelector('.drop-label').textContent = 'Falta iniciar el servidor';
+    dz.querySelector('.drop-sub').textContent =
+      'Cerrá esta pestaña y abrí N4DU Studio con el lanzador (start.bat / start.command).';
+    dz.style.cursor = 'default';
+    dz.style.borderColor = 'var(--danger)';
   }
 
   // Atajos de teclado de escritorio
@@ -81,5 +117,6 @@
   initEditorCanvas(refresh);
   initControls(refresh);
   document.getElementById('btnExport').addEventListener('click', onExport);
+  checkBackend();
 
 })(window.N4DU ??= {});
