@@ -1,40 +1,61 @@
 // Entrada de archivos: arrastrar, clic para elegir y pegar con Ctrl+V.
+(function (N4DU) {
 
-import { isImageFile } from '../core/loader.js';
-import { toast } from './toast.js';
+  const { ACCEPT } = N4DU.loader;
 
-export function initDropzone(onFile) {
-  const dz = document.getElementById('dropzone');
+  let acceptFile = null;
 
-  const accept = (file) => {
-    if (!file) return;
-    if (!isImageFile(file)) { toast('Formato no soportado', 'err'); return; }
-    onFile(file);
-  };
+  function initDropzone(onFile) {
+    acceptFile = (file) => { if (file) onFile(file); };
+    const dz = document.getElementById('dropzone');
 
-  dz.addEventListener('dragenter', e => { e.preventDefault(); dz.classList.add('over'); });
-  dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('over'); });
-  dz.addEventListener('dragleave', () => dz.classList.remove('over'));
-  dz.addEventListener('drop', e => {
-    e.preventDefault();
-    dz.classList.remove('over');
-    accept(e.dataTransfer.files[0]);
-  });
+    dz.addEventListener('dragenter', e => { e.preventDefault(); dz.classList.add('over'); });
+    dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('over'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+    dz.addEventListener('drop', e => {
+      e.preventDefault();
+      dz.classList.remove('over');
+      acceptFile(e.dataTransfer.files[0]);
+    });
 
-  dz.addEventListener('click', () => pickFile(accept));
-  document.getElementById('btnChange').addEventListener('click', () => pickFile(accept));
+    // Arrastrar sobre cualquier parte de la ventana también funciona
+    // (comodidad de escritorio: no hace falta apuntar a la caja).
+    window.addEventListener('dragover', e => e.preventDefault());
+    window.addEventListener('drop', e => {
+      e.preventDefault();
+      if (e.dataTransfer.files[0]) acceptFile(e.dataTransfer.files[0]);
+    });
 
-  // Pegar una imagen desde el portapapeles
-  window.addEventListener('paste', e => {
-    const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
-    if (item) accept(item.getAsFile());
-  });
-}
+    dz.addEventListener('click', openPicker);
+    document.getElementById('btnChange').addEventListener('click', openPicker);
 
-function pickFile(accept) {
-  const inp = document.createElement('input');
-  inp.type = 'file';
-  inp.accept = 'image/*,.svg,.ico';
-  inp.onchange = () => accept(inp.files[0]);
-  inp.click();
-}
+    // Pegar una imagen desde el portapapeles
+    window.addEventListener('paste', e => {
+      const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
+      if (item) acceptFile(item.getAsFile());
+    });
+  }
+
+  // Abre el diálogo de archivos del sistema. El input vive en el DOM (y no
+  // se recrea en cada clic): algunos navegadores ignoran el click() de un
+  // input recién creado y el diálogo nunca aparece.
+  function openPicker() {
+    let inp = document.getElementById('filePicker');
+    if (!inp) {
+      inp = document.createElement('input');
+      inp.type = 'file';
+      inp.id = 'filePicker';
+      inp.accept = ACCEPT;
+      inp.style.display = 'none';
+      inp.addEventListener('change', () => {
+        if (inp.files[0]) acceptFile(inp.files[0]);
+        inp.value = ''; // permite reabrir el mismo archivo
+      });
+      document.body.appendChild(inp);
+    }
+    inp.click();
+  }
+
+  N4DU.dropzone = { initDropzone, openPicker };
+
+})(window.N4DU ??= {});
