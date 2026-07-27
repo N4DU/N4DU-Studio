@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Avatar Studio — Recortá, redondeá y exportá tu foto de perfil</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #0d0d0d;
+  --surface:  #181818;
+  --surface2: #222;
+  --border:   #2a2a2a;
+  --text:     #efefef;
+  --muted:    #666;
+  --accent:   #e8ff47;
+  --adk:      #c4d930;
+  --danger:   #ff5f5f;
+  --success:  #5fffaa;
+  --r:        10px;
+  --fh:       'Space Grotesk', sans-serif;
+  --fb:       'Inter', sans-serif;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--fb);
+  font-size: 15px;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ── HERO ── */
+.hero {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 64px 24px 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 40px;
+}
+.hero-text h1 {
+  font-family: var(--fh);
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 700;
+  letter-spacing: -.03em;
+  line-height: 1.08;
+}
+.hero-text h1 em {
+  font-style: normal;
+  color: var(--accent);
+}
+.hero-text p {
+  color: var(--muted);
+  font-size: .95rem;
+  margin-top: 12px;
+  max-width: 380px;
+}
+
+/* Preview circular animado en el hero */
+.hero-preview {
+  position: relative;
+  width: 110px;
+  height: 110px;
+  flex-shrink: 0;
+}
+.hero-ring {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  border: 2px dashed var(--border);
+  animation: spin 12s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.hero-ring::before {
+  content: '';
+  position: absolute;
+  top: -4px; left: 50%;
+  transform: translateX(-50%);
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.hero-circle {
+  position: absolute;
+  inset: 10px;
+  border-radius: 50%;
+  background: var(--surface);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.hero-circle canvas {
+  width: 100%; height: 100%;
+  border-radius: 50%;
+  display: none;
+}
+.hero-circle-icon {
+  color: var(--border);
+  font-size: 2rem;
+  pointer-events: none;
+}
+
+/* ── MAIN ── */
+.main {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 56px 24px 80px;
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 24px;
+  align-items: start;
+}
+
+/* ── DROP ZONE ── */
+.dropzone {
+  border: 2px dashed var(--border);
+  border-radius: var(--r);
+  padding: 48px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+  position: relative;
+  grid-column: 1 / -1;
+}
+.dropzone.over, .dropzone:hover {
+  border-color: var(--accent);
+  background: rgba(232,255,71,.02);
+}
+.drop-icon { font-size: 2rem; margin-bottom: 10px; pointer-events: none; }
+.drop-label { font-family: var(--fh); font-weight: 600; font-size: 1rem; pointer-events: none; }
+.drop-sub { color: var(--muted); font-size: .8rem; margin-top: 5px; pointer-events: none; }
+
+/* ── EDITOR ── */
+.editor { display: none; grid-column: 1 / -1; }
+.editor.visible {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 24px;
+}
+
+.canvas-wrap {
+  background: #000;
+  border-radius: var(--r);
+  overflow: hidden;
+  position: relative;
+  aspect-ratio: 1 / 1;
+  max-height: 460px;
+  display: flex; align-items: center; justify-content: center;
+}
+.canvas-wrap canvas {
+  display: block;
+  width: 100%; height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+.canvas-wrap canvas.dragging { cursor: grabbing; }
+
+.zoom-bar {
+  position: absolute;
+  bottom: 12px; left: 50%;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(0,0,0,.7);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 6px 14px;
+  backdrop-filter: blur(8px);
+}
+.zoom-bar label { font-size: .75rem; color: var(--muted); }
+.zoom-bar input[type=range] {
+  width: 100px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.zoom-val { font-size: .75rem; color: var(--accent); font-family: var(--fh); min-width: 36px; }
+
+.shape-bar {
+  position: absolute;
+  top: 12px; left: 50%;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(0,0,0,.7);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 6px 14px;
+  backdrop-filter: blur(8px);
+}
+.shape-icon { font-size: .8rem; color: var(--muted); line-height: 1; }
+.shape-bar input[type=range] {
+  width: 90px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.shape-val { font-size: .75rem; color: var(--accent); font-family: var(--fh); min-width: 64px; }
+
+.reset-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 50%;
+  width: 22px; height: 22px;
+  font-size: .85rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s;
+  flex-shrink: 0;
+}
+.reset-btn:hover { border-color: var(--accent); color: var(--accent); transform: rotate(-45deg); }
+
+/* ── PANEL DERECHO ── */
+.panel { display: flex; flex-direction: column; gap: 16px; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 16px;
+}
+.card-title {
+  font-family: var(--fh);
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+/* Preview circular en panel */
+.profile-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+}
+.preview-circle {
+  width: 80px; height: 80px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--surface2);
+  border: 2px solid var(--border);
+  flex-shrink: 0;
+}
+.preview-circle canvas { width: 100%; height: 100%; display: block; }
+.preview-label { font-size: .75rem; color: var(--muted); }
+
+/* Tamaños preset */
+.presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.preset-btn {
+  font-size: .75rem;
+  padding: 4px 10px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all .15s;
+  font-family: var(--fb);
+}
+.preset-btn:hover { border-color: var(--accent); color: var(--text); }
+.preset-btn.active { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
+
+/* Inputs */
+.row2 { display: flex; gap: 8px; }
+.field { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.field label { font-size: .75rem; color: var(--muted); }
+.field input[type=number] {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); font-family: var(--fb);
+  font-size: .88rem; padding: 6px 9px; width: 100%;
+  transition: border-color .15s;
+}
+.field input[type=number]:focus { outline: none; border-color: var(--accent); }
+
+/* Toggle pills pequeños */
+.pills { display: flex; gap: 5px; flex-wrap: wrap; }
+.pill {
+  font-size: .75rem; padding: 4px 10px; border-radius: 16px;
+  border: 1px solid var(--border); background: var(--bg);
+  color: var(--muted); cursor: pointer; transition: all .15s; font-family: var(--fb);
+}
+.pill:hover { border-color: var(--accent); color: var(--text); }
+.pill.active { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
+
+/* Peso */
+.field input[type=number].full { width: 100%; }
+
+/* Info archivo */
+.file-info { font-size: .78rem; color: var(--muted); line-height: 1.8; }
+.file-info strong { color: var(--text); }
+
+/* ── BOTÓN EXPORTAR ── */
+.btn-export {
+  width: 100%;
+  background: var(--accent);
+  color: #000;
+  border: none;
+  border-radius: var(--r);
+  font-family: var(--fh);
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 14px;
+  cursor: pointer;
+  transition: background .15s, transform .1s;
+  display: none;
+}
+.btn-export.visible { display: block; }
+.btn-export:hover { background: var(--adk); }
+.btn-export:active { transform: scale(.98); }
+
+/* ── TOAST ── */
+.toast {
+  position: fixed; bottom: 24px; left: 50%;
+  transform: translateX(-50%) translateY(16px);
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 9px 18px; font-size: .85rem;
+  opacity: 0; transition: opacity .2s, transform .2s;
+  pointer-events: none; white-space: nowrap; z-index: 999;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.ok  { border-color: var(--success); color: var(--success); }
+.toast.err { border-color: var(--danger);  color: var(--danger); }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 600px) {
+  .hero { grid-template-columns: 1fr; }
+  .hero-preview { display: none; }
+  .main { grid-template-columns: 1fr; }
+  .editor.visible { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="hero-text">
+    <h1>Avatar <em>Studio</em></h1>
+    <p>Recortá, redondeá y exportá tu foto de perfil para cualquier sitio — vos elegís la forma, el tamaño y el peso. Sin subir nada a ningún servidor.</p>
+  </div>
+  <div class="hero-preview">
+    <div class="hero-ring"></div>
+    <div class="hero-circle">
+      <canvas id="heroCanvas"></canvas>
+      <span class="hero-circle-icon">◎</span>
+    </div>
+  </div>
+</header>
+
+<!-- MAIN -->
+<main class="main">
+
+  <!-- Drop zone -->
+  <div class="dropzone" id="dropzone">
+    <div class="drop-icon">🖼️</div>
+    <div class="drop-label">Arrastrá tu imagen acá</div>
+    <div class="drop-sub">o hacé clic para elegir · JPG, PNG, WEBP, BMP, GIF</div>
+  </div>
+
+  <!-- Editor (se muestra al cargar imagen) -->
+  <div class="editor" id="editor">
+
+    <!-- Canvas de recorte -->
+    <div class="canvas-wrap" id="canvasWrap">
+      <canvas id="cropCanvas"></canvas>
+      <div class="shape-bar">
+        <span class="shape-icon">▢</span>
+        <input type="range" id="shapeSlider" min="0" max="100" step="1" value="100">
+        <span class="shape-icon">●</span>
+        <span class="shape-val" id="shapeVal">Círculo</span>
+        <button class="reset-btn" id="resetShape" title="Volver a círculo">↺</button>
+      </div>
+      <div class="zoom-bar">
+        <label>Zoom</label>
+        <input type="range" id="zoomSlider" min="0.1" max="5" step="0.01" value="1">
+        <span class="zoom-val" id="zoomVal">100%</span>
+        <button class="reset-btn" id="resetZoom" title="Volver a 100%">↺</button>
+      </div>
+    </div>
+
+    <!-- Panel de configuración -->
+    <div class="panel">
+
+      <!-- Preview circular -->
+      <div class="card">
+        <div class="card-title">Vista previa</div>
+        <div class="profile-preview">
+          <div class="preview-circle"><canvas id="previewCanvas"></canvas></div>
+          <div class="preview-label" id="previewLabel">—</div>
+        </div>
+      </div>
+
+      <!-- Tamaño destino -->
+      <div class="card">
+        <div class="card-title">Tamaño de salida</div>
+        <div class="presets" id="presets">
+          <button class="preset-btn active" data-pw="400"  data-ph="400">400×400</button>
+          <button class="preset-btn" data-pw="256"  data-ph="256">256×256</button>
+          <button class="preset-btn" data-pw="128"  data-ph="128">128×128</button>
+          <button class="preset-btn" data-pw="1200" data-ph="1200">1200×1200</button>
+          <button class="preset-btn" data-pw="0"    data-ph="0">Personalizado</button>
+        </div>
+        <div class="row2" style="margin-top:10px;" id="customSizeRow">
+          <div class="field">
+            <label>Ancho (px)</label>
+            <input type="number" id="outW" value="400" min="1" max="4000">
+          </div>
+          <div class="field">
+            <label>Alto (px)</label>
+            <input type="number" id="outH" value="400" min="1" max="4000">
+          </div>
+        </div>
+      </div>
+
+      <!-- Formato y peso -->
+      <div class="card">
+        <div class="card-title">Formato y peso</div>
+        <div class="pills" id="fmtPills" style="margin-bottom:10px;">
+          <button class="pill active" data-fmt="png">PNG</button>
+          <button class="pill" data-fmt="jpeg">JPG</button>
+          <button class="pill" data-fmt="webp">WEBP</button>
+        </div>
+        <div class="field" id="qualityRow" style="display:none; margin-bottom:10px;">
+          <label>Calidad (1–100)</label>
+          <input type="number" id="qualityVal" value="92" min="1" max="100">
+        </div>
+        <div class="field">
+          <label>Peso máximo en KB (vacío = sin límite)</label>
+          <input type="number" id="maxKb" placeholder="ej: 1024" min="1">
+        </div>
+      </div>
+
+      <!-- Info -->
+      <div class="card">
+        <div class="card-title">Imagen cargada</div>
+        <div class="file-info" id="fileInfo">—</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Botón exportar -->
+  <button class="btn-export" id="btnExport">⬇ Descargar imagen</button>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Estado global ─────────────────────────────
+const state = {
+  img:       null,   // ImageBitmap original
+  origW:     0,
+  origH:     0,
+  fileName:  '',
+  // Posición del recorte (en coords de la imagen original)
+  cx: 0, cy: 0,      // centro del recorte
+  zoom: 1,           // 1 = encaja el lado corto en el canvas
+  roundness: 100,    // 0 = cuadrado, 100 = círculo
+  // Salida
+  outW: 400, outH: 400,
+  fmt: 'png',
+  quality: 0.92,
+  maxKb: null,
+};
+
+// ── Drop zone ─────────────────────────────────
+const dz = document.getElementById('dropzone');
+
+dz.addEventListener('dragenter', e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('over');
+  const f = e.dataTransfer.files[0];
+  if (f) loadFile(f);
+});
+dz.addEventListener('click', () => {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/*';
+  inp.onchange = () => { if (inp.files[0]) loadFile(inp.files[0]); };
+  inp.click();
+});
+
+// ── Cargar imagen ─────────────────────────────
+async function loadFile(file) {
+  if (!/^image\//i.test(file.type) && !/\.(jpe?g|png|webp|bmp|gif)$/i.test(file.name)) {
+    showToast('Formato no soportado', 'err'); return;
+  }
+  const bmp = await createImageBitmap(file);
+  state.img      = bmp;
+  state.origW    = bmp.width;
+  state.origH    = bmp.height;
+  state.fileName = file.name.replace(/\.[^.]+$/, '');
+  state.cx       = bmp.width  / 2;
+  state.cy       = bmp.height / 2;
+  state.zoom     = 1;
+
+  document.getElementById('zoomSlider').value = 1;
+  document.getElementById('zoomVal').textContent = '100%';
+  document.getElementById('fileInfo').innerHTML =
+    `<strong>${file.name}</strong><br>${bmp.width} × ${bmp.height} px<br>${(file.size/1024).toFixed(0)} KB`;
+
+  document.getElementById('editor').classList.add('visible');
+  document.getElementById('btnExport').classList.add('visible');
+  dz.style.display = 'none';
+
+  drawCrop();
+  drawPreview();
+  updateHeroPreview();
+}
+
+// ── Canvas principal ──────────────────────────
+const cropCanvas = document.getElementById('cropCanvas');
+const cropCtx    = cropCanvas.getContext('2d');
+
+function getCropCanvasSize() {
+  const wrap = document.getElementById('canvasWrap');
+  const s    = Math.min(wrap.clientWidth, wrap.clientHeight, 460);
+  return s || 460;
+}
+
+// ── Helper: path de rectángulo con esquinas redondeadas variables ──
+// r = 0 → cuadrado perfecto. r = mitad del lado más chico → círculo perfecto.
+function shapePath(ctx, x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath();
+  if (r <= 0.01) {
+    ctx.rect(x, y, w, h);
+  } else {
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+}
+
+// Radio (px) correspondiente al slider de redondez (0–100) para un lado dado
+function radiusFor(side) {
+  return (state.roundness / 100) * (side / 2);
+}
+
+// Aplica el mismo radio (en px) al contenedor HTML que envuelve un canvas
+// cuadrado, para que el "marco" coincida con lo dibujado adentro.
+function applyContainerRadius(el, sizePx) {
+  if (!el) return;
+  el.style.borderRadius = radiusFor(sizePx) + 'px';
+}
+
+// Texto descriptivo de la forma actual
+function shapeLabel() {
+  if (state.roundness <= 2) return 'Cuadrado';
+  if (state.roundness >= 98) return 'Círculo';
+  return 'Redondeado';
+}
+
+function drawCrop() {
+  if (!state.img) return;
+  const S   = getCropCanvasSize();
+  cropCanvas.width  = S;
+  cropCanvas.height = S;
+
+  const img  = state.img;
+  const side = Math.min(img.width, img.height); // lado del círculo en coords imagen
+  const visibleSide = side / state.zoom;        // cuánto de la imagen cabe en el canvas
+
+  const sx = state.cx - visibleSide / 2;
+  const sy = state.cy - visibleSide / 2;
+
+  // Fondo
+  cropCtx.fillStyle = '#111';
+  cropCtx.fillRect(0, 0, S, S);
+
+  // Imagen completa oscurecida
+  cropCtx.save();
+  cropCtx.globalAlpha = 0.35;
+  // Dibujar toda la imagen escalada
+  const scaleToFit = S / visibleSide;
+  const drawX = -sx * scaleToFit;
+  const drawY = -sy * scaleToFit;
+  const drawW = img.width  * scaleToFit;
+  const drawH = img.height * scaleToFit;
+  cropCtx.drawImage(img, drawX, drawY, drawW, drawH);
+  cropCtx.globalAlpha = 1;
+  cropCtx.restore();
+
+  // Clip variable (cuadrado ↔ círculo) — zona nítida
+  const r = radiusFor(S - 4);
+  cropCtx.save();
+  shapePath(cropCtx, 2, 2, S - 4, S - 4, r);
+  cropCtx.clip();
+  cropCtx.drawImage(img, drawX, drawY, drawW, drawH);
+  cropCtx.restore();
+
+  // Borde de la zona de recorte
+  cropCtx.strokeStyle = '#e8ff47';
+  cropCtx.lineWidth = 1.5;
+  shapePath(cropCtx, 2, 2, S - 4, S - 4, r);
+  cropCtx.stroke();
+}
+
+// ── Preview circular pequeño ──────────────────
+const previewCanvas = document.getElementById('previewCanvas');
+const previewCtx    = previewCanvas.getContext('2d');
+
+function drawPreview() {
+  if (!state.img) return;
+  const S   = 80;
+  previewCanvas.width = previewCanvas.height = S;
+
+  const img = state.img;
+  const side = Math.min(img.width, img.height) / state.zoom;
+  const sx   = state.cx - side/2;
+  const sy   = state.cy - side/2;
+  const sc   = S / side;
+
+  previewCtx.clearRect(0, 0, S, S);
+  previewCtx.save();
+  shapePath(previewCtx, 0, 0, S, S, radiusFor(S));
+  previewCtx.clip();
+  previewCtx.drawImage(img, -sx*sc, -sy*sc, img.width*sc, img.height*sc);
+  previewCtx.restore();
+  applyContainerRadius(document.querySelector('.preview-circle'), S);
+
+  const w = state.outW, h = state.outH;
+  document.getElementById('previewLabel').textContent = `${w}×${h} px · ${state.fmt.toUpperCase()} · ${shapeLabel()}`;
+}
+
+// ── Preview hero ──────────────────────────────
+const heroCanvas = document.getElementById('heroCanvas');
+const heroCtx    = heroCanvas.getContext('2d');
+
+function updateHeroPreview() {
+  if (!state.img) return;
+  const S = 90;
+  heroCanvas.width = heroCanvas.height = S;
+  heroCanvas.style.display = 'block';
+  document.querySelector('.hero-circle-icon').style.display = 'none';
+
+  const img  = state.img;
+  const side = Math.min(img.width, img.height) / state.zoom;
+  const sx   = state.cx - side/2;
+  const sy   = state.cy - side/2;
+  const sc   = S / side;
+
+  heroCtx.clearRect(0, 0, S, S);
+  heroCtx.save();
+  shapePath(heroCtx, 0, 0, S, S, radiusFor(S));
+  heroCtx.clip();
+  heroCtx.drawImage(img, -sx*sc, -sy*sc, img.width*sc, img.height*sc);
+  heroCtx.restore();
+  applyContainerRadius(document.querySelector('.hero-circle'), S);
+}
+
+// ── Drag en el canvas ─────────────────────────
+let dragging = false;
+let lastMouse = { x: 0, y: 0 };
+
+cropCanvas.addEventListener('mousedown', e => {
+  dragging = true;
+  lastMouse = { x: e.clientX, y: e.clientY };
+  cropCanvas.classList.add('dragging');
+});
+window.addEventListener('mouseup', () => { dragging = false; cropCanvas.classList.remove('dragging'); });
+window.addEventListener('mousemove', e => {
+  if (!dragging || !state.img) return;
+  const S    = cropCanvas.width;
+  const side = Math.min(state.img.width, state.img.height) / state.zoom;
+  const px_per_canvas = side / S; // cuántos px de imagen por px de canvas
+
+  const dx = (e.clientX - lastMouse.x) * px_per_canvas;
+  const dy = (e.clientY - lastMouse.y) * px_per_canvas;
+  lastMouse = { x: e.clientX, y: e.clientY };
+
+  const r = (side / 2);
+  state.cx = Math.max(r, Math.min(state.img.width  - r, state.cx - dx));
+  state.cy = Math.max(r, Math.min(state.img.height - r, state.cy - dy));
+
+  drawCrop(); drawPreview(); updateHeroPreview();
+});
+
+// Touch
+cropCanvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  dragging = true;
+  lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+}, { passive: false });
+window.addEventListener('touchend', () => dragging = false);
+window.addEventListener('touchmove', e => {
+  if (!dragging || !state.img) return;
+  e.preventDefault();
+  const S   = cropCanvas.width;
+  const side = Math.min(state.img.width, state.img.height) / state.zoom;
+  const px_per_canvas = side / S;
+  const dx  = (e.touches[0].clientX - lastMouse.x) * px_per_canvas;
+  const dy  = (e.touches[0].clientY - lastMouse.y) * px_per_canvas;
+  lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  const r   = side / 2;
+  state.cx  = Math.max(r, Math.min(state.img.width  - r, state.cx - dx));
+  state.cy  = Math.max(r, Math.min(state.img.height - r, state.cy - dy));
+  drawCrop(); drawPreview(); updateHeroPreview();
+}, { passive: false });
+
+// Scroll = zoom
+cropCanvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? -0.08 : 0.08;
+  setZoom(state.zoom + delta);
+}, { passive: false });
+
+// ── Zoom slider ───────────────────────────────
+document.getElementById('zoomSlider').addEventListener('input', e => {
+  setZoom(parseFloat(e.target.value));
+});
+document.getElementById('resetZoom').addEventListener('click', () => setZoom(1));
+
+// ── Slider de forma (cuadrado ↔ círculo) ──────
+document.getElementById('shapeSlider').addEventListener('input', e => {
+  setRoundness(parseInt(e.target.value));
+});
+document.getElementById('resetShape').addEventListener('click', () => setRoundness(100));
+
+function setRoundness(r) {
+  state.roundness = Math.max(0, Math.min(100, r));
+  document.getElementById('shapeSlider').value = state.roundness;
+  document.getElementById('shapeVal').textContent = shapeLabel();
+  drawCrop(); drawPreview(); updateHeroPreview();
+}
+
+function setZoom(z) {
+  z = Math.max(0.1, Math.min(5, z));
+  state.zoom = z;
+  document.getElementById('zoomSlider').value = z;
+  document.getElementById('zoomVal').textContent = Math.round(z * 100) + '%';
+  // Re-clamp posición
+  if (state.img) {
+    const side = Math.min(state.img.width, state.img.height) / z;
+    const r    = side / 2;
+    state.cx   = Math.max(r, Math.min(state.img.width  - r, state.cx));
+    state.cy   = Math.max(r, Math.min(state.img.height - r, state.cy));
+  }
+  drawCrop(); drawPreview(); updateHeroPreview();
+}
+
+// ── Presets de tamaño ─────────────────────────
+document.querySelectorAll('#presets .preset-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#presets .preset-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const pw = parseInt(btn.dataset.pw), ph = parseInt(btn.dataset.ph);
+    if (pw === 0) {
+      // personalizado — dejar inputs habilitados
+      document.getElementById('customSizeRow').style.opacity = '1';
+    } else {
+      setOutputSize(pw, ph);
+    }
+  });
+});
+
+function setOutputSize(w, h) {
+  state.outW = w; state.outH = h;
+  document.getElementById('outW').value = w;
+  document.getElementById('outH').value = h;
+  drawPreview();
+}
+
+document.getElementById('outW').addEventListener('input', e => {
+  state.outW = parseInt(e.target.value) || 400; drawPreview();
+});
+document.getElementById('outH').addEventListener('input', e => {
+  state.outH = parseInt(e.target.value) || 400; drawPreview();
+});
+
+// ── Formato ───────────────────────────────────
+document.querySelectorAll('#fmtPills .pill').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#fmtPills .pill').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.fmt = btn.dataset.fmt;
+    document.getElementById('qualityRow').style.display =
+      (state.fmt === 'png') ? 'none' : 'block';
+    drawPreview();
+  });
+});
+document.getElementById('qualityVal').addEventListener('input', e => {
+  state.quality = Math.max(1, Math.min(100, parseInt(e.target.value)||92)) / 100;
+});
+document.getElementById('maxKb').addEventListener('input', e => {
+  state.maxKb = e.target.value ? parseInt(e.target.value) : null;
+});
+
+// ── Exportar ──────────────────────────────────
+document.getElementById('btnExport').addEventListener('click', exportImage);
+
+function exportImage() {
+  if (!state.img) return;
+
+  const W = state.outW, H = state.outH;
+  const off = new OffscreenCanvas(W, H);
+  const ctx = off.getContext('2d');
+
+  const img  = state.img;
+  const side = Math.min(img.width, img.height) / state.zoom;
+  const sx   = state.cx - side/2;
+  const sy   = state.cy - side/2;
+  const sc   = W / side;  // asumimos W==H para círculo
+
+  // Fondo transparente (PNG/WEBP) o blanco (JPG)
+  if (state.fmt === 'jpeg') {
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Clip variable (cuadrado ↔ círculo, basado en el lado más chico)
+  const r = radiusFor(Math.min(W, H));
+  ctx.save();
+  shapePath(ctx, 0, 0, W, H, r);
+  ctx.clip();
+  ctx.drawImage(img, -sx*sc, -sy*sc, img.width*sc, img.height*sc);
+  ctx.restore();
+
+  const mimeMap = { png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp' };
+  const mime    = mimeMap[state.fmt] || 'image/png';
+  const quality = state.fmt === 'png' ? undefined : state.quality;
+
+  off.convertToBlob({ type: mime, quality })
+    .then(blob => {
+      if (state.maxKb && blob.size > state.maxKb * 1024) {
+        return compressToLimit(off, mime, state.maxKb * 1024);
+      }
+      return blob;
+    })
+    .then(blob => {
+      const ext = state.fmt === 'jpeg' ? 'jpg' : state.fmt;
+      const url = URL.createObjectURL(blob);
+      const a   = document.createElement('a');
+      a.href = url;
+      a.download = `${state.fileName}_perfil.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast(`Guardado · ${(blob.size/1024).toFixed(0)} KB`, 'ok');
+    })
+    .catch(err => showToast('Error al exportar: ' + err.message, 'err'));
+}
+
+async function compressToLimit(offscreen, mime, limitBytes) {
+  // Reducir escala iterativamente hasta entrar en el límite
+  const W = offscreen.width, H = offscreen.height;
+  for (const scale of [1.0, 0.85, 0.7, 0.55, 0.4, 0.3, 0.2]) {
+    const nw = Math.max(1, Math.round(W * scale));
+    const nh = Math.max(1, Math.round(H * scale));
+    const tmp = new OffscreenCanvas(nw, nh);
+    tmp.getContext('2d').drawImage(offscreen, 0, 0, nw, nh);
+    // Para PNG usar escala, para JPG/WEBP bajar calidad también
+    const qualities = mime === 'image/png' ? [undefined] : [0.85, 0.7, 0.55, 0.4];
+    for (const q of qualities) {
+      const blob = await tmp.convertToBlob({ type: mime, quality: q });
+      if (blob.size <= limitBytes) return blob;
+    }
+  }
+  // Si nada funcionó, devolver lo que sea
+  return offscreen.convertToBlob({ type: mime });
+}
+
+// ── Resize del canvas al cambiar ventana ──────
+const ro = new ResizeObserver(() => { if (state.img) drawCrop(); });
+ro.observe(document.getElementById('canvasWrap'));
+
+// ── Toast ─────────────────────────────────────
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (type ? ' ' + type : '');
+  setTimeout(() => t.className = 'toast', 3000);
+}
+</script>
+</body>
+</html>
