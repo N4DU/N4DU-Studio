@@ -7,7 +7,10 @@
 <meta name="description" content="Editor de imágenes de escritorio: redimensioná, convertí de formato, ajustá el peso y recortá — todo local, sin servidores.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='42' fill='%23e8ff47'/><circle cx='50' cy='50' r='18' fill='%230d0d0d'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- Carga no bloqueante: si no hay internet o el CDN tarda, la app arranca
+     igual con la fuente del sistema en vez de quedarse esperando. -->
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -142,6 +145,15 @@
         </div>
         <div class="estimate" id="sizeEstimate">—</div>
       </div>
+
+      <div class="section gated" id="saveSection" style="display:none;">
+        <div class="section-title">Guardado</div>
+        <label class="check">
+          <input type="checkbox" id="replaceChk">
+          <span>Reemplazar el archivo original</span>
+        </label>
+        <div class="hint" id="replaceHint"></div>
+      </div>
     </aside>
 
   </div>
@@ -162,6 +174,7 @@
 <script src="js/core/loader.js"></script>
 <script src="js/core/render.js"></script>
 <script src="js/core/exporter.js"></script>
+<script src="js/core/bridge.js"></script>
 <script src="js/ui/toast.js"></script>
 <script src="js/ui/dropzone.js"></script>
 <script src="js/ui/editor-canvas.js"></script>
