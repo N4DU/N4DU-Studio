@@ -1,0 +1,117 @@
+// Canvas principal de edición: dibujo, arrastre y zoom del recorte.
+
+import { state } from '../state.js';
+import { shapePath, radiusFor, cropRect, clampCenter } from '../core/geometry.js';
+
+const canvas = () => document.getElementById('editorCanvas');
+const wrap   = () => document.getElementById('canvasWrap');
+
+function canvasSize() {
+  const w = wrap();
+  return Math.min(w.clientWidth, w.clientHeight, 460) || 460;
+}
+
+// Dibuja el estado actual: imagen atenuada de fondo y la zona que se
+// exporta nítida, con el contorno de la forma elegida.
+export function drawEditor() {
+  if (!state.img) return;
+  const c = canvas();
+  const S = canvasSize();
+  c.width = c.height = S;
+  const ctx = c.getContext('2d');
+
+  ctx.fillStyle = '#111';
+  ctx.fillRect(0, 0, S, S);
+
+  let dx, dy, dw, dh;   // dónde queda la imagen completa en el canvas
+  let fx, fy, fw, fh;   // rectángulo de la zona exportada
+
+  if (state.mode === 'crop') {
+    const { sx, sy, side } = cropRect(state);
+    const scale = (S - 4) / side;
+    dx = 2 - sx * scale; dy = 2 - sy * scale;
+    dw = state.origW * scale; dh = state.origH * scale;
+    fx = 2; fy = 2; fw = S - 4; fh = S - 4;
+  } else {
+    const scale = Math.min((S - 4) / state.origW, (S - 4) / state.origH);
+    dw = state.origW * scale; dh = state.origH * scale;
+    dx = (S - dw) / 2; dy = (S - dh) / 2;
+    fx = dx; fy = dy; fw = dw; fh = dh;
+  }
+
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.drawImage(state.img, dx, dy, dw, dh);
+  ctx.restore();
+
+  const r = radiusFor(state.roundness, fw, fh);
+  ctx.save();
+  shapePath(ctx, fx, fy, fw, fh, r);
+  ctx.clip();
+  ctx.drawImage(state.img, dx, dy, dw, dh);
+  ctx.restore();
+
+  ctx.strokeStyle = '#e8ff47';
+  ctx.lineWidth = 1.5;
+  shapePath(ctx, fx, fy, fw, fh, r);
+  ctx.stroke();
+}
+
+export function initEditorCanvas(onChange) {
+  const c = canvas();
+  let dragging = false;
+  let last = { x: 0, y: 0 };
+
+  c.addEventListener('pointerdown', e => {
+    if (state.mode !== 'crop' || !state.img) return;
+    dragging = true;
+    last = { x: e.clientX, y: e.clientY };
+    c.setPointerCapture(e.pointerId);
+    c.classList.add('dragging');
+  });
+  c.addEventListener('pointerup', e => {
+    dragging = false;
+    c.classList.remove('dragging');
+    if (c.hasPointerCapture(e.pointerId)) c.releasePointerCapture(e.pointerId);
+  });
+  c.addEventListener('pointermove', e => {
+    if (!dragging || !state.img) return;
+    const { side } = cropRect(state);
+    const pxPerCanvas = side / c.width;
+    state.cx -= (e.clientX - last.x) * pxPerCanvas;
+    state.cy -= (e.clientY - last.y) * pxPerCanvas;
+    last = { x: e.clientX, y: e.clientY };
+    clampCenter(state);
+    onChange();
+  });
+
+  // Rueda del mouse = zoom (solo en modo recorte)
+  c.addEventListener('wheel', e => {
+    if (state.mode !== 'crop' || !state.img) return;
+    e.preventDefault();
+    setZoom(state.zoom + (e.deltaY > 0 ? -0.08 : 0.08), onChange);
+  }, { passive: false });
+
+  document.getElementById('zoomSlider').addEventListener('input', e => {
+    setZoom(parseFloat(e.target.value), onChange);
+  });
+  document.getElementById('resetZoom').addEventListener('click', () => setZoom(1, onChange));
+
+  // Redibujar si cambia el tamaño del contenedor
+  new ResizeObserver(() => { if (state.img) drawEditor(); }).observe(wrap());
+}
+
+export function setZoom(z, onChange) {
+  state.zoom = Math.max(1, Math.min(5, z));
+  document.getElementById('zoomSlider').value = state.zoom;
+  document.getElementById('zoomVal').textContent = Math.round(state.zoom * 100) + '%';
+  clampCenter(state);
+  onChange();
+}
+
+// Muestra u oculta los controles que solo aplican al modo recorte,
+// y ajusta el cursor del canvas.
+export function syncCanvasUI() {
+  document.getElementById('zoomBar').style.display = state.mode === 'crop' ? 'flex' : 'none';
+  canvas().classList.toggle('draggable', state.mode === 'crop');
+}
