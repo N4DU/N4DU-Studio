@@ -1,11 +1,9 @@
 // Miniatura de la salida y datos en la barra de estado.
-// La miniatura se dibuja localmente (canvas) solo como referencia visual;
-// el archivo final lo produce el backend.
 (function (N4DU) {
 
   const { state } = N4DU;
   const { shapeLabel } = N4DU.geometry;
-  const { FORMATS, outputDims } = N4DU;
+  const { FORMATS, outputDims } = N4DU.exporter;
   const { renderOutput } = N4DU.render;
 
   // Miniatura fiel a la salida (misma proporción y forma), sobre fondo

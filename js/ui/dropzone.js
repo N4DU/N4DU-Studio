@@ -4,9 +4,11 @@
   const { ACCEPT } = N4DU.loader;
 
   let acceptFile = null;
+  let pick = null; // cómo elegir archivo: selector del navegador o diálogo nativo
 
-  function initDropzone(onFile) {
+  function initDropzone(onFile, pickImpl) {
     acceptFile = (file) => { if (file) onFile(file); };
+    pick = pickImpl || openPicker;
     const dz = document.getElementById('dropzone');
 
     dz.addEventListener('dragenter', e => { e.preventDefault(); dz.classList.add('over'); });
@@ -26,8 +28,8 @@
       if (e.dataTransfer.files[0]) acceptFile(e.dataTransfer.files[0]);
     });
 
-    dz.addEventListener('click', openPicker);
-    document.getElementById('btnChange').addEventListener('click', openPicker);
+    dz.addEventListener('click', () => pick());
+    document.getElementById('btnChange').addEventListener('click', () => pick());
 
     // Pegar una imagen desde el portapapeles
     window.addEventListener('paste', e => {

@@ -52,25 +52,7 @@
     state.lockAspect = true;
   }
 
-  // Parámetros que se mandan al backend para estimar/procesar.
-  function buildParams() {
-    return {
-      mode: state.mode,
-      cx: state.cx,
-      cy: state.cy,
-      zoom: state.zoom,
-      roundness: state.roundness,
-      outW: state.outW,
-      outH: state.outH,
-      fmt: state.fmt,
-      quality: state.quality,
-      maxKb: state.maxKb,
-      name: state.fileName,
-    };
-  }
-
   N4DU.state = state;
   N4DU.resetForImage = resetForImage;
-  N4DU.buildParams = buildParams;
 
 })(window.N4DU ??= {});

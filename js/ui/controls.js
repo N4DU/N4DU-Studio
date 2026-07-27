@@ -1,10 +1,9 @@
 // Panel de controles: modo, forma, tamaño, formato, calidad y peso.
 (function (N4DU) {
 
-  const { state, buildParams } = N4DU;
+  const { state } = N4DU;
   const { shapeLabel } = N4DU.geometry;
-  const { FORMATS } = N4DU;
-  const { api } = N4DU;
+  const { FORMATS, detectEncodeSupport, renderAndEncode } = N4DU.exporter;
 
   const $ = (id) => document.getElementById(id);
 
@@ -98,14 +97,12 @@
       onChange();
     });
 
-    // Ocultar formatos que el backend no puede generar
-    if (api.hasBackend()) {
-      api.getFormats().then(info => {
-        document.querySelectorAll('#fmtPills .pill').forEach(btn => {
-          if (!info.support[btn.dataset.fmt]) btn.style.display = 'none';
-        });
-      }).catch(() => {});
-    }
+    // Ocultar formatos que este navegador no puede codificar
+    detectEncodeSupport().then(support => {
+      document.querySelectorAll('#fmtPills .pill').forEach(btn => {
+        if (!support[btn.dataset.fmt]) btn.style.display = 'none';
+      });
+    });
   }
 
   // Refleja el estado en los controles (pills activos, campos, hints).
@@ -143,30 +140,29 @@
     $('fmtHint').textContent = hints.join(' ');
   }
 
-  // Estimación de peso: la calcula el backend (mismo encoder que la
-  // exportación). Con debounce para no saturar en cada cambio de slider.
+  // Estimación de peso (asíncrona y con debounce: codificar cuesta CPU).
   let estimateTimer = null;
   let estimateSeq = 0;
 
   function updateEstimate() {
     const el = $('sizeEstimate');
-    if (!state.img || !api.hasSession()) { el.textContent = '—'; return; }
+    if (!state.img) { el.textContent = '—'; return; }
     el.textContent = 'Calculando peso…';
     clearTimeout(estimateTimer);
     const seq = ++estimateSeq;
     estimateTimer = setTimeout(async () => {
       try {
-        const size = await api.estimate(buildParams());
+        const blob = await renderAndEncode(state);
         if (seq !== estimateSeq) return; // llegó tarde: hay un cálculo más nuevo
-        const kb = size / 1024;
-        let txt = `Peso: ${kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(1) + ' KB'}`;
-        if (state.maxKb && size > state.maxKb * 1024)
+        const kb = blob.size / 1024;
+        let txt = `Peso estimado: ${kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(1) + ' KB'}`;
+        if (state.maxKb && blob.size > state.maxKb * 1024)
           txt += ` → se comprimirá a ≤ ${state.maxKb} KB`;
         el.textContent = txt;
       } catch {
         if (seq === estimateSeq) el.textContent = '—';
       }
-    }, 300);
+    }, 350);
   }
 
   N4DU.controls = { initControls, syncControls, updateEstimate };
