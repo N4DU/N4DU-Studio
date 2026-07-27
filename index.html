@@ -3,88 +3,94 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>N4DU Studio — Editá, convertí y exportá tus imágenes</title>
-<meta name="description" content="Redimensioná, convertí de formato, ajustá el peso y recortá tus imágenes directo en el navegador. Sin servidores, sin subir nada.">
+<title>N4DU Studio</title>
+<meta name="description" content="Editor de imágenes de escritorio: redimensioná, convertí de formato, ajustá el peso y recortá — todo local, sin servidores.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='42' fill='%23e8ff47'/><circle cx='50' cy='50' r='18' fill='%230d0d0d'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
-<!-- HERO -->
-<header class="hero">
-  <div class="hero-text">
-    <h1>N4DU <em>Studio</em></h1>
-    <p>Redimensioná, convertí de formato, ajustá el peso y recortá tus imágenes — todo directo en tu navegador, sin subir nada a ningún servidor.</p>
-  </div>
-  <div class="hero-preview">
-    <div class="hero-ring"></div>
-    <div class="hero-circle">
-      <canvas id="heroCanvas"></canvas>
-      <span class="hero-circle-icon">◎</span>
+<div class="app">
+
+  <!-- ── BARRA DE TÍTULO ── -->
+  <header class="titlebar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" fill="#e8ff47"/>
+        <circle cx="12" cy="12" r="4.5" fill="#141414"/>
+      </svg>
+      <span>N4DU <em>Studio</em></span>
     </div>
-  </div>
-</header>
+    <div class="title-file" id="titleFile">Sin imagen — abrí un archivo para empezar</div>
+    <div class="title-actions">
+      <button class="btn-ghost" id="btnChange" title="Abrir imagen (Ctrl+O)">📂 Abrir</button>
+      <button class="btn-accent" id="btnExport" disabled title="Exportar (Ctrl+S)">⬇ Exportar</button>
+    </div>
+  </header>
 
-<!-- MAIN -->
-<main class="main">
+  <!-- ── ÁREA DE TRABAJO ── -->
+  <div class="workspace">
 
-  <!-- Drop zone -->
-  <div class="dropzone" id="dropzone">
-    <div class="drop-icon">🖼️</div>
-    <div class="drop-label">Arrastrá tu imagen acá</div>
-    <div class="drop-sub">clic para elegir · Ctrl+V para pegar · JPG, PNG, WEBP, AVIF, BMP, GIF, SVG</div>
-  </div>
-
-  <!-- Editor (se muestra al cargar imagen) -->
-  <div class="editor" id="editor">
-
-    <!-- Canvas de edición -->
-    <div class="canvas-wrap" id="canvasWrap">
-      <canvas id="editorCanvas"></canvas>
-
-      <div class="shape-bar">
-        <span class="shape-icon">▢</span>
-        <input type="range" id="shapeSlider" min="0" max="100" step="1" value="0">
-        <span class="shape-icon">●</span>
-        <span class="shape-val" id="shapeVal">Original</span>
-        <button class="reset-btn" id="resetShape" title="Sin redondeo">↺</button>
+    <!-- Panel izquierdo: archivo, modo y vista previa -->
+    <aside class="panel panel-left">
+      <div class="section gated">
+        <div class="section-title">Archivo</div>
+        <div class="file-info" id="fileInfo">—</div>
       </div>
 
-      <div class="zoom-bar" id="zoomBar">
-        <label>Zoom</label>
-        <input type="range" id="zoomSlider" min="1" max="5" step="0.01" value="1">
-        <span class="zoom-val" id="zoomVal">100%</span>
-        <button class="reset-btn" id="resetZoom" title="Volver a 100%">↺</button>
+      <div class="section gated">
+        <div class="section-title">Modo</div>
+        <div class="pills stack" id="modePills">
+          <button class="pill active" data-mode="original">🖼 Imagen completa</button>
+          <button class="pill" data-mode="crop">👤 Recorte (avatar)</button>
+        </div>
+        <div class="hint" id="modeHint">Se exporta la imagen entera, con su proporción original.</div>
       </div>
-    </div>
 
-    <!-- Panel de configuración -->
-    <div class="panel">
-
-      <!-- Vista previa -->
-      <div class="card">
-        <div class="card-title">Vista previa</div>
+      <div class="section gated">
+        <div class="section-title">Vista previa</div>
         <div class="profile-preview">
           <div class="preview-frame"><canvas id="thumbCanvas"></canvas></div>
           <div class="preview-label" id="previewLabel">—</div>
         </div>
       </div>
+    </aside>
 
-      <!-- Modo -->
-      <div class="card">
-        <div class="card-title">Modo</div>
-        <div class="pills" id="modePills">
-          <button class="pill active" data-mode="original">Imagen completa</button>
-          <button class="pill" data-mode="crop">Recorte (avatar)</button>
-        </div>
-        <div class="hint" id="modeHint">Se exporta la imagen entera, con su proporción original.</div>
+    <!-- Escenario central -->
+    <main class="stage">
+      <div class="dropzone" id="dropzone">
+        <div class="drop-icon">🖼️</div>
+        <div class="drop-label">Arrastrá tu imagen acá</div>
+        <div class="drop-sub">clic para elegir · Ctrl+V para pegar</div>
+        <div class="drop-formats">JPG · PNG · WEBP · AVIF · GIF · BMP · ICO · SVG · JFIF y más</div>
       </div>
 
-      <!-- Tamaño de salida -->
-      <div class="card">
-        <div class="card-title">Tamaño de salida</div>
+      <div class="canvas-wrap" id="canvasWrap">
+        <canvas id="editorCanvas"></canvas>
+
+        <div class="float-bar shape-bar">
+          <span class="bar-icon">▢</span>
+          <input type="range" id="shapeSlider" min="0" max="100" step="1" value="0">
+          <span class="bar-icon">●</span>
+          <span class="bar-val" id="shapeVal">Original</span>
+          <button class="reset-btn" id="resetShape" title="Sin redondeo">↺</button>
+        </div>
+
+        <div class="float-bar zoom-bar" id="zoomBar">
+          <label>Zoom</label>
+          <input type="range" id="zoomSlider" min="1" max="5" step="0.01" value="1">
+          <span class="bar-val narrow" id="zoomVal">100%</span>
+          <button class="reset-btn" id="resetZoom" title="Volver a 100%">↺</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- Panel derecho: propiedades de salida -->
+    <aside class="panel panel-right">
+      <div class="section gated">
+        <div class="section-title">Tamaño de salida</div>
         <div class="pills" id="percentPills">
           <button class="pill active" data-pct="100">100%</button>
           <button class="pill" data-pct="75">75%</button>
@@ -111,16 +117,21 @@
         </div>
       </div>
 
-      <!-- Formato y peso -->
-      <div class="card">
-        <div class="card-title">Formato y peso</div>
+      <div class="section gated">
+        <div class="section-title">Formato</div>
         <div class="pills" id="fmtPills">
           <button class="pill active" data-fmt="png">PNG</button>
           <button class="pill" data-fmt="jpeg">JPG</button>
           <button class="pill" data-fmt="webp">WEBP</button>
           <button class="pill" data-fmt="avif">AVIF</button>
+          <button class="pill" data-fmt="bmp">BMP</button>
           <button class="pill" data-fmt="ico">ICO</button>
         </div>
+        <div class="hint" id="fmtHint"></div>
+      </div>
+
+      <div class="section gated">
+        <div class="section-title">Calidad y peso</div>
         <div class="field" id="qualityRow" style="display:none;">
           <label>Calidad (1–100)</label>
           <input type="number" id="qualityVal" value="92" min="1" max="100">
@@ -129,27 +140,33 @@
           <label>Peso máximo en KB (vacío = sin límite)</label>
           <input type="number" id="maxKb" placeholder="ej: 1024" min="1">
         </div>
-        <div class="hint" id="fmtHint"></div>
         <div class="estimate" id="sizeEstimate">—</div>
       </div>
+    </aside>
 
-      <!-- Info archivo -->
-      <div class="card">
-        <div class="card-title">Imagen cargada</div>
-        <div class="file-info" id="fileInfo">—</div>
-        <button class="btn-ghost" id="btnChange">Cambiar imagen</button>
-      </div>
-
-    </div>
   </div>
 
-  <!-- Botón exportar -->
-  <button class="btn-export" id="btnExport">⬇ Descargar imagen</button>
+  <!-- ── BARRA DE ESTADO ── -->
+  <footer class="statusbar">
+    <span id="statusDims">Listo</span>
+    <span class="status-spacer"></span>
+    <span class="status-hint">Ctrl+O abrir · Ctrl+V pegar · Ctrl+S exportar · Rueda: zoom · Flechas: mover encuadre</span>
+  </footer>
 
-</main>
+</div>
 
 <div class="toast" id="toast"></div>
 
-<script type="module" src="js/main.js"></script>
+<script src="js/state.js"></script>
+<script src="js/core/geometry.js"></script>
+<script src="js/core/loader.js"></script>
+<script src="js/core/render.js"></script>
+<script src="js/core/exporter.js"></script>
+<script src="js/ui/toast.js"></script>
+<script src="js/ui/dropzone.js"></script>
+<script src="js/ui/editor-canvas.js"></script>
+<script src="js/ui/previews.js"></script>
+<script src="js/ui/controls.js"></script>
+<script src="js/main.js"></script>
 </body>
 </html>
