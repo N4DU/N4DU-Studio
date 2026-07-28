@@ -273,21 +273,8 @@ body.has-image .canvas-wrap { display: block; }
 .lock-btn:hover  { border-color: var(--accent); }
 .lock-btn.active { color: var(--accent); border-color: var(--accent); }
 
-/* Checkbox de guardado */
-.check {
-  display: flex; align-items: center; gap: 8px;
-  font-size: .8rem; color: var(--text);
-  cursor: pointer; user-select: none;
-}
-.check input[type=checkbox] {
-  width: 15px; height: 15px;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-.check input[type=checkbox]:disabled { cursor: not-allowed; }
-.check:has(input:disabled) { color: var(--faint); cursor: not-allowed; }
-
 .hint { font-size: .7rem; color: var(--muted); line-height: 1.5; }
+.hint.center { text-align: center; }
 .hint:empty { display: none; }
 .estimate {
   font-size: .76rem;
@@ -333,6 +320,134 @@ body.has-image .canvas-wrap { display: block; }
 }
 .status-spacer { flex: 1; }
 .status-hint { color: var(--faint); overflow: hidden; text-overflow: ellipsis; }
+
+/* ── BOTÓN REEMPLAZAR ── */
+.btn-swap { border-color: var(--accent); color: var(--accent); }
+.btn-swap:hover:not(:disabled) { background: rgba(232,255,71,.08); }
+.btn-swap:disabled { opacity: .35; cursor: not-allowed; }
+
+/* ── MODAL DE REEMPLAZO ── */
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.6);
+  backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 500;
+}
+.modal-backdrop[hidden] { display: none; }
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 14px;
+  padding: 22px 26px;
+  width: min(480px, 92vw);
+  display: flex; flex-direction: column; gap: 16px;
+  box-shadow: 0 24px 80px rgba(0,0,0,.6);
+}
+.modal-title {
+  font-family: var(--fh);
+  font-size: 1rem;
+  font-weight: 700;
+  text-align: center;
+}
+.modal-actions {
+  display: flex; justify-content: flex-end; gap: 8px;
+  margin-top: 2px;
+}
+.modal-actions .btn-accent, .modal-actions .btn-ghost { padding: 8px 18px; }
+
+/* Fila de intercambio: archivo viejo → archivo nuevo */
+.swap-row {
+  display: flex; align-items: center; justify-content: center;
+  gap: 18px;
+}
+.swap-arrow {
+  font-size: 1.7rem;
+  color: var(--accent);
+  font-family: var(--fh);
+  flex-shrink: 0;
+}
+
+.file-card {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 8px; width: 150px;
+}
+
+/* "Hoja" de archivo estilo Windows: papel con esquina doblada y la
+   miniatura de la imagen adentro. */
+.file-doc {
+  position: relative;
+  width: 92px; height: 112px;
+  background: #ececec;
+  border-radius: 3px 14px 3px 3px;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 3px 12px rgba(0,0,0,.45);
+}
+.file-doc::before {           /* esquina doblada */
+  content: '';
+  position: absolute; top: 0; right: 0;
+  width: 0; height: 0;
+  border-style: solid;
+  border-width: 0 14px 14px 0;
+  border-color: transparent var(--surface) #c9c9c9 transparent;
+}
+.file-doc canvas {
+  max-width: 72px; max-height: 88px;
+  display: block;
+  border-radius: 2px;
+}
+.file-doc.empty {
+  background: transparent;
+  border: 2px dashed var(--border2);
+  box-shadow: none;
+}
+.file-doc.empty::before { display: none; }
+.file-doc.empty canvas { display: none; }
+.file-doc-empty {
+  display: none;
+  color: var(--faint);
+  font-size: 1.6rem;
+  font-family: var(--fh);
+}
+.file-doc.empty .file-doc-empty { display: block; }
+
+.file-name {
+  font-size: .72rem;
+  color: var(--muted);
+  text-align: center;
+  word-break: break-all;
+  max-width: 150px;
+  line-height: 1.4;
+}
+
+/* Nombre editable del archivo nuevo */
+.file-rename {
+  display: flex; align-items: center;
+  width: 100%;
+}
+.file-rename input {
+  flex: 1; min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: 6px 0 0 6px;
+  border-right: none;
+  color: var(--text);
+  font-family: var(--fb);
+  font-size: .78rem;
+  padding: 5px 8px;
+}
+.file-rename input:focus { outline: none; border-color: var(--accent); }
+.file-rename .file-ext {
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 0 6px 6px 0;
+  color: var(--accent);
+  font-family: var(--fh);
+  font-size: .78rem;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
 
 /* ── TOAST ── */
 .toast {
