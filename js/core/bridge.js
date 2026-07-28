@@ -39,16 +39,39 @@
   // Abre el diálogo nativo del sistema. Devuelve { file, path } o null si
   // el usuario canceló. Si el servidor no puede mostrar diálogos, lanza.
   async function pickFile() {
-    const res = await fetch('/api/pick', { method: 'POST', headers: HDR });
-    if (res.status === 204) return null; // canceló
-    if (!res.ok) throw new Error((await safeJson(res)).error || 'No se pudo abrir el diálogo.');
-    const meta = await res.json();
-    const fileRes = await fetch('/api/read?token=' + meta.token, { headers: HDR });
-    if (!fileRes.ok) throw new Error('No se pudo leer el archivo.');
-    const blob = await fileRes.blob();
+    const meta = await pick('open');
+    if (!meta) return null;
+    const blob = await readCurrent(meta.token);
     bridge.token = meta.token;
     bridge.path = meta.path;
     return { file: new File([blob], meta.name, { type: blob.type }), path: meta.path };
+  }
+
+  // Elige QUÉ archivo del disco será reemplazado, sin tocar la imagen de
+  // trabajo (para imágenes pegadas o arrastradas que no tienen ruta).
+  // Devuelve { path, name } o null si canceló.
+  async function pickTarget() {
+    const meta = await pick('target');
+    if (!meta) return null;
+    bridge.token = meta.token;
+    bridge.path = meta.path;
+    return { path: meta.path, name: meta.name };
+  }
+
+  async function pick(intent) {
+    const res = await fetch('/api/pick?intent=' + intent, { method: 'POST', headers: HDR });
+    if (res.status === 204) return null; // canceló
+    if (!res.ok) throw new Error((await safeJson(res)).error || 'No se pudo abrir el diálogo.');
+    const meta = await res.json();
+    // el pick anterior queda invalidado recién acá (con cancelar no se pierde nada)
+    return meta;
+  }
+
+  // Bytes del archivo actualmente elegido (para miniaturas o para cargarlo).
+  async function readCurrent(token) {
+    const res = await fetch('/api/read?token=' + (token ?? ''), { headers: HDR });
+    if (!res.ok) throw new Error('No se pudo leer el archivo.');
+    return res.blob();
   }
 
   // El archivo actual vino sin ruta (drag & drop, Ctrl+V, selector del
@@ -58,15 +81,14 @@
     bridge.path = null;
   }
 
-  // Reemplaza el archivo original por los bytes nuevos con la extensión
-  // nueva. Si la extensión cambia, el servidor escribe el archivo nuevo y
-  // elimina el viejo. Devuelve { path, name } del resultado.
-  async function replaceOriginal(blob, ext) {
-    const res = await fetch('/api/replace', {
-      method: 'POST',
-      headers: { ...HDR, 'X-N4DU-Token': bridge.token, 'X-N4DU-Ext': ext },
-      body: blob,
-    });
+  // Reemplaza el archivo elegido por los bytes nuevos, con la extensión
+  // nueva y (opcional) otro nombre. Si la ruta resultante difiere, el
+  // servidor escribe el archivo nuevo y elimina el viejo.
+  // Devuelve { path, name } del resultado.
+  async function replaceOriginal(blob, ext, stem) {
+    const headers = { ...HDR, 'X-N4DU-Token': bridge.token, 'X-N4DU-Ext': ext };
+    if (stem) headers['X-N4DU-Name'] = encodeURIComponent(stem);
+    const res = await fetch('/api/replace', { method: 'POST', headers, body: blob });
     if (!res.ok) throw new Error((await safeJson(res)).error || 'No se pudo reemplazar el archivo.');
     const out = await res.json();
     bridge.path = out.path; // los próximos reemplazos siguen sobre el nuevo
@@ -79,6 +101,8 @@
 
   bridge.init = init;
   bridge.pickFile = pickFile;
+  bridge.pickTarget = pickTarget;
+  bridge.readCurrent = () => readCurrent(bridge.token);
   bridge.clearFile = clearFile;
   bridge.replaceOriginal = replaceOriginal;
   bridge.canReplace = () => bridge.active && !!bridge.token;

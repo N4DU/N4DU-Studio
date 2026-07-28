@@ -84,23 +84,30 @@ def banner(url):
 
 # ── Diálogo nativo (en subproceso: tkinter exige su propio hilo main) ──
 _PICKER_SCRIPT = """
-import tkinter as tk
+import sys, tkinter as tk
 from tkinter import filedialog
+title = sys.argv[1] if len(sys.argv) > 1 else "N4DU Studio"
 root = tk.Tk(); root.withdraw()
 root.attributes("-topmost", True)
-path = filedialog.askopenfilename(title="N4DU Studio - Abrir imagen", filetypes=[
+path = filedialog.askopenfilename(title=title, filetypes=[
     ("Imagenes", "*.png *.jpg *.jpeg *.jfif *.webp *.avif *.gif *.bmp *.ico *.svg *.tif *.tiff"),
     ("Todos los archivos", "*.*")])
 print(path or "", end="")
 """
 
+_PICK_TITLES = {
+    "open":   "N4DU Studio - Abrir imagen",
+    "target": "N4DU Studio - Elegir el archivo a reemplazar",
+}
 
-def native_pick():
+
+def native_pick(intent="open"):
     """Devuelve la ruta elegida, '' si canceló, o lanza si no hay tkinter."""
     test = os.environ.get("N4DU_TEST_PICK")  # gancho para tests automatizados
     if test is not None:
         return test
-    proc = subprocess.run([sys.executable, "-c", _PICKER_SCRIPT],
+    title = _PICK_TITLES.get(intent, _PICK_TITLES["open"])
+    proc = subprocess.run([sys.executable, "-c", _PICKER_SCRIPT, title],
                           capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(
@@ -110,14 +117,30 @@ def native_pick():
 
 
 # ── Reemplazo en disco ──────────────────────────────────────────────
-def replace_file(original, data, ext):
-    """Escribe los bytes junto al original con la extensión nueva (escritura
-    atómica) y, si la extensión cambió, elimina el archivo viejo."""
+def _safe_stem(name):
+    """Nombre de archivo sin ruta ni caracteres inválidos (defensa en
+    profundidad: el front ya limpia, pero el servidor no confía en él)."""
+    name = os.path.basename(name or "")           # descarta cualquier ruta
+    name = os.path.splitext(name)[0]              # descarta cualquier extensión
+    for ch in '\\/:*?"<>|':
+        name = name.replace(ch, "")
+    name = name.strip().lstrip(".")
+    return name
+
+
+def replace_file(original, data, ext, new_stem=None):
+    """Escribe los bytes en la carpeta del original con la extensión (y, si se
+    indica, el nombre) nuevos, de forma atómica, y elimina el archivo anterior
+    si la ruta resultante cambió."""
     if ext not in ALLOWED_EXT:
         raise ValueError(f"Extensión no permitida: {ext}")
     folder = os.path.dirname(original)
-    stem = os.path.splitext(os.path.basename(original))[0]
+    stem = _safe_stem(new_stem) if new_stem else os.path.splitext(os.path.basename(original))[0]
+    if not stem:
+        raise ValueError("Nombre de archivo vacío.")
     target = os.path.join(folder, f"{stem}.{ext}")
+    if os.path.dirname(os.path.abspath(target)) != os.path.abspath(folder):
+        raise ValueError("Nombre de archivo inválido.")
 
     tmp = os.path.join(folder, f".{stem}.{secrets.token_hex(4)}.tmp")
     with open(tmp, "wb") as fh:
@@ -232,8 +255,9 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── Endpoints ──
     def _pick(self):
+        intent = parse_qs(urlparse(self.path).query).get("intent", ["open"])[0]
         try:
-            path = native_pick()
+            path = native_pick(intent)
         except RuntimeError as exc:
             return self._json({"error": str(exc)}, 501)
         if not path:
@@ -246,7 +270,8 @@ class Handler(BaseHTTPRequestHandler):
         token = secrets.token_urlsafe(16)
         with _lock:
             _files[token] = path
-        event("⬈", f"Abierto: {path}", "0")
+        verb = "A reemplazar" if intent == "target" else "Abierto"
+        event("⬈", f"{verb}: {path}", "0")
         return self._json({"token": token, "path": path,
                            "name": os.path.basename(path)})
 
@@ -268,8 +293,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _replace(self):
+        from urllib.parse import unquote
         token = self.headers.get("X-N4DU-Token", "")
         ext = self.headers.get("X-N4DU-Ext", "").lower().lstrip(".")
+        new_stem = unquote(self.headers.get("X-N4DU-Name", ""))
         with _lock:
             original = _files.get(token)
         if not original:
@@ -277,7 +304,7 @@ class Handler(BaseHTTPRequestHandler):
         data = self._body()
         if not data:
             return self._json({"error": "No llegaron datos."}, 400)
-        target = replace_file(original, data, ext)
+        target = replace_file(original, data, ext, new_stem or None)
         with _lock:
             _files[token] = target  # próximos reemplazos siguen sobre el nuevo
         kb = len(data) / 1024
