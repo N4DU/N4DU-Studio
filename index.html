@@ -29,7 +29,8 @@
     <div class="title-file" id="titleFile">Sin imagen — abrí un archivo para empezar</div>
     <div class="title-actions">
       <button class="btn-ghost" id="btnChange" title="Abrir imagen (Ctrl+O)">📂 Abrir</button>
-      <button class="btn-accent" id="btnExport" disabled title="Exportar (Ctrl+S)">⬇ Exportar</button>
+      <button class="btn-ghost btn-swap" id="btnReplace" disabled hidden title="Reemplazar un archivo del disco">⇄ Reemplazar</button>
+      <button class="btn-accent" id="btnExport" disabled title="Descargar (Ctrl+S)">⬇ Descargar</button>
     </div>
   </header>
 
@@ -145,15 +146,6 @@
         </div>
         <div class="estimate" id="sizeEstimate">—</div>
       </div>
-
-      <div class="section gated" id="saveSection" style="display:none;">
-        <div class="section-title">Guardado</div>
-        <label class="check">
-          <input type="checkbox" id="replaceChk">
-          <span>Reemplazar el archivo original</span>
-        </label>
-        <div class="hint" id="replaceHint"></div>
-      </div>
     </aside>
 
   </div>
@@ -165,6 +157,46 @@
     <span class="status-hint">Ctrl+O abrir · Ctrl+V pegar · Ctrl+S exportar · Rueda: zoom · Flechas: mover encuadre</span>
   </footer>
 
+</div>
+
+<!-- Diálogo de reemplazo: qué archivo se sustituye por cuál -->
+<div class="modal-backdrop" id="replaceModal" hidden>
+  <div class="modal">
+    <div class="modal-title">⇄ Reemplazar archivo</div>
+
+    <div class="swap-row">
+      <!-- Archivo que será reemplazado -->
+      <div class="file-card" id="srcCard">
+        <div class="file-doc" id="srcDoc">
+          <canvas id="srcThumb"></canvas>
+          <span class="file-doc-empty" id="srcEmpty">?</span>
+        </div>
+        <div class="file-name" id="srcName">Sin archivo de origen</div>
+      </div>
+
+      <div class="swap-arrow">→</div>
+
+      <!-- Archivo nuevo (editable) -->
+      <div class="file-card">
+        <div class="file-doc">
+          <canvas id="dstThumb"></canvas>
+        </div>
+        <div class="file-rename">
+          <input type="text" id="dstStem" spellcheck="false" maxlength="120">
+          <span class="file-ext" id="dstExt">.png</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="hint center" id="replaceModalHint"></div>
+
+    <button class="btn-ghost" id="btnPickTarget">📂 Elegir el archivo a reemplazar…</button>
+
+    <div class="modal-actions">
+      <button class="btn-ghost" id="btnReplaceCancel">Cancelar</button>
+      <button class="btn-accent" id="btnReplaceConfirm" disabled>⇄ Reemplazar</button>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -180,6 +212,7 @@
 <script src="js/ui/editor-canvas.js"></script>
 <script src="js/ui/previews.js"></script>
 <script src="js/ui/controls.js"></script>
+<script src="js/ui/replace-dialog.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

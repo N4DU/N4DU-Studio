@@ -31,10 +31,16 @@
     dz.addEventListener('click', () => pick());
     document.getElementById('btnChange').addEventListener('click', () => pick());
 
-    // Pegar una imagen desde el portapapeles
+    // Pegar una imagen desde el portapapeles (Ctrl+V en cualquier parte).
+    // Se ignora si estás escribiendo en un campo, para no pisar el texto
+    // (p. ej. mientras renombrás el archivo en el diálogo de reemplazo).
     window.addEventListener('paste', e => {
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
       const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
-      if (item) acceptFile(item.getAsFile());
+      if (item) {
+        e.preventDefault();
+        acceptFile(item.getAsFile());
+      }
     });
   }
 

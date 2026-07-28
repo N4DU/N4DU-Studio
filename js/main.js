@@ -5,11 +5,12 @@
 
   const { state, resetForImage, toast, bridge } = N4DU;
   const { loadImage, decodeErrorMessage } = N4DU.loader;
-  const { exportBlob, download, FORMATS } = N4DU.exporter;
+  const { exportBlob, download } = N4DU.exporter;
   const { initDropzone, openPicker } = N4DU.dropzone;
   const { initEditorCanvas, drawEditor, syncCanvasUI } = N4DU.editorCanvas;
   const { initControls, syncControls, updateEstimate } = N4DU.controls;
   const { drawThumb } = N4DU.previews;
+  const { initReplaceDialog, open: openReplaceDialog, redraw: redrawReplaceThumb, refresh: refreshReplaceModal } = N4DU.replaceDialog;
 
   // Redibuja todo lo que depende del estado. Es el único callback que los
   // módulos de UI necesitan conocer.
@@ -20,7 +21,12 @@
     drawEditor();
     drawThumb();
     updateEstimate();
-    syncSaveUI();
+    syncButtons();
+    // Si el diálogo de reemplazo está abierto, mantené su vista al día.
+    if (!document.getElementById('replaceModal').hidden) {
+      redrawReplaceThumb();
+      refreshReplaceModal();
+    }
   }
 
   // Elegir archivo: diálogo nativo si hay puente; si no, el del navegador.
@@ -46,7 +52,7 @@
       return;
     }
     // Si vino por drag & drop / Ctrl+V / selector del navegador no hay ruta
-    // en disco, así que no se puede reemplazar.
+    // en disco: se limpia el objetivo de reemplazo (se elegirá en el diálogo).
     if (!fromBridge) bridge.clearFile();
 
     document.getElementById('fileInfo').innerHTML =
@@ -65,58 +71,39 @@
     refresh();
   }
 
-  async function onExport() {
+  // Botón "Descargar": siempre baja el archivo por el navegador.
+  async function onDownload() {
     if (!state.img) return;
     const btn = document.getElementById('btnExport');
     btn.disabled = true;
     btn.textContent = 'Procesando…';
     try {
       const { blob, filename } = await exportBlob(state);
+      download(blob, filename);
       const kb = blob.size / 1024;
       const peso = kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(0) + ' KB';
-
-      if (replaceChecked()) {
-        const out = await bridge.replaceOriginal(blob, FORMATS[state.fmt].ext);
-        document.getElementById('titleFile').textContent =
-          `${out.name} — ${state.origW}×${state.origH} px`;
-        toast(`Reemplazado en disco: ${out.name} · ${peso}`, 'ok');
-        syncSaveUI();
-      } else {
-        download(blob, filename);
-        toast(`Guardado ${filename} · ${peso}`, 'ok');
-      }
+      toast(`Descargado ${filename} · ${peso}`, 'ok');
     } catch (err) {
       toast('Error al exportar: ' + err.message, 'err');
     } finally {
       btn.disabled = false;
-      btn.textContent = '⬇ Exportar';
+      btn.textContent = '⬇ Descargar';
     }
   }
 
-  // ── Casilla "Reemplazar el archivo original" ──
-  function replaceChecked() {
-    return bridge.canReplace() && document.getElementById('replaceChk').checked;
+  // Muestra/oculta el botón Reemplazar según haya puente e imagen.
+  function syncButtons() {
+    const btn = document.getElementById('btnReplace');
+    const show = bridge.active;
+    btn.hidden = !show;
+    btn.disabled = !(show && state.img);
   }
 
-  function syncSaveUI() {
-    const section = document.getElementById('saveSection');
-    if (!bridge.active) { section.style.display = 'none'; return; }
-    section.style.display = 'flex';
-
-    const chk = document.getElementById('replaceChk');
-    const hint = document.getElementById('replaceHint');
-    if (bridge.canReplace()) {
-      chk.disabled = false;
-      const orig = bridge.path.split(/[\\/]/).pop();
-      const dest = orig.replace(/\.[^.]+$/, '') + '.' + FORMATS[state.fmt].ext;
-      hint.textContent = chk.checked
-        ? (orig === dest ? `Se sobreescribirá ${orig}.` : `${orig} → ${dest} (el original se elimina).`)
-        : 'Al exportar, el resultado sustituye al archivo abierto (aunque cambie la extensión).';
-    } else {
-      chk.disabled = true;
-      chk.checked = false;
-      hint.textContent = 'Disponible al abrir con el botón 📂 Abrir (con arrastrar o pegar no hay ruta en disco).';
-    }
+  // Tras un reemplazo: el título pasa a reflejar el nuevo archivo en disco.
+  function afterReplace(out) {
+    document.getElementById('titleFile').textContent =
+      `${out.name} — ${state.origW}×${state.origH} px`;
+    syncButtons();
   }
 
   function escapeHtml(s) {
@@ -130,14 +117,17 @@
     if (!(e.ctrlKey || e.metaKey)) return;
     const k = e.key.toLowerCase();
     if (k === 'o') { e.preventDefault(); chooseFile(); }
-    if ((k === 's' || k === 'e') && state.img) { e.preventDefault(); onExport(); }
+    if ((k === 's' || k === 'e') && state.img) { e.preventDefault(); onDownload(); }
+    // Ctrl+R: abrir el diálogo de reemplazo (si hay puente e imagen)
+    if (k === 'r' && bridge.active && state.img) { e.preventDefault(); openReplaceDialog(); }
   });
 
   initDropzone(onFile, chooseFile);
   initEditorCanvas(refresh);
   initControls(refresh);
-  document.getElementById('btnExport').addEventListener('click', onExport);
-  document.getElementById('replaceChk').addEventListener('change', syncSaveUI);
-  bridge.init().then(syncSaveUI);
+  initReplaceDialog(afterReplace);
+  document.getElementById('btnExport').addEventListener('click', onDownload);
+  document.getElementById('btnReplace').addEventListener('click', openReplaceDialog);
+  bridge.init().then(syncButtons);
 
 })(window.N4DU ??= {});
