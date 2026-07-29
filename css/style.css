@@ -281,6 +281,7 @@ body.has-image .canvas-wrap { display: block; }
   font-family: var(--fh);
   color: var(--accent);
 }
+.estimate.warn { color: var(--danger); }
 
 /* Vista previa */
 .profile-preview {

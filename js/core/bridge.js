@@ -14,6 +14,8 @@
   // web puede invocar al puente desde el navegador.
   const HDR = { 'X-N4DU': '1' };
 
+  let byeKey = null;   // secreto que autoriza el aviso de cierre
+
   async function init() {
     if (location.protocol !== 'http:' && location.protocol !== 'https:') return false;
     try {
@@ -22,17 +24,28 @@
     } catch {
       bridge.active = false;
     }
-    if (bridge.active) startHeartbeat();
+    if (bridge.active) await startHeartbeat();
     return bridge.active;
   }
 
   // Latido: el servidor sabe que la página sigue viva. Al cerrarla se avisa
   // con sendBeacon y el servidor espera 3 s por si fue solo un F5.
-  function startHeartbeat() {
-    fetch('/api/hello', { method: 'POST', headers: HDR }).catch(() => {});
-    setInterval(() => fetch('/api/ping', { headers: HDR }).catch(() => {}), 1000);
+  async function startHeartbeat() {
+    try {
+      const res = await fetch('/api/hello', { method: 'POST', headers: HDR });
+      byeKey = (await res.json()).key || null;
+    } catch { /* el servidor igual detecta la ausencia de latidos */ }
+
+    const ping = () => fetch('/api/ping', { headers: HDR }).catch(() => {});
+    setInterval(ping, 1000);
+    // Al volver de una pestaña en segundo plano (donde el navegador frena
+    // los temporizadores) se avisa enseguida que la página sigue viva.
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) ping();
+    });
+
     window.addEventListener('pagehide', () => {
-      navigator.sendBeacon('/api/bye');
+      if (byeKey) navigator.sendBeacon('/api/bye?k=' + encodeURIComponent(byeKey));
     });
   }
 
@@ -85,11 +98,19 @@
   // nueva y (opcional) otro nombre. Si la ruta resultante difiere, el
   // servidor escribe el archivo nuevo y elimina el viejo.
   // Devuelve { path, name } del resultado.
-  async function replaceOriginal(blob, ext, stem) {
+  // overwrite = true confirma pisar un archivo distinto que ya existía.
+  async function replaceOriginal(blob, ext, stem, overwrite = false) {
     const headers = { ...HDR, 'X-N4DU-Token': bridge.token, 'X-N4DU-Ext': ext };
     if (stem) headers['X-N4DU-Name'] = encodeURIComponent(stem);
+    if (overwrite) headers['X-N4DU-Overwrite'] = '1';
     const res = await fetch('/api/replace', { method: 'POST', headers, body: blob });
-    if (!res.ok) throw new Error((await safeJson(res)).error || 'No se pudo reemplazar el archivo.');
+    if (!res.ok) {
+      const info = await safeJson(res);
+      const err = new Error(info.error || 'No se pudo reemplazar el archivo.');
+      // El destino ya existe: quien llama debe pedir confirmación.
+      if (res.status === 409) err.conflict = info.conflict;
+      throw err;
+    }
     const out = await res.json();
     bridge.path = out.path; // los próximos reemplazos siguen sobre el nuevo
     return out;
