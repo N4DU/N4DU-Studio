@@ -1,11 +1,12 @@
-// Renderizado: compone la imagen final (o una vista previa) en un canvas.
+// Rendering: composes the final image (or a preview) onto a canvas.
+// Pixels always come from the edit surface, so brush strokes, rotation,
+// colour removal and every other edit are included in the output.
 (function (N4DU) {
 
   const { shapePath, radiusFor, cropRect } = N4DU.geometry;
 
-  // Dibuja una región de la imagen escalada a dw×dh. Si la reducción es
-  // grande, escala en pasos (mitades sucesivas) para conservar nitidez:
-  // un solo drawImage con reducción fuerte produce aliasing.
+  // Draws a region of the source scaled to dw×dh. Large reductions are done
+  // in halving steps: a single drawImage with a strong downscale aliases.
   function drawRegion(ctx, img, sx, sy, sw, sh, dx, dy, dw, dh) {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
@@ -33,11 +34,19 @@
     ctx.drawImage(tmp, 0, 0, w, h, dx, dy, dw, dh);
   }
 
-  // Compone la salida final según el estado en un OffscreenCanvas W×H.
-  // background: color de fondo para formatos sin transparencia (JPG, BMP).
+  // The current pixel source: the edit surface, or the raw image before any
+  // editing session exists.
+  function source(state) {
+    return (N4DU.edit && N4DU.edit.ready()) ? N4DU.edit.source() : state.img;
+  }
+
+  // Composes the output at W×H according to state.
+  // background: fill colour for formats without transparency (JPG, BMP).
   function renderOutput(state, W, H, background = null) {
     const canvas = new OffscreenCanvas(W, H);
     const ctx = canvas.getContext('2d');
+    const src = source(state);
+    if (!src) return canvas;
 
     if (background) {
       ctx.fillStyle = background;
@@ -52,15 +61,15 @@
     }
     if (state.mode === 'crop') {
       const { sx, sy, side } = cropRect(state);
-      drawRegion(ctx, state.img, sx, sy, side, side, 0, 0, W, H);
+      drawRegion(ctx, src, sx, sy, side, side, 0, 0, W, H);
     } else {
-      drawRegion(ctx, state.img, 0, 0, state.origW, state.origH, 0, 0, W, H);
+      drawRegion(ctx, src, 0, 0, src.width, src.height, 0, 0, W, H);
     }
     ctx.restore();
 
     return canvas;
   }
 
-  N4DU.render = { drawRegion, renderOutput };
+  N4DU.render = { drawRegion, renderOutput, source };
 
 })(window.N4DU ??= {});

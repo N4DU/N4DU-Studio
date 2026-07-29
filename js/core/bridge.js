@@ -1,20 +1,20 @@
-// Puente al disco (opcional). Si la página fue servida por main.py, este
-// módulo habla con él para abrir archivos con diálogo nativo y REEMPLAZAR
-// el original al exportar. Si no hay puente (GitHub Pages, doble clic al
-// HTML), todo lo demás funciona igual y este módulo queda inactivo.
+// Disk bridge (optional). When the page is served by main.py, this module
+// talks to it to open files through the native dialog and REPLACE files on
+// disk. Without the bridge (GitHub Pages, or opening the HTML directly)
+// everything else still works and this module stays inactive.
 (function (N4DU) {
 
   const bridge = {
-    active: false,   // hay servidor puente corriendo
-    token: null,     // identifica el archivo abierto en el servidor
-    path: null,      // ruta real del archivo abierto (solo informativa)
+    active: false,   // a bridge server is running
+    token: null,     // identifies the file the server has open
+    path: null,      // real path of that file (informational)
   };
 
-  // Cabecera anti-CSRF: obliga un preflight CORS, así ninguna otra página
-  // web puede invocar al puente desde el navegador.
+  // Anti-CSRF header: forces a CORS preflight, so no other website can
+  // drive the bridge from the browser.
   const HDR = { 'X-N4DU': '1' };
 
-  let byeKey = null;   // secreto que autoriza el aviso de cierre
+  let byeKey = null;   // secret authorising the shutdown notice
 
   async function init() {
     if (location.protocol !== 'http:' && location.protocol !== 'https:') return false;
@@ -28,18 +28,19 @@
     return bridge.active;
   }
 
-  // Latido: el servidor sabe que la página sigue viva. Al cerrarla se avisa
-  // con sendBeacon y el servidor espera 3 s por si fue solo un F5.
+  // Heartbeat: lets the server know the page is still open. On close a
+  // beacon is sent and the server waits a few seconds in case it was a
+  // reload.
   async function startHeartbeat() {
     try {
       const res = await fetch('/api/hello', { method: 'POST', headers: HDR });
       byeKey = (await res.json()).key || null;
-    } catch { /* el servidor igual detecta la ausencia de latidos */ }
+    } catch { /* the server still detects the missing heartbeat */ }
 
     const ping = () => fetch('/api/ping', { headers: HDR }).catch(() => {});
     setInterval(ping, 1000);
-    // Al volver de una pestaña en segundo plano (donde el navegador frena
-    // los temporizadores) se avisa enseguida que la página sigue viva.
+    // Coming back from a background tab (where browsers throttle timers),
+    // report immediately that the page is alive.
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) ping();
     });
@@ -49,8 +50,8 @@
     });
   }
 
-  // Abre el diálogo nativo del sistema. Devuelve { file, path } o null si
-  // el usuario canceló. Si el servidor no puede mostrar diálogos, lanza.
+  // Opens the native file dialog. Returns { file, path } or null if the
+  // user cancelled. Throws when the server cannot show dialogs.
   async function pickFile() {
     const meta = await pick('open');
     if (!meta) return null;
@@ -60,9 +61,9 @@
     return { file: new File([blob], meta.name, { type: blob.type }), path: meta.path };
   }
 
-  // Elige QUÉ archivo del disco será reemplazado, sin tocar la imagen de
-  // trabajo (para imágenes pegadas o arrastradas que no tienen ruta).
-  // Devuelve { path, name } o null si canceló.
+  // Chooses WHICH file on disk will be replaced, without touching the image
+  // being edited (for pasted or dropped images that have no path).
+  // Returns { path, name } or null if cancelled.
   async function pickTarget() {
     const meta = await pick('target');
     if (!meta) return null;
@@ -73,32 +74,29 @@
 
   async function pick(intent) {
     const res = await fetch('/api/pick?intent=' + intent, { method: 'POST', headers: HDR });
-    if (res.status === 204) return null; // canceló
-    if (!res.ok) throw new Error((await safeJson(res)).error || 'No se pudo abrir el diálogo.');
-    const meta = await res.json();
-    // el pick anterior queda invalidado recién acá (con cancelar no se pierde nada)
-    return meta;
+    if (res.status === 204) return null; // cancelled
+    if (!res.ok) throw new Error((await safeJson(res)).error || 'Could not open the dialog.');
+    return res.json();
   }
 
-  // Bytes del archivo actualmente elegido (para miniaturas o para cargarlo).
+  // Bytes of the currently selected file (for thumbnails or loading).
   async function readCurrent(token) {
     const res = await fetch('/api/read?token=' + (token ?? ''), { headers: HDR });
-    if (!res.ok) throw new Error('No se pudo leer el archivo.');
+    if (!res.ok) throw new Error('Could not read the file.');
     return res.blob();
   }
 
-  // El archivo actual vino sin ruta (drag & drop, Ctrl+V, selector del
-  // navegador): no se puede reemplazar.
+  // The current image has no path on disk (drag & drop, paste, browser
+  // picker), so there is nothing to replace until a target is chosen.
   function clearFile() {
     bridge.token = null;
     bridge.path = null;
   }
 
-  // Reemplaza el archivo elegido por los bytes nuevos, con la extensión
-  // nueva y (opcional) otro nombre. Si la ruta resultante difiere, el
-  // servidor escribe el archivo nuevo y elimina el viejo.
-  // Devuelve { path, name } del resultado.
-  // overwrite = true confirma pisar un archivo distinto que ya existía.
+  // Replaces the selected file with the new bytes, using the new extension
+  // and (optionally) a new name. When the resulting path differs, the server
+  // writes the new file and deletes the old one.
+  // overwrite = true confirms replacing a different file that already exists.
   async function replaceOriginal(blob, ext, stem, overwrite = false) {
     const headers = { ...HDR, 'X-N4DU-Token': bridge.token, 'X-N4DU-Ext': ext };
     if (stem) headers['X-N4DU-Name'] = encodeURIComponent(stem);
@@ -106,13 +104,13 @@
     const res = await fetch('/api/replace', { method: 'POST', headers, body: blob });
     if (!res.ok) {
       const info = await safeJson(res);
-      const err = new Error(info.error || 'No se pudo reemplazar el archivo.');
-      // El destino ya existe: quien llama debe pedir confirmación.
+      const err = new Error(info.error || 'Could not replace the file.');
+      // Target already exists: the caller must ask for confirmation.
       if (res.status === 409) err.conflict = info.conflict;
       throw err;
     }
     const out = await res.json();
-    bridge.path = out.path; // los próximos reemplazos siguen sobre el nuevo
+    bridge.path = out.path; // further replacements follow the new file
     return out;
   }
 

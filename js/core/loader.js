@@ -1,32 +1,31 @@
-// Decodificación de archivos de imagen a ImageBitmap.
+// Decoding image files into an ImageBitmap.
 (function (N4DU) {
 
-  // Extensiones aceptadas en el selector de archivos. La decodificación real
-  // no depende de la extensión: el navegador identifica el formato por los
-  // bytes del archivo, así que un JPEG renombrado a .jfif o .cualquiercosa
-  // se abre igual.
+  // Extensions offered in the file dialog. Decoding does not depend on the
+  // extension: the browser identifies the format from the file's bytes, so a
+  // JPEG renamed to .jfif — or to anything else — still opens.
   const EXTENSIONS = [
-    // JPEG y sus mil variantes
+    // JPEG and its many variants
     'jpg', 'jpeg', 'jpe', 'jif', 'jfif', 'jfi', 'pjpeg', 'pjp',
     // PNG / APNG
     'png', 'apng',
-    // Modernos
+    // Modern formats
     'webp', 'avif', 'avifs', 'jxl',
-    // Clásicos
+    // Classic formats
     'gif', 'bmp', 'dib', 'ico', 'cur',
-    // Vectorial (se rasteriza)
+    // Vector (rasterised on load)
     'svg',
-    // Otros que algunos navegadores decodifican
+    // Others some browsers can decode
     'tif', 'tiff', 'heic', 'heif', 'jp2', 'j2k', 'jpx',
   ];
 
-  // Lista para el atributo accept del <input type=file>. Es solo una ayuda
-  // del diálogo: la app acepta cualquier archivo y decide por el contenido.
+  // Value for the file input's accept attribute. It only guides the dialog:
+  // the app accepts any file and decides by content.
   const ACCEPT = 'image/*,' + EXTENSIONS.map(e => '.' + e).join(',');
 
-  // Decodifica cualquier formato que el navegador entienda.
-  // createImageBitmap cubre los rasterizados; el fallback con <img>
-  // rasteriza SVG y otros casos que createImageBitmap rechaza.
+  // Decodes any format the browser understands. createImageBitmap covers
+  // raster formats; the <img> fallback rasterises SVG and anything else
+  // createImageBitmap rejects.
   async function loadImage(file) {
     try {
       return await createImageBitmap(file);
@@ -51,14 +50,14 @@
     }
   }
 
-  // Mensaje de error específico según la extensión que falló.
+  // Specific message for the extension that failed to decode.
   function decodeErrorMessage(file) {
     const ext = (file.name.match(/\.([^.]+)$/) || [])[1]?.toLowerCase();
     if (ext === 'heic' || ext === 'heif')
-      return 'HEIC/HEIF no es compatible con este navegador. Convertila primero a JPG desde tu teléfono o con otra herramienta.';
+      return 'HEIC/HEIF is not supported by this browser. Convert it to JPG first.';
     if (ext === 'tif' || ext === 'tiff')
-      return 'TIFF no es compatible con este navegador.';
-    return `No se pudo decodificar el archivo${ext ? ` (.${ext})` : ''}. ¿Es realmente una imagen?`;
+      return 'TIFF is not supported by this browser.';
+    return `Could not decode this file${ext ? ` (.${ext})` : ''}. Is it really an image?`;
   }
 
   N4DU.loader = { EXTENSIONS, ACCEPT, loadImage, decodeErrorMessage };
