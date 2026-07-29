@@ -121,20 +121,32 @@
   }
 
   // Exporta respetando el límite de peso si está definido.
+  // Devuelve { blob, filename, limit } donde limit es:
+  //   null            → no se pidió límite
+  //   { ok: true }    → se cumplió
+  //   { ok: false, maxKb } → NO se pudo cumplir (hay que avisarlo, nunca
+  //                          hacer pasar por bueno un archivo que se pasa)
   async function exportBlob(state) {
+    const maxKb = state.maxKb;
+    const limitBytes = maxKb ? maxKb * 1024 : null;
     let blob = await renderAndEncode(state);
-    const limit = state.maxKb ? state.maxKb * 1024 : null;
-    if (limit && blob.size > limit) {
-      blob = await fitToLimit(state, limit);
+    let limit = null;
+
+    if (limitBytes) {
+      if (blob.size > limitBytes) blob = await fitToLimit(state, limitBytes);
+      limit = blob.size <= limitBytes ? { ok: true } : { ok: false, maxKb };
     }
+
     const { W, H } = outputDims(state);
     const filename = `${state.fileName}_${W}x${H}.${FORMATS[state.fmt].ext}`;
-    return { blob, filename };
+    return { blob, filename, limit };
   }
 
   // Comprime hasta entrar en el límite: primero búsqueda binaria de calidad
   // (formatos con pérdida), después reducción de escala re-renderizando desde
   // la imagen original para no degradar dos veces.
+  // Si no se logra, devuelve el resultado MÁS LIVIANO que consiguió; quien
+  // llama compara con el límite y avisa.
   async function fitToLimit(state, limit) {
     const { W, H } = outputDims(state);
     const f = FORMATS[state.fmt];
@@ -146,10 +158,12 @@
       if (found) return found;
     }
 
-    // Bajar resolución progresivamente (con calidad mínima si es lossy)
+    // Bajar resolución progresivamente (con calidad mínima si es lossy).
+    // Se conserva el más liviano visto, no el último: con formatos sin
+    // pérdida una escala menor no siempre pesa menos.
     let best = null;
     let scale = 0.9;
-    for (let i = 0; i < 14 && Math.min(W, H) * scale >= 16; i++, scale *= 0.82) {
+    for (let i = 0; i < 16 && Math.min(W, H) * scale >= 8; i++, scale *= 0.82) {
       const w = Math.max(1, Math.round(W * scale));
       const h = Math.max(1, Math.round(H * scale));
       const canvas = renderOutput(state, w, h, bg);
@@ -157,10 +171,10 @@
         ? (await binarySearchQuality(canvas, state.fmt, state.quality, limit)) ??
           (await encodeCanvas(canvas, state.fmt, 0.05))
         : await encodeCanvas(canvas, state.fmt, state.quality);
-      best = blob;
+      if (!best || blob.size < best.size) best = blob;
       if (blob.size <= limit) return blob;
     }
-    return best; // no se pudo cumplir el límite: se devuelve lo más liviano logrado
+    return best;
   }
 
   // Mayor calidad posible cuyo peso quede bajo el límite, o null si ni la

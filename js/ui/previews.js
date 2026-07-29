@@ -16,7 +16,11 @@
     const w = Math.max(1, Math.round(W * s));
     const h = Math.max(1, Math.round(H * s));
 
-    const out = renderOutput(state, w, h);
+    // Mismo fondo que la exportación: los formatos sin transparencia
+    // (JPG, BMP) rellenan de blanco, así la vista previa no promete unas
+    // esquinas transparentes que el archivo no va a tener.
+    const bg = FORMATS[state.fmt].alpha ? null : '#ffffff';
+    const out = renderOutput(state, w, h, bg);
     const c = document.getElementById('thumbCanvas');
     c.width = w; c.height = h;
     c.getContext('2d').drawImage(out, 0, 0);

@@ -7,6 +7,9 @@
   let pick = null; // cómo elegir archivo: selector del navegador o diálogo nativo
 
   function initDropzone(onFile, pickImpl) {
+    // No se filtra por extensión a propósito: el formato se decide leyendo
+    // el contenido, así que un JPEG con extensión rara (.jfif, .foto…) abre
+    // igual. Si de verdad no es una imagen, el decodificador lo dirá.
     acceptFile = (file) => { if (file) onFile(file); };
     pick = pickImpl || openPicker;
     const dz = document.getElementById('dropzone');
@@ -14,28 +17,26 @@
     dz.addEventListener('dragenter', e => { e.preventDefault(); dz.classList.add('over'); });
     dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('over'); });
     dz.addEventListener('dragleave', () => dz.classList.remove('over'));
-    dz.addEventListener('drop', e => {
-      e.preventDefault();
-      dz.classList.remove('over');
-      acceptFile(e.dataTransfer.files[0]);
-    });
 
-    // Arrastrar sobre cualquier parte de la ventana también funciona
-    // (comodidad de escritorio: no hace falta apuntar a la caja).
+    // Soltar en cualquier parte de la ventana funciona (comodidad de
+    // escritorio). Un solo manejador en window cubre también la caja: si
+    // además se escuchara en la caja, un archivo soltado ahí se cargaría
+    // dos veces por el burbujeo.
     window.addEventListener('dragover', e => e.preventDefault());
     window.addEventListener('drop', e => {
       e.preventDefault();
-      if (e.dataTransfer.files[0]) acceptFile(e.dataTransfer.files[0]);
+      dz.classList.remove('over');
+      acceptFile(e.dataTransfer?.files[0]);
     });
 
     dz.addEventListener('click', () => pick());
     document.getElementById('btnChange').addEventListener('click', () => pick());
 
     // Pegar una imagen desde el portapapeles (Ctrl+V en cualquier parte).
-    // Se ignora si estás escribiendo en un campo, para no pisar el texto
-    // (p. ej. mientras renombrás el archivo en el diálogo de reemplazo).
+    // Manda el contenido, no el foco: si en el portapapeles hay una imagen
+    // se carga (pegarla en un campo de texto no haría nada útil); si hay
+    // texto, no se toca y el campo lo recibe normalmente.
     window.addEventListener('paste', e => {
-      if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
       const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
       if (item) {
         e.preventDefault();

@@ -16,30 +16,39 @@ Se cierra con Ctrl+C, o solo: al cerrar la página espera 3 segundos por si
 fue un F5 y, si nadie vuelve, apaga el servidor.
 """
 
-import io
 import os
 import sys
 import json
 import time
-import socket
 import secrets
 import mimetypes
 import subprocess
 import threading
 import webbrowser
+from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, unquote
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 HOST = "127.0.0.1"
 PORTS = range(4517, 4537)          # primer puerto libre del rango
 GRACE_SECONDS = 3                  # espera tras cerrar la página (¿fue un F5?)
-STALL_SECONDS = 6                  # sin latidos → se considera cerrada
+# Sin latidos → se considera cerrada. Generoso a propósito: los navegadores
+# frenan los temporizadores en pestañas de fondo (hasta ~1 por minuto), así
+# que un umbral corto apagaría el servidor mientras seguís trabajando. El
+# cierre normal no depende de esto: llega al instante por /api/bye.
+STALL_SECONDS = 150
+MAX_SESSIONS = 64                  # archivos recordados (se descarta el más viejo)
 ALLOWED_EXT = {"png", "jpg", "webp", "avif", "bmp", "ico"}
+
+# Secreto de esta ejecución. Autentica /api/bye, que no puede exigir cabeceras
+# porque sendBeacon no las admite: sin esto, cualquier web abierta en otra
+# pestaña podría apagar el servidor.
+SECRET = secrets.token_urlsafe(24)
 
 # Archivos abiertos: token efímero -> ruta real. El navegador solo conoce
 # tokens; ningún endpoint acepta rutas arbitrarias.
-_files = {}
+_files = OrderedDict()
 _lock = threading.Lock()
 
 # Estado de la página (para el auto-cierre)
@@ -51,10 +60,35 @@ _shutdown = {"event": threading.Event(), "reason": ""}
 def _supports_color():
     if os.name == "nt":
         os.system("")  # habilita secuencias ANSI en la consola de Windows
-    return sys.stdout.isatty()
+    try:
+        return sys.stdout.isatty()
+    except Exception:
+        return False
+
+
+def _supports_unicode():
+    """¿La consola puede mostrar los símbolos bonitos? En Windows con una
+    codificación antigua (cp1252) imprimirlos lanzaría UnicodeEncodeError y
+    tiraría el programa, así que se usan equivalentes ASCII."""
+    try:
+        "─✓⚠⟳⬈".encode(sys.stdout.encoding or "ascii")
+        return True
+    except (UnicodeEncodeError, LookupError, TypeError):
+        return False
 
 
 _COLOR = _supports_color()
+_UNICODE = _supports_unicode()
+
+# Símbolos de los eventos, con recambio ASCII si la consola no da para más.
+SYM = {
+    "ok": "✓" if _UNICODE else "*",
+    "warn": "⚠" if _UNICODE else "!",
+    "swap": "⟳" if _UNICODE else "~",
+    "open": "⬈" if _UNICODE else ">",
+    "line": "─" if _UNICODE else "-",
+    "arrow": "→" if _UNICODE else "->",
+}
 
 
 def _c(code, text):
@@ -64,22 +98,32 @@ def _c(code, text):
 _print_lock = threading.Lock()
 
 
+def _write(text):
+    """Imprime sin poder fallar por la codificación de la consola."""
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        enc = sys.stdout.encoding or "ascii"
+        print(text.encode(enc, "replace").decode(enc, "replace"))
+
+
 def event(symbol, text, color="0"):
     stamp = _c("2", time.strftime("%H:%M:%S"))
     with _print_lock:
-        print(f"  {stamp}  {_c(color, symbol + ' ' + text)}")
+        _write(f"  {stamp}  {_c(color, symbol + ' ' + text)}")
 
 
 def banner(url):
-    line = "─" * 46
+    line = SYM["line"] * 46
+    dot = "·" if _UNICODE else "-"
     with _print_lock:
-        print()
-        print(_c("2", "  " + line))
-        print("  " + _c("1;93", "N4DU Studio") + _c("2", "  ·  puente al disco"))
-        print(_c("2", "  " + line))
-        print(f"  Interfaz   {_c('96', url)}")
-        print(f"  Salir      Ctrl+C  {_c('2', '(o cerrá la página)')}")
-        print(_c("2", "  " + line))
+        _write("")
+        _write(_c("2", "  " + line))
+        _write("  " + _c("1;93", "N4DU Studio") + _c("2", f"  {dot}  puente al disco"))
+        _write(_c("2", "  " + line))
+        _write(f"  Interfaz   {_c('96', url)}")
+        _write(f"  Salir      Ctrl+C  {_c('2', '(o cerra la pagina)' if not _UNICODE else '(o cerrá la página)')}")
+        _write(_c("2", "  " + line))
 
 
 # ── Diálogo nativo (en subproceso: tkinter exige su propio hilo main) ──
@@ -117,6 +161,15 @@ def native_pick(intent="open"):
 
 
 # ── Reemplazo en disco ──────────────────────────────────────────────
+# Nombres que Windows reserva para dispositivos: un archivo así no se puede
+# crear (o se comporta de forma extraña), así que se les añade un guion bajo.
+_WINDOWS_RESERVED = {
+    "con", "prn", "aux", "nul",
+    *(f"com{i}" for i in range(1, 10)),
+    *(f"lpt{i}" for i in range(1, 10)),
+}
+
+
 def _safe_stem(name):
     """Nombre de archivo sin ruta ni caracteres inválidos (defensa en
     profundidad: el front ya limpia, pero el servidor no confía en él)."""
@@ -124,14 +177,16 @@ def _safe_stem(name):
     name = os.path.splitext(name)[0]              # descarta cualquier extensión
     for ch in '\\/:*?"<>|':
         name = name.replace(ch, "")
-    name = name.strip().lstrip(".")
+    name = "".join(c for c in name if ord(c) >= 32)   # sin caracteres de control
+    # Windows no admite puntos ni espacios al final del nombre.
+    name = name.strip().strip(".").strip()
+    if name.lower() in _WINDOWS_RESERVED:
+        name += "_"
     return name
 
 
-def replace_file(original, data, ext, new_stem=None):
-    """Escribe los bytes en la carpeta del original con la extensión (y, si se
-    indica, el nombre) nuevos, de forma atómica, y elimina el archivo anterior
-    si la ruta resultante cambió."""
+def target_path(original, ext, new_stem=None):
+    """Ruta que resultaría de reemplazar, sin escribir nada."""
     if ext not in ALLOWED_EXT:
         raise ValueError(f"Extensión no permitida: {ext}")
     folder = os.path.dirname(original)
@@ -141,21 +196,74 @@ def replace_file(original, data, ext, new_stem=None):
     target = os.path.join(folder, f"{stem}.{ext}")
     if os.path.dirname(os.path.abspath(target)) != os.path.abspath(folder):
         raise ValueError("Nombre de archivo inválido.")
+    return target
 
+
+def replace_file(original, data, ext, new_stem=None, overwrite=False):
+    """Escribe los bytes en la carpeta del original con la extensión (y, si se
+    indica, el nombre) nuevos, de forma atómica, y elimina el archivo anterior
+    si la ruta resultante cambió.
+
+    Si el destino es OTRO archivo que ya existe, no se pisa nada: se lanza
+    FileExistsError para que la interfaz pida confirmación (sin esto, un
+    nombre repetido destruiría dos archivos: el ajeno y el original).
+
+    Devuelve (ruta_final, aviso_o_None).
+    """
+    target = target_path(original, ext, new_stem)
+    same_file = os.path.abspath(target) == os.path.abspath(original)
+
+    if not same_file and os.path.exists(target) and not overwrite:
+        raise FileExistsError(os.path.basename(target))
+
+    folder = os.path.dirname(original)
+    stem = os.path.splitext(os.path.basename(target))[0]
     tmp = os.path.join(folder, f".{stem}.{secrets.token_hex(4)}.tmp")
     with open(tmp, "wb") as fh:
         fh.write(data)
+        fh.flush()
+        os.fsync(fh.fileno())   # los bytes están en disco antes de publicar
     try:
         os.replace(tmp, target)  # atómico: nunca queda un archivo a medias
     except Exception:
-        os.unlink(tmp)
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
         raise
-    if os.path.abspath(target) != os.path.abspath(original):
+
+    # El archivo nuevo ya está escrito: a partir de acá nada puede fallar de
+    # forma que se pierda trabajo, así que un borrado fallido solo se avisa.
+    warning = None
+    if not same_file:
         try:
             os.remove(original)
         except FileNotFoundError:
             pass
-    return target
+        except OSError as exc:
+            warning = f"No se pudo borrar {os.path.basename(original)} ({exc.strerror})."
+    return target, warning
+
+
+# ── Sesiones de archivos ────────────────────────────────────────────
+def remember_file(path):
+    """Guarda la ruta y devuelve un token. Descarta el más viejo si hace falta
+    (sin esto la tabla crecería sin fin durante una sesión larga)."""
+    token = secrets.token_urlsafe(16)
+    with _lock:
+        _files[token] = path
+        _files.move_to_end(token)
+        while len(_files) > MAX_SESSIONS:
+            _files.popitem(last=False)
+    return token
+
+
+def lookup_file(token):
+    with _lock:
+        path = _files.get(token)
+        if path is not None:
+            _files.move_to_end(token)   # en uso: no lo descartes
+        return path
 
 
 # ── Latidos de la página / auto-cierre ──────────────────────────────
@@ -163,7 +271,7 @@ def page_alive():
     _page["last_ping"] = time.time()
     if _page["closing_since"] is not None:
         _page["closing_since"] = None
-        event("✓", "Página reconectada", "92")
+        event(SYM["ok"], "Página reconectada", "92")
     if not _page["connected"]:
         _page["connected"] = True
 
@@ -180,10 +288,11 @@ def watchdog():
         now = time.time()
         closing = _page["closing_since"]
         if closing is None:
-            # ¿Se esfumó sin avisar? (se cerró el navegador de golpe)
+            # ¿Se esfumó sin avisar? (se cerró el navegador de golpe). Solo
+            # cuenta si alguna vez hubo página: si no, no hay nada que vigilar.
             if _page["connected"] and now - _page["last_ping"] > STALL_SECONDS:
                 _page["closing_since"] = now
-                event("⚠", f"Se perdió la conexión — esperando {GRACE_SECONDS} s…", "93")
+                event(SYM["warn"], f"Se perdió la conexión — esperando {GRACE_SECONDS} s…", "93")
         elif now - closing >= GRACE_SECONDS and _page["last_ping"] <= closing:
             request_shutdown("La página se cerró.")
 
@@ -210,6 +319,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json(self, obj, status=200):
         body = json.dumps(obj).encode()
+        self._started = True
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -219,8 +329,27 @@ class Handler(BaseHTTPRequestHandler):
     def _body(self):
         return self.rfile.read(int(self.headers.get("Content-Length", 0) or 0))
 
+    # Ejecuta un handler sin dejar caer el servidor. Si la respuesta ya
+    # empezó a enviarse no se puede mandar un error encima: se corta la
+    # conexión para que el cliente no quede esperando bytes prometidos.
+    def _safely(self, fn):
+        self._started = False
+        try:
+            fn()
+        except Exception as exc:
+            if getattr(self, "_started", False):
+                self.close_connection = True
+            else:
+                try:
+                    self._json({"error": str(exc)}, 500)
+                except Exception:
+                    self.close_connection = True
+
     # ── GET ──
     def do_GET(self):
+        self._safely(self._route_get)
+
+    def _route_get(self):
         path = urlparse(self.path).path
         if path == "/api/ping":
             if not self._guard():
@@ -233,24 +362,30 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── POST ──
     def do_POST(self):
+        self._safely(self._route_post)
+
+    def _route_post(self):
         path = urlparse(self.path).path
-        try:
-            if path == "/api/bye":  # sendBeacon no admite cabeceras propias
-                _page["closing_since"] = time.time()
-                event("⚠", f"Página cerrada — esperando {GRACE_SECONDS} s por si fue un reinicio…", "93")
-                return self._json({"ok": True})
-            if not self._guard():
-                return
-            if path == "/api/hello":
-                page_alive()
-                event("✓", "Página conectada", "92")
-                return self._json({"ok": True})
-            if path == "/api/pick":
-                return self._pick()
-            if path == "/api/replace":
-                return self._replace()
-        except Exception as exc:  # una request mala nunca tira el servidor
-            return self._json({"error": str(exc)}, 400)
+        # sendBeacon no admite cabeceras propias, así que /api/bye se
+        # autentica con el secreto de esta ejecución en la URL. Solo la
+        # página servida por este proceso lo conoce.
+        if path == "/api/bye":
+            token = parse_qs(urlparse(self.path).query).get("k", [""])[0]
+            if not secrets.compare_digest(token, SECRET):
+                return self._json({"error": "No autorizado"}, 403)
+            _page["closing_since"] = time.time()
+            event(SYM["warn"], f"Página cerrada — esperando {GRACE_SECONDS} s por si fue un reinicio…", "93")
+            return self._json({"ok": True})
+        if not self._guard():
+            return
+        if path == "/api/hello":
+            page_alive()
+            event(SYM["ok"], "Página conectada", "92")
+            return self._json({"ok": True, "key": SECRET})
+        if path == "/api/pick":
+            return self._pick()
+        if path == "/api/replace":
+            return self._replace()
         self.send_error(404)
 
     # ── Endpoints ──
@@ -267,11 +402,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if not os.path.isfile(path):
             return self._json({"error": "El archivo no existe."}, 400)
-        token = secrets.token_urlsafe(16)
-        with _lock:
-            _files[token] = path
+        token = remember_file(path)
         verb = "A reemplazar" if intent == "target" else "Abierto"
-        event("⬈", f"{verb}: {path}", "0")
+        event(SYM["open"], f"{verb}: {path}", "0")
         return self._json({"token": token, "path": path,
                            "name": os.path.basename(path)})
 
@@ -279,13 +412,18 @@ class Handler(BaseHTTPRequestHandler):
         if not self._guard():
             return
         token = parse_qs(urlparse(self.path).query).get("token", [""])[0]
-        with _lock:
-            path = _files.get(token)
+        path = lookup_file(token)
         if not path or not os.path.isfile(path):
             return self._json({"error": "Archivo no disponible."}, 404)
-        with open(path, "rb") as fh:
-            data = fh.read()
+        try:
+            with open(path, "rb") as fh:
+                data = fh.read()
+        except OSError as exc:
+            # Se leyó todo ANTES de enviar cabeceras: si falla, todavía se
+            # puede responder un error limpio sin romper la conexión.
+            return self._json({"error": f"No se pudo leer el archivo: {exc.strerror}"}, 500)
         ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
+        self._started = True
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
@@ -293,27 +431,38 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _replace(self):
-        from urllib.parse import unquote
         token = self.headers.get("X-N4DU-Token", "")
         ext = self.headers.get("X-N4DU-Ext", "").lower().lstrip(".")
         new_stem = unquote(self.headers.get("X-N4DU-Name", ""))
-        with _lock:
-            original = _files.get(token)
+        overwrite = self.headers.get("X-N4DU-Overwrite") == "1"
+        original = lookup_file(token)
         if not original:
             return self._json({"error": "No hay archivo abierto para reemplazar."}, 400)
+        if not os.path.isfile(original):
+            return self._json(
+                {"error": f"{os.path.basename(original)} ya no está en su carpeta."}, 410)
         data = self._body()
         if not data:
             return self._json({"error": "No llegaron datos."}, 400)
-        target = replace_file(original, data, ext, new_stem or None)
+
+        try:
+            target, warning = replace_file(original, data, ext, new_stem or None, overwrite)
+        except FileExistsError as exc:
+            # El destino es otro archivo que ya existe: no se pisa nada sin
+            # que la persona lo confirme.
+            return self._json({"error": f"Ya existe {exc}.", "conflict": str(exc)}, 409)
+
         with _lock:
             _files[token] = target  # próximos reemplazos siguen sobre el nuevo
         kb = len(data) / 1024
         peso = f"{kb/1024:.2f} MB" if kb >= 1024 else f"{kb:.0f} KB"
         old = os.path.basename(original)
         new = os.path.basename(target)
-        detail = new if old == new else f"{old} → {new}"
-        event("⟳", f"Reemplazado: {detail} ({peso})", "96")
-        return self._json({"path": target, "name": new})
+        detail = new if old == new else f'{old} {SYM["arrow"]} {new}'
+        event(SYM["swap"], f"Reemplazado: {detail} ({peso})", "96")
+        if warning:
+            event(SYM["warn"], warning, "93")
+        return self._json({"path": target, "name": new, "warning": warning})
 
     # ── Estáticos ──
     def _static(self, path):
@@ -326,13 +475,20 @@ class Handler(BaseHTTPRequestHandler):
             _page["last_ping"] = time.time()
         if path in ("/", ""):
             path = "/index.html"
-        safe = os.path.normpath(os.path.join(ROOT, path.lstrip("/")))
-        if not safe.startswith(ROOT) or not os.path.isfile(safe):
+        safe = os.path.normpath(os.path.join(ROOT, unquote(path).lstrip("/\\")))
+        # Comparar con el separador incluido: sin él, una carpeta hermana que
+        # empiece igual (Avatar_Studio_otra) pasaría el filtro.
+        if not (safe == ROOT or safe.startswith(ROOT + os.sep)) or not os.path.isfile(safe):
             self.send_error(404)
             return
         ctype = mimetypes.guess_type(safe)[0] or "application/octet-stream"
-        with open(safe, "rb") as fh:
-            data = fh.read()
+        try:
+            with open(safe, "rb") as fh:
+                data = fh.read()
+        except OSError:
+            self.send_error(404)
+            return
+        self._started = True
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
@@ -341,19 +497,25 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
-def free_port():
+def start_server():
+    """Levanta el servidor en el primer puerto libre. Se intenta enlazar de
+    verdad (no solo sondear) para que nadie gane la carrera por el puerto."""
+    last = None
     for port in PORTS:
-        with socket.socket() as s:
-            if s.connect_ex((HOST, port)) != 0:
-                return port
-    return PORTS.start
+        try:
+            return ThreadingHTTPServer((HOST, port), Handler), port
+        except OSError as exc:
+            last = exc
+    raise SystemExit(
+        f"\n  No hay puertos libres entre {PORTS.start} y {PORTS.stop - 1}.\n"
+        f"  ¿Ya tenés N4DU Studio abierto? Cerralo y volvé a intentar.\n"
+        f"  ({last})\n")
 
 
 def main():
     mimetypes.add_type("text/javascript", ".js")
-    port = free_port()
+    server, port = start_server()
     url = f"http://{HOST}:{port}/"
-    server = ThreadingHTTPServer((HOST, port), Handler)
 
     banner(url)
     threading.Thread(target=watchdog, daemon=True).start()
@@ -363,11 +525,11 @@ def main():
 
     try:
         _shutdown["event"].wait()          # lo despierta el watchdog
-        event("✓", _shutdown["reason"] + " Servidor cerrado. ¡Hasta luego!", "92")
+        event(SYM["ok"], _shutdown["reason"] + " Servidor cerrado. ¡Hasta luego!", "92")
     except KeyboardInterrupt:
         with _print_lock:
             print()
-        event("✓", "Cerrado con Ctrl+C. ¡Hasta luego!", "92")
+        event(SYM["ok"], "Cerrado con Ctrl+C. ¡Hasta luego!", "92")
     server.shutdown()
 
 
