@@ -5,7 +5,7 @@
 
   const { state, toast, bridge } = N4DU;
   const { loadImage } = N4DU.loader;
-  const { exportBlob, FORMATS } = N4DU.exporter;
+  const { exportBlob, FORMATS, outputDims } = N4DU.exporter;
   const { renderOutput } = N4DU.render;
 
   const $ = (id) => document.getElementById(id);
@@ -50,7 +50,7 @@
 
   function close() {
     $('replaceModal').hidden = true;
-    srcBitmap = null;
+    releaseSource();
   }
 
   // Elegir (o cambiar) el archivo del disco a reemplazar.
@@ -70,7 +70,7 @@
 
   // Carga los bytes del archivo a reemplazar y arma su miniatura.
   async function loadSourceThumb() {
-    srcBitmap = null;
+    releaseSource();
     if (!bridge.canReplace()) return;
     try {
       const blob = await bridge.readCurrent();
@@ -79,6 +79,12 @@
       srcBitmap = null; // no se pudo previsualizar; igual se puede reemplazar
     }
     paintSource();
+  }
+
+  // Libera la miniatura anterior (retiene memoria de imagen decodificada).
+  function releaseSource() {
+    if (srcBitmap && typeof srcBitmap.close === 'function') srcBitmap.close();
+    srcBitmap = null;
   }
 
   function paintSource() {
@@ -96,14 +102,16 @@
     }
   }
 
-  // Miniatura del resultado: refleja recorte, forma y formato reales.
+  // Miniatura del resultado: refleja recorte, forma, tamaño real (con el
+  // recorte a 256 del ICO) y el fondo del formato elegido.
   function drawDestThumb() {
     const MAX = 88;
-    const w0 = Math.max(1, state.outW), h0 = Math.max(1, state.outH);
-    const s = Math.min(MAX / w0, MAX / h0, 1);
-    const w = Math.max(1, Math.round(w0 * s));
-    const h = Math.max(1, Math.round(h0 * s));
-    const out = renderOutput(state, w, h);
+    const { W, H } = outputDims(state);
+    const s = Math.min(MAX / W, MAX / H, 1);
+    const w = Math.max(1, Math.round(W * s));
+    const h = Math.max(1, Math.round(H * s));
+    const bg = FORMATS[state.fmt].alpha ? null : '#ffffff';
+    const out = renderOutput(state, w, h, bg);
     const c = $('dstThumb');
     c.width = w; c.height = h;
     c.getContext('2d').drawImage(out, 0, 0);
@@ -137,12 +145,32 @@
     btn.disabled = true;
     btn.textContent = 'Reemplazando…';
     try {
-      const { blob } = await exportBlob(state);
-      const out = await bridge.replaceOriginal(blob, FORMATS[state.fmt].ext, stem);
+      const { blob, limit } = await exportBlob(state);
+      const ext = FORMATS[state.fmt].ext;
+      let out;
+      try {
+        out = await bridge.replaceOriginal(blob, ext, stem);
+      } catch (err) {
+        // El destino ya existe y es otro archivo: el servidor no pisa nada
+        // sin permiso, así que se pregunta antes de destruirlo.
+        if (!err.conflict) throw err;
+        const ok = window.confirm(
+          `Ya existe "${err.conflict}" en esa carpeta.\n\n` +
+          `Si continuás, ese archivo se reemplaza por el nuevo y ` +
+          `"${baseName(bridge.path)}" se elimina.\n\n¿Continuar?`);
+        if (!ok) { toast('Reemplazo cancelado', ''); return; }
+        out = await bridge.replaceOriginal(blob, ext, stem, true);
+      }
       const kb = blob.size / 1024;
       const peso = kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(0) + ' KB';
-      toast(`Reemplazado en disco: ${out.name} · ${peso}`, 'ok');
       close();
+      if (limit && !limit.ok) {
+        toast(`Reemplazado ${out.name} · ${peso} — no se pudo bajar de ${limit.maxKb} KB`, 'err');
+      } else if (out.warning) {
+        toast(`Reemplazado ${out.name} · ${peso} — ${out.warning}`, 'err');
+      } else {
+        toast(`Reemplazado en disco: ${out.name} · ${peso}`, 'ok');
+      }
       if (onDone) onDone(out);
     } catch (err) {
       toast('Error al reemplazar: ' + err.message, 'err');

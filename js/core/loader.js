@@ -20,14 +20,9 @@
     'tif', 'tiff', 'heic', 'heif', 'jp2', 'j2k', 'jpx',
   ];
 
-  const NAME_RE = new RegExp('\\.(' + EXTENSIONS.join('|') + ')$', 'i');
-
-  // Lista para el atributo accept del <input type=file>.
+  // Lista para el atributo accept del <input type=file>. Es solo una ayuda
+  // del diálogo: la app acepta cualquier archivo y decide por el contenido.
   const ACCEPT = 'image/*,' + EXTENSIONS.map(e => '.' + e).join(',');
-
-  function isImageFile(file) {
-    return /^image\//i.test(file.type) || NAME_RE.test(file.name);
-  }
 
   // Decodifica cualquier formato que el navegador entienda.
   // createImageBitmap cubre los rasterizados; el fallback con <img>
@@ -66,6 +61,6 @@
     return `No se pudo decodificar el archivo${ext ? ` (.${ext})` : ''}. ¿Es realmente una imagen?`;
   }
 
-  N4DU.loader = { EXTENSIONS, ACCEPT, isImageFile, loadImage, decodeErrorMessage };
+  N4DU.loader = { EXTENSIONS, ACCEPT, loadImage, decodeErrorMessage };
 
 })(window.N4DU ??= {});

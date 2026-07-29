@@ -34,6 +34,11 @@
 
   // Reinicia el estado para una imagen recién cargada.
   function resetForImage(bmp, file) {
+    // Liberar la anterior: un ImageBitmap retiene memoria de imagen
+    // decodificada que el recolector tarda en soltar.
+    if (state.img && state.img !== bmp && typeof state.img.close === 'function') {
+      state.img.close();
+    }
     state.img = bmp;
     state.origW = bmp.width;
     state.origH = bmp.height;

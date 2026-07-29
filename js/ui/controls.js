@@ -3,9 +3,19 @@
 
   const { state } = N4DU;
   const { shapeLabel } = N4DU.geometry;
-  const { FORMATS, detectEncodeSupport, renderAndEncode } = N4DU.exporter;
+  const { FORMATS, detectEncodeSupport, renderAndEncode, exportBlob } = N4DU.exporter;
 
   const $ = (id) => document.getElementById(id);
+
+  const MAX_SIDE = 8192;   // igual que el atributo max de los campos
+
+  // Devuelve un lado válido (1…MAX_SIDE) o null si todavía no hay número
+  // (campo vacío mientras se escribe: no se toca el estado).
+  function clampSide(raw) {
+    const n = parseInt(raw, 10);
+    if (!Number.isFinite(n)) return null;
+    return Math.max(1, Math.min(MAX_SIDE, n));
+  }
 
   function setActive(containerId, match) {
     document.querySelectorAll(`#${containerId} .pill`).forEach(b =>
@@ -60,22 +70,27 @@
     });
 
     // ── Tamaño: campos manuales ──
+    // Se topea a MAX_SIDE: un valor enorme (pegado sin querer) crearía un
+    // canvas imposible y tiraría la página.
     $('outW').addEventListener('input', e => {
-      const w = parseInt(e.target.value);
-      if (!w || w < 1) return;
+      const w = clampSide(e.target.value);
+      if (w === null) return;                 // vacío mientras se escribe
       state.outW = w;
       if (state.mode === 'crop') state.outH = w;
       else if (state.lockAspect) state.outH = Math.max(1, Math.round(w * state.origH / state.origW));
       onChange();
     });
     $('outH').addEventListener('input', e => {
-      const h = parseInt(e.target.value);
-      if (!h || h < 1) return;
+      const h = clampSide(e.target.value);
+      if (h === null) return;
       state.outH = h;
       if (state.mode === 'crop') state.outW = h;
       else if (state.lockAspect) state.outW = Math.max(1, Math.round(h * state.origW / state.origH));
       onChange();
     });
+    // Al salir del campo se normaliza lo que haya quedado escrito.
+    $('outW').addEventListener('blur', () => onChange());
+    $('outH').addEventListener('blur', () => onChange());
     $('lockBtn').addEventListener('click', () => {
       state.lockAspect = !state.lockAspect;
       $('lockBtn').classList.toggle('active', state.lockAspect);
@@ -97,11 +112,17 @@
       onChange();
     });
 
-    // Ocultar formatos que este navegador no puede codificar
+    // Ocultar formatos que este navegador no puede codificar. Si justo el
+    // formato elegido no está disponible, se vuelve a PNG (soportado en
+    // todos) para no quedar apuntando a un formato muerto.
     detectEncodeSupport().then(support => {
       document.querySelectorAll('#fmtPills .pill').forEach(btn => {
         if (!support[btn.dataset.fmt]) btn.style.display = 'none';
       });
+      if (!support[state.fmt]) {
+        state.fmt = 'png';
+        onChange();
+      }
     });
   }
 
@@ -141,24 +162,33 @@
   }
 
   // Estimación de peso (asíncrona y con debounce: codificar cuesta CPU).
+  // Con límite activo se calcula el archivo REAL (comprimido), así lo que se
+  // muestra es lo que se va a obtener — y si el límite no se puede cumplir,
+  // se dice claramente en vez de prometerlo.
   let estimateTimer = null;
   let estimateSeq = 0;
 
   function updateEstimate() {
     const el = $('sizeEstimate');
-    if (!state.img) { el.textContent = '—'; return; }
+    if (!state.img) { el.textContent = '—'; el.classList.remove('warn'); return; }
     el.textContent = 'Calculando peso…';
+    el.classList.remove('warn');
     clearTimeout(estimateTimer);
     const seq = ++estimateSeq;
     estimateTimer = setTimeout(async () => {
       try {
-        const blob = await renderAndEncode(state);
+        const withLimit = !!state.maxKb;
+        const result = withLimit ? await exportBlob(state) : { blob: await renderAndEncode(state) };
         if (seq !== estimateSeq) return; // llegó tarde: hay un cálculo más nuevo
-        const kb = blob.size / 1024;
-        let txt = `Peso estimado: ${kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(1) + ' KB'}`;
-        if (state.maxKb && blob.size > state.maxKb * 1024)
-          txt += ` → se comprimirá a ≤ ${state.maxKb} KB`;
-        el.textContent = txt;
+        const size = result.blob.size;
+        const kb = size / 1024;
+        const peso = kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(1) + ' KB';
+        if (withLimit && result.limit && !result.limit.ok) {
+          el.textContent = `Peso: ${peso} — no se puede bajar de ${state.maxKb} KB`;
+          el.classList.add('warn');
+        } else {
+          el.textContent = `Peso: ${peso}`;
+        }
       } catch {
         if (seq === estimateSeq) el.textContent = '—';
       }
