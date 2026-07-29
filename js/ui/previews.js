@@ -1,4 +1,4 @@
-// Miniatura de la salida y datos en la barra de estado.
+// Output thumbnail and the status bar readout.
 (function (N4DU) {
 
   const { state } = N4DU;
@@ -6,8 +6,8 @@
   const { FORMATS, outputDims } = N4DU.exporter;
   const { renderOutput } = N4DU.render;
 
-  // Miniatura fiel a la salida (misma proporción y forma), sobre fondo
-  // a cuadros para ver la transparencia.
+  // Thumbnail faithful to the output (same aspect and shape), over a
+  // checkerboard so transparency is visible.
   function drawThumb() {
     if (!state.img) return;
     const { W, H } = outputDims(state);
@@ -16,9 +16,9 @@
     const w = Math.max(1, Math.round(W * s));
     const h = Math.max(1, Math.round(H * s));
 
-    // Mismo fondo que la exportación: los formatos sin transparencia
-    // (JPG, BMP) rellenan de blanco, así la vista previa no promete unas
-    // esquinas transparentes que el archivo no va a tener.
+    // Same background as the export: formats without transparency (JPG,
+    // BMP) fill with white, so the preview never promises transparent
+    // corners the file will not have.
     const bg = FORMATS[state.fmt].alpha ? null : '#ffffff';
     const out = renderOutput(state, w, h, bg);
     const c = document.getElementById('thumbCanvas');

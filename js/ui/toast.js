@@ -1,4 +1,4 @@
-// Notificaciones flotantes.
+// Transient notifications.
 (function (N4DU) {
 
   let timer = null;

@@ -1,4 +1,4 @@
-// Panel de controles: modo, forma, tamaño, formato, calidad y peso.
+// Output panel: framing, shape, size, format, quality and weight limit.
 (function (N4DU) {
 
   const { state } = N4DU;
@@ -7,10 +7,10 @@
 
   const $ = (id) => document.getElementById(id);
 
-  const MAX_SIDE = 8192;   // igual que el atributo max de los campos
+  const MAX_SIDE = 8192;   // matches the max attribute on the inputs
 
-  // Devuelve un lado válido (1…MAX_SIDE) o null si todavía no hay número
-  // (campo vacío mientras se escribe: no se toca el estado).
+  // Returns a valid side (1…MAX_SIDE), or null when there is no number yet
+  // (empty field while typing: state is left alone).
   function clampSide(raw) {
     const n = parseInt(raw, 10);
     if (!Number.isFinite(n)) return null;
@@ -23,7 +23,7 @@
   }
 
   function initControls(onChange) {
-    // ── Modo ──
+    // ── Framing mode ──
     document.querySelectorAll('#modePills .pill').forEach(btn => {
       btn.addEventListener('click', () => {
         if (state.mode === btn.dataset.mode) return;
@@ -41,7 +41,7 @@
       });
     });
 
-    // ── Forma (redondeo) ──
+    // ── Shape (corner rounding) ──
     $('shapeSlider').addEventListener('input', e => {
       state.roundness = Math.max(0, Math.min(100, parseInt(e.target.value) || 0));
       onChange();
@@ -51,7 +51,7 @@
       onChange();
     });
 
-    // ── Tamaño: porcentajes (modo imagen completa) ──
+    // ── Size: percentages (whole-image mode) ──
     document.querySelectorAll('#percentPills .pill').forEach(btn => {
       btn.addEventListener('click', () => {
         const p = parseInt(btn.dataset.pct) / 100;
@@ -61,7 +61,7 @@
       });
     });
 
-    // ── Tamaño: presets cuadrados (modo recorte) ──
+    // ── Size: square presets (avatar crop mode) ──
     document.querySelectorAll('#presetPills .pill').forEach(btn => {
       btn.addEventListener('click', () => {
         state.outW = state.outH = parseInt(btn.dataset.size);
@@ -69,12 +69,12 @@
       });
     });
 
-    // ── Tamaño: campos manuales ──
-    // Se topea a MAX_SIDE: un valor enorme (pegado sin querer) crearía un
-    // canvas imposible y tiraría la página.
+    // ── Size: manual fields ──
+    // Clamped to MAX_SIDE: a huge value (pasted by accident) would create an
+    // impossible canvas and take the page down.
     $('outW').addEventListener('input', e => {
       const w = clampSide(e.target.value);
-      if (w === null) return;                 // vacío mientras se escribe
+      if (w === null) return;                 // empty while typing
       state.outW = w;
       if (state.mode === 'crop') state.outH = w;
       else if (state.lockAspect) state.outH = Math.max(1, Math.round(w * state.origH / state.origW));
@@ -88,7 +88,7 @@
       else if (state.lockAspect) state.outW = Math.max(1, Math.round(h * state.origW / state.origH));
       onChange();
     });
-    // Al salir del campo se normaliza lo que haya quedado escrito.
+    // Leaving the field normalises whatever was typed.
     $('outW').addEventListener('blur', () => onChange());
     $('outH').addEventListener('blur', () => onChange());
     $('lockBtn').addEventListener('click', () => {
@@ -96,7 +96,7 @@
       $('lockBtn').classList.toggle('active', state.lockAspect);
     });
 
-    // ── Formato ──
+    // ── Format ──
     document.querySelectorAll('#fmtPills .pill').forEach(btn => {
       btn.addEventListener('click', () => {
         state.fmt = btn.dataset.fmt;
@@ -112,9 +112,9 @@
       onChange();
     });
 
-    // Ocultar formatos que este navegador no puede codificar. Si justo el
-    // formato elegido no está disponible, se vuelve a PNG (soportado en
-    // todos) para no quedar apuntando a un formato muerto.
+    // Hide formats this browser cannot encode. If the selected format is
+    // among them, fall back to PNG (supported everywhere) so the state never
+    // points at a dead format.
     detectEncodeSupport().then(support => {
       document.querySelectorAll('#fmtPills .pill').forEach(btn => {
         if (!support[btn.dataset.fmt]) btn.style.display = 'none';
@@ -126,7 +126,7 @@
     });
   }
 
-  // Refleja el estado en los controles (pills activos, campos, hints).
+  // Mirrors state into the controls (active pills, fields, hints).
   function syncControls() {
     setActive('modePills', b => b.dataset.mode === state.mode);
     setActive('fmtPills',  b => b.dataset.fmt === state.fmt);
@@ -150,28 +150,28 @@
     $('qualityRow').style.display = FORMATS[state.fmt].lossy ? 'flex' : 'none';
 
     $('modeHint').textContent = state.mode === 'original'
-      ? 'Se exporta la imagen entera, con su proporción original.'
-      : 'Arrastrá para mover el encuadre; rueda o slider para el zoom; flechas para ajuste fino.';
+      ? 'Exports the whole image at its own aspect ratio.'
+      : 'Drag to move the framing; wheel or slider to zoom; arrow keys to nudge.';
 
     const hints = [];
     if (!FORMATS[state.fmt].alpha && state.roundness > 0)
-      hints.push(`El ${FORMATS[state.fmt].label} no admite transparencia: fuera de la forma el fondo será blanco.`);
+      hints.push(`${FORMATS[state.fmt].label} has no transparency: outside the shape the background will be white.`);
     if (state.fmt === 'ico')
-      hints.push('El formato ICO admite hasta 256×256 px; tamaños mayores se reducen.');
+      hints.push('ICO supports up to 256×256 px; larger sizes are scaled down.');
     $('fmtHint').textContent = hints.join(' ');
   }
 
-  // Estimación de peso (asíncrona y con debounce: codificar cuesta CPU).
-  // Con límite activo se calcula el archivo REAL (comprimido), así lo que se
-  // muestra es lo que se va a obtener — y si el límite no se puede cumplir,
-  // se dice claramente en vez de prometerlo.
+  // Size estimate (async and debounced: encoding costs CPU).
+  // With a limit set, the REAL compressed file is computed, so what is shown
+  // is what you get — and when the limit cannot be met it says so instead of
+  // promising it.
   let estimateTimer = null;
   let estimateSeq = 0;
 
   function updateEstimate() {
     const el = $('sizeEstimate');
     if (!state.img) { el.textContent = '—'; el.classList.remove('warn'); return; }
-    el.textContent = 'Calculando peso…';
+    el.textContent = 'Calculating size…';
     el.classList.remove('warn');
     clearTimeout(estimateTimer);
     const seq = ++estimateSeq;
@@ -179,15 +179,15 @@
       try {
         const withLimit = !!state.maxKb;
         const result = withLimit ? await exportBlob(state) : { blob: await renderAndEncode(state) };
-        if (seq !== estimateSeq) return; // llegó tarde: hay un cálculo más nuevo
+        if (seq !== estimateSeq) return; // stale: a newer estimate is running
         const size = result.blob.size;
         const kb = size / 1024;
-        const peso = kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(1) + ' KB';
+        const label = kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(1) + ' KB';
         if (withLimit && result.limit && !result.limit.ok) {
-          el.textContent = `Peso: ${peso} — no se puede bajar de ${state.maxKb} KB`;
+          el.textContent = `Size: ${label} — cannot get under ${state.maxKb} KB`;
           el.classList.add('warn');
         } else {
-          el.textContent = `Peso: ${peso}`;
+          el.textContent = `Size: ${label}`;
         }
       } catch {
         if (seq === estimateSeq) el.textContent = '—';
