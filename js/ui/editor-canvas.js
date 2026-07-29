@@ -12,14 +12,25 @@
     return Math.min(w.clientWidth, w.clientHeight) || 460;
   }
 
+  // ¿Hay un diálogo modal abierto? (los atajos del canvas no deben actuar)
+  function modalOpen() {
+    const m = document.getElementById('replaceModal');
+    return !!m && !m.hidden;
+  }
+
   // Dibuja el estado actual: imagen atenuada de fondo y la zona que se
   // exporta nítida, con el contorno de la forma elegida.
   function drawEditor() {
     if (!state.img) return;
     const c = canvas();
     const S = canvasSize();
-    c.width = c.height = S;
+    // Se dibuja a la resolución real de la pantalla (en un monitor 2× el
+    // canvas tendría la mitad de definición) y se trabaja en píxeles CSS.
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    c.width = c.height = Math.round(S * dpr);
     const ctx = c.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingQuality = 'high';
 
     ctx.fillStyle = '#0d0d0d';
     ctx.fillRect(0, 0, S, S);
@@ -34,8 +45,12 @@
       dw = state.origW * scale; dh = state.origH * scale;
       fx = 2; fy = 2; fw = S - 4; fh = S - 4;
     } else {
-      const scale = Math.min((S - 4) / state.origW, (S - 4) / state.origH);
-      dw = state.origW * scale; dh = state.origH * scale;
+      // La vista respeta la proporción de SALIDA: si se desbloquea el
+      // candado y se deforma el tamaño, acá se ve deformado igual que en
+      // el archivo final.
+      const outW = Math.max(1, state.outW), outH = Math.max(1, state.outH);
+      const scale = Math.min((S - 4) / outW, (S - 4) / outH);
+      dw = outW * scale; dh = outH * scale;
       dx = (S - dw) / 2; dy = (S - dh) / 2;
       fx = dx; fy = dy; fw = dw; fh = dh;
     }
@@ -78,7 +93,8 @@
     c.addEventListener('pointermove', e => {
       if (!dragging || !state.img) return;
       const { side } = cropRect(state);
-      const pxPerCanvas = side / c.width;
+      // El puntero se mueve en píxeles CSS, no en los del canvas.
+      const pxPerCanvas = side / canvasSize();
       state.cx -= (e.clientX - last.x) * pxPerCanvas;
       state.cy -= (e.clientY - last.y) * pxPerCanvas;
       last = { x: e.clientX, y: e.clientY };
@@ -97,11 +113,12 @@
     window.addEventListener('keydown', e => {
       if (state.mode !== 'crop' || !state.img) return;
       if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
+      if (modalOpen()) return;   // no mover el recorte por debajo del diálogo
       const moves = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
       const m = moves[e.key];
       if (!m) return;
       e.preventDefault();
-      const step = (e.shiftKey ? 40 : 8) * (cropRect(state).side / canvas().width);
+      const step = (e.shiftKey ? 40 : 8) * (cropRect(state).side / canvasSize());
       state.cx += m[0] * step;
       state.cy += m[1] * step;
       clampCenter(state);

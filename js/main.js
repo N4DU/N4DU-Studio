@@ -78,11 +78,16 @@
     btn.disabled = true;
     btn.textContent = 'Procesando…';
     try {
-      const { blob, filename } = await exportBlob(state);
+      const { blob, filename, limit } = await exportBlob(state);
       download(blob, filename);
       const kb = blob.size / 1024;
       const peso = kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(0) + ' KB';
-      toast(`Descargado ${filename} · ${peso}`, 'ok');
+      if (limit && !limit.ok) {
+        // Nunca dar por bueno un archivo que se pasa del límite pedido.
+        toast(`Descargado ${filename} · ${peso} — no se pudo bajar de ${limit.maxKb} KB`, 'err');
+      } else {
+        toast(`Descargado ${filename} · ${peso}`, 'ok');
+      }
     } catch (err) {
       toast('Error al exportar: ' + err.message, 'err');
     } finally {
@@ -112,9 +117,13 @@
     }[c]));
   }
 
-  // Atajos de teclado de escritorio
+  // Atajos de teclado de escritorio. Se ignoran mientras se escribe en un
+  // campo o con el diálogo de reemplazo abierto: si no, Ctrl+S descargaría
+  // y Ctrl+R borraría el nombre que se está tipeando.
   window.addEventListener('keydown', e => {
     if (!(e.ctrlKey || e.metaKey)) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
+    if (!document.getElementById('replaceModal').hidden) return;
     const k = e.key.toLowerCase();
     if (k === 'o') { e.preventDefault(); chooseFile(); }
     if ((k === 's' || k === 'e') && state.img) { e.preventDefault(); onDownload(); }
