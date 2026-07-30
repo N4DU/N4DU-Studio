@@ -137,14 +137,82 @@
 
   // ── Filters ───────────────────────────────────────────────────────
 
+  // Does this browser support canvas filters? Safari only gained them
+  // recently, so a manual blur is kept as a fallback.
+  let filterSupport = null;
+  function hasFilter() {
+    if (filterSupport === null) {
+      const ctx = new OffscreenCanvas(1, 1).getContext('2d');
+      ctx.filter = 'blur(1px)';
+      filterSupport = ctx.filter !== 'none';
+    }
+    return filterSupport;
+  }
+
+  // Blurs a region of src into ctx (which must be w×h). Uses the native
+  // filter when available, otherwise a separable box blur — three passes
+  // approximate a Gaussian closely enough to look the same.
+  function blurInto(ctx, src, sx, sy, w, h, radius) {
+    if (hasFilter()) {
+      ctx.filter = `blur(${radius}px)`;
+      ctx.drawImage(src, sx, sy, w, h, 0, 0, w, h);
+      ctx.filter = 'none';
+      return;
+    }
+    ctx.drawImage(src, sx, sy, w, h, 0, 0, w, h);
+    const img = ctx.getImageData(0, 0, w, h);
+    const r = Math.max(1, Math.round(radius * 0.6));
+    for (let pass = 0; pass < 3; pass++) {
+      boxBlurPass(img.data, w, h, r, true);
+      boxBlurPass(img.data, w, h, r, false);
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
+  // One box-blur pass over rows (horizontal) or columns (vertical).
+  function boxBlurPass(d, w, h, r, horizontal) {
+    const outer = horizontal ? h : w;
+    const inner = horizontal ? w : h;
+    const stride = horizontal ? 4 : w * 4;
+    const jump = horizontal ? w * 4 : 4;
+    const line = new Float32Array(inner * 4);
+
+    for (let o = 0; o < outer; o++) {
+      const base = o * jump;
+      for (let i = 0; i < inner; i++) {
+        const p = base + i * stride;
+        line[i * 4] = d[p]; line[i * 4 + 1] = d[p + 1];
+        line[i * 4 + 2] = d[p + 2]; line[i * 4 + 3] = d[p + 3];
+      }
+      let sr = 0, sg = 0, sb = 0, sa = 0, count = 0;
+      // Prime the window.
+      for (let i = 0; i <= r && i < inner; i++) {
+        sr += line[i * 4]; sg += line[i * 4 + 1];
+        sb += line[i * 4 + 2]; sa += line[i * 4 + 3]; count++;
+      }
+      for (let i = 0; i < inner; i++) {
+        const p = base + i * stride;
+        d[p] = sr / count; d[p + 1] = sg / count;
+        d[p + 2] = sb / count; d[p + 3] = sa / count;
+        const add = i + r + 1, drop = i - r;
+        if (add < inner) {
+          sr += line[add * 4]; sg += line[add * 4 + 1];
+          sb += line[add * 4 + 2]; sa += line[add * 4 + 3]; count++;
+        }
+        if (drop >= 0) {
+          sr -= line[drop * 4]; sg -= line[drop * 4 + 1];
+          sb -= line[drop * 4 + 2]; sa -= line[drop * 4 + 3]; count--;
+        }
+      }
+    }
+  }
+
   // Blurs the whole surface. radius is in pixels.
   function blurAll(radius) {
     if (!surface || radius <= 0) return;
     pushHistory();
     const out = new OffscreenCanvas(surface.width, surface.height);
-    const ctx = out.getContext('2d');
-    ctx.filter = `blur(${radius}px)`;
-    ctx.drawImage(surface, 0, 0);
+    blurInto(out.getContext('2d'), surface, 0, 0, surface.width, surface.height, radius);
     surface = out;
     changed();
   }
@@ -263,33 +331,60 @@
     changed();
   }
 
-  // Blur brush: blurs only what the stroke covers, by compositing a blurred
-  // copy of the surface through the stroke as a mask.
+  // Blur brush: blurs only what the stroke covers.
+  //
+  // Only the bounding box of the incoming segment is processed, so the cost
+  // depends on the brush size — not on the image size. Blurring the whole
+  // surface on every pointer move made large images unusable.
   function blurStroke(points, { width, radius = 8 }) {
     if (!surface || !points.length) return;
-    const w = surface.width, h = surface.height;
 
-    // Blurred version of the whole surface.
+    // Padding must exceed the blur reach, otherwise the mask would expose
+    // pixels contaminated by the region's own edges.
+    const pad = Math.ceil(width / 2 + radius * 3 + 2);
+    const box = strokeBox(points, pad);
+    if (!box) return;
+    const { x, y, w, h } = box;
+
+    // Blurred copy of just that region.
     const blurred = new OffscreenCanvas(w, h);
     const bctx = blurred.getContext('2d');
-    bctx.filter = `blur(${radius}px)`;
-    bctx.drawImage(surface, 0, 0);
+    blurInto(bctx, surface, x, y, w, h, radius);
 
-    // Mask shaped like the stroke.
+    // Mask shaped like the stroke, in region-local coordinates.
     const mask = new OffscreenCanvas(w, h);
     const mctx = mask.getContext('2d');
     mctx.lineWidth = width;
     mctx.lineJoin = 'round';
     mctx.lineCap = 'round';
     mctx.strokeStyle = '#fff';
+    mctx.translate(-x, -y);
     tracePath(mctx, points, width);
+    mctx.setTransform(1, 0, 0, 1, 0, 0);
 
-    // Keep the blurred pixels only where the mask is, then stamp them on.
+    // Keep the blurred pixels only where the mask is, then stamp them back.
     mctx.globalCompositeOperation = 'source-in';
     mctx.drawImage(blurred, 0, 0);
-
-    surface.getContext('2d').drawImage(mask, 0, 0);
+    surface.getContext('2d').drawImage(mask, x, y);
     changed();
+  }
+
+  // Bounding box of a set of points, padded and clipped to the surface.
+  function strokeBox(points, pad) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of points) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+    if (minX === Infinity) return null;
+    const x = Math.max(0, Math.floor(minX - pad));
+    const y = Math.max(0, Math.floor(minY - pad));
+    const x2 = Math.min(surface.width, Math.ceil(maxX + pad));
+    const y2 = Math.min(surface.height, Math.ceil(maxY + pad));
+    if (x2 <= x || y2 <= y) return null;
+    return { x, y, w: x2 - x, h: y2 - y };
   }
 
   function tracePath(ctx, points, width) {
