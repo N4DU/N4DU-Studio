@@ -524,11 +524,15 @@ def main():
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
 
     try:
-        _shutdown["event"].wait()          # woken by the watchdog
+        # Polled instead of a plain wait(): on Windows a blocking wait with no
+        # timeout swallows Ctrl+C until it returns, so the key appeared to do
+        # nothing. Waking briefly lets the interrupt through.
+        while not _shutdown["event"].wait(0.2):
+            pass
         event(SYM["ok"], _shutdown["reason"] + " Server stopped. Goodbye.", "92")
     except KeyboardInterrupt:
         with _print_lock:
-            print()
+            _write("")
         event(SYM["ok"], "Stopped with Ctrl+C. Goodbye.", "92")
     server.shutdown()
 

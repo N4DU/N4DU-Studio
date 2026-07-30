@@ -82,6 +82,21 @@
 
   // ── Geometry operations ───────────────────────────────────────────
 
+  // The surface's drawing context, guaranteed to have no leftover transform.
+  //
+  // Canvas contexts keep their transform between calls, and the same context
+  // object is handed back on every getContext. A rotate or flip left its
+  // matrix in place, so every later brush stroke was transformed too and
+  // landed somewhere else entirely. Everything that paints goes through here.
+  function surfaceCtx(options) {
+    const ctx = surface.getContext('2d', options);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.filter = 'none';
+    return ctx;
+  }
+
   // Rotates in multiples of 90 degrees, clockwise.
   function rotate(degrees) {
     if (!surface) return;
@@ -93,9 +108,11 @@
     const w = surface.width, h = surface.height;
     const out = new OffscreenCanvas(swap ? h : w, swap ? w : h);
     const ctx = out.getContext('2d');
+    ctx.save();
     ctx.translate(out.width / 2, out.height / 2);
     ctx.rotate(turns * Math.PI / 2);
     ctx.drawImage(surface, -w / 2, -h / 2);
+    ctx.restore();
     surface = out;
     changed();
   }
@@ -107,9 +124,11 @@
     const w = surface.width, h = surface.height;
     const out = new OffscreenCanvas(w, h);
     const ctx = out.getContext('2d');
+    ctx.save();
     ctx.translate(axis === 'h' ? w : 0, axis === 'v' ? h : 0);
     ctx.scale(axis === 'h' ? -1 : 1, axis === 'v' ? -1 : 1);
     ctx.drawImage(surface, 0, 0);
+    ctx.restore();
     surface = out;
     changed();
   }
@@ -232,7 +251,7 @@
     px = Math.round(px); py = Math.round(py);
     if (px < 0 || py < 0 || px >= w || py >= h) return false;
 
-    const ctx = surface.getContext('2d', { willReadFrequently: true });
+    const ctx = surfaceCtx({ willReadFrequently: true });
     const img = ctx.getImageData(0, 0, w, h);
     const d = img.data;
 
@@ -315,7 +334,7 @@
   // mode: 'paint' | 'erase'
   function paintStroke(points, { color, width, mode = 'paint' }) {
     if (!surface || !points.length) return;
-    const ctx = surface.getContext('2d');
+    const ctx = surfaceCtx();
     ctx.save();
     ctx.lineWidth = width;
     ctx.lineJoin = 'round';
@@ -365,7 +384,7 @@
     // Keep the blurred pixels only where the mask is, then stamp them back.
     mctx.globalCompositeOperation = 'source-in';
     mctx.drawImage(blurred, 0, 0);
-    surface.getContext('2d').drawImage(mask, x, y);
+    surfaceCtx().drawImage(mask, x, y);
     changed();
   }
 
@@ -408,8 +427,7 @@
     if (!surface) return null;
     x = Math.round(x); y = Math.round(y);
     if (x < 0 || y < 0 || x >= surface.width || y >= surface.height) return null;
-    const d = surface.getContext('2d', { willReadFrequently: true })
-                     .getImageData(x, y, 1, 1).data;
+    const d = surfaceCtx({ willReadFrequently: true }).getImageData(x, y, 1, 1).data;
     const hex = (n) => n.toString(16).padStart(2, '0');
     return '#' + hex(d[0]) + hex(d[1]) + hex(d[2]);
   }

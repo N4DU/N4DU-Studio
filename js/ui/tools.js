@@ -10,13 +10,15 @@
 
   let refresh = null;         // repaints the whole UI
   let stroke = null;          // points of the stroke in progress
-  let cropStart = null;       // origin of the crop rectangle being dragged
+  // Crop drag in progress: which handle was grabbed, plus the box and pointer
+  // position when the drag started.
+  let cropDrag = null;
 
   // What each tool does, shown above the picture at all times. This line is
   // the main reason the app can be used without reading anything else.
   const INSTRUCTIONS = {
     move:   'Drag the picture to reposition it · scroll to zoom',
-    crop:   'Drag a box over the part you want to keep, then press <b>Apply</b>',
+    crop:   'Pull the <b>corners or edges</b> inwards, then press <b>Apply</b>',
     brush:  'Drag to paint · change the colour and size on the left',
     blur:   'Drag over anything you want to blur out',
     erase:  'Drag to rub pixels away, leaving them see-through',
@@ -34,7 +36,7 @@
 
   const OPTION_TITLES = {
     move: 'Move options', crop: 'Crop', brush: 'Brush',
-    blur: 'Blur', erase: 'Eraser', remove: 'Cut colour', pick: 'Colour picker',
+    blur: 'Blur', erase: 'Eraser', remove: 'Cut colour', pick: 'Brush',
   };
 
   // ── Setup ─────────────────────────────────────────────────────────
@@ -50,6 +52,14 @@
     bindRange('blurRadius', 'blurRadiusVal', v => `${v} px · ${blurWord(v)}`, v => state.blurRadius = v);
     bindRange('tolerance', 'toleranceVal', v => `${v}%`, v => state.tolerance = v);
 
+    // The eyedropper is part of the brush now: press it, click the picture,
+    // and the colour lands in the swatch.
+    $('btnPick').addEventListener('click', () => {
+      state.tool = 'pick';
+      refresh();
+      toast('Click a colour in the picture', '');
+    });
+
     $('brushColor').addEventListener('input', e => {
       state.brushColor = e.target.value;
       $('brushColorHex').textContent = e.target.value;
@@ -61,7 +71,7 @@
 
     $('cropApply').addEventListener('click', applyCrop);
     $('cropCancel').addEventListener('click', () => {
-      setSelection(null);
+      setSelection(N4DU.cropBox.fullBox());
       syncTools();
       drawEditor();
     });
@@ -92,6 +102,12 @@
       toast('Back to the picture you opened', 'ok');
     });
 
+    // Any number beside a slider can be typed directly.
+    const { makeEditable } = N4DU.editableNumber;
+    makeEditable($('brushSizeVal'), $('brushSize'));
+    makeEditable($('blurRadiusVal'), $('blurRadius'));
+    makeEditable($('toleranceVal'), $('tolerance'));
+
     setToolHandler({ down: onDown, move: onMove, up: onUp });
   }
 
@@ -106,7 +122,14 @@
 
   function selectTool(tool) {
     state.tool = tool;
-    if (tool !== 'crop') setSelection(null);
+    if (tool === 'crop') {
+      // Start from a box around the whole picture: pulling it in is more
+      // obvious than having to draw a rectangle from nothing.
+      setSelection(N4DU.cropBox.fullBox());
+    } else {
+      setSelection(null);
+      document.getElementById('editorCanvas').style.cursor = '';
+    }
     refresh();
   }
 
@@ -134,10 +157,21 @@
         applyStroke();
         return true;
 
-      case 'crop':
-        cropStart = pt;
-        setSelection({ x: pt.x, y: pt.y, w: 0, h: 0 });
+      case 'crop': {
+        const box = N4DU.editorCanvas.selectionRect();
+        if (!box) return true;
+        const local = N4DU.editorCanvas.toScreen(e);
+        const handle = N4DU.cropBox.hitTest(local.x, local.y, box);
+        // Clicking well outside the box starts a brand new one.
+        if (handle === 'outside') {
+          setSelection({ x: pt.x, y: pt.y, w: N4DU.cropBox.MIN_SIZE, h: N4DU.cropBox.MIN_SIZE });
+          cropDrag = { handle: 'se', start: pt, rect: getSelection() };
+        } else {
+          cropDrag = { handle, start: pt, rect: { ...getSelection() } };
+        }
+        drawEditor();
         return true;
+      }
 
       case 'remove': {
         // A flood fill over a big picture is not instant.
@@ -176,11 +210,20 @@
       applyStroke();
       return true;
     }
-    if (cropStart) {
-      setSelection(normalizeRect(cropStart, pt));
+    if (cropDrag) {
+      const dx = pt.x - cropDrag.start.x;
+      const dy = pt.y - cropDrag.start.y;
+      setSelection(N4DU.cropBox.resize(
+        cropDrag.rect, cropDrag.handle, dx, dy,
+        { w: state.origW, h: state.origH }));
       syncCropButtons();
       drawEditor();
       return true;
+    }
+    // Not dragging: show which handle is under the pointer.
+    if (state.tool === 'crop') {
+      updateCropCursor(e);
+      return false;
     }
     return false;
   }
@@ -191,12 +234,23 @@
       refresh();          // update the preview and estimated size once
       return true;
     }
-    if (cropStart) {
-      cropStart = null;
+    if (cropDrag) {
+      cropDrag = null;
       syncCropButtons();
       return true;
     }
     return false;
+  }
+
+  // The pointer becomes a resize arrow near an edge or corner, and a move
+  // cross inside the box — the same language a window resize uses.
+  function updateCropCursor(e) {
+    const canvas = document.getElementById('editorCanvas');
+    const box = N4DU.editorCanvas.selectionRect();
+    if (!box) { canvas.style.cursor = 'crosshair'; return; }
+    const local = N4DU.editorCanvas.toScreen(e);
+    const handle = N4DU.cropBox.hitTest(local.x, local.y, box);
+    canvas.style.cursor = N4DU.cropBox.CURSORS[handle] || 'crosshair';
   }
 
   // Draws the newest segment of the stroke. Only the canvas is repainted
@@ -215,15 +269,6 @@
     }
     drawEditor();
     syncHistoryButtons();
-  }
-
-  function normalizeRect(a, b) {
-    return {
-      x: Math.min(a.x, b.x),
-      y: Math.min(a.y, b.y),
-      w: Math.abs(b.x - a.x),
-      h: Math.abs(b.y - a.y),
-    };
   }
 
   // ── Actions ───────────────────────────────────────────────────────
@@ -261,13 +306,16 @@
   // ── UI sync ───────────────────────────────────────────────────────
 
   function syncTools() {
+    // Picking is a mode of the brush, so the Brush button stays lit.
+    const shown = state.tool === 'pick' ? 'brush' : state.tool;
     document.querySelectorAll('#toolGrid .tool').forEach(b =>
-      b.classList.toggle('active', b.dataset.tool === state.tool));
+      b.classList.toggle('active', b.dataset.tool === shown));
+    $('btnPick').classList.toggle('armed', state.tool === 'pick');
 
     // Show only the option blocks that list the active tool.
     document.querySelectorAll('#toolOptions .opt').forEach(el => {
       const tools = (el.dataset.for || '').split(/\s+/);
-      el.classList.toggle('visible', tools.includes(state.tool));
+      el.classList.toggle('visible', tools.includes(shown));
     });
 
     $('optionsTitle').textContent = OPTION_TITLES[state.tool] || 'Options';
@@ -294,8 +342,12 @@
   function syncCropButtons() {
     const sel = getSelection();
     const usable = !!sel && sel.w >= 2 && sel.h >= 2;
-    $('cropApply').disabled = !usable;
-    $('cropCancel').disabled = !sel;
+    // Nothing to do when the box still covers the whole picture.
+    const trimmed = !!sel && (Math.round(sel.w) < state.origW || Math.round(sel.h) < state.origH);
+    $('cropApply').disabled = !(usable && trimmed);
+    $('cropCancel').disabled = !trimmed;
+    const size = $('cropSize');
+    if (size) size.textContent = sel ? `${Math.round(sel.w)} × ${Math.round(sel.h)} px` : '—';
   }
 
   function syncHistoryButtons() {

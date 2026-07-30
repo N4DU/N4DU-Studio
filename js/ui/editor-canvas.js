@@ -48,6 +48,12 @@
   function setSelection(sel) { selection = sel; }
   function getSelection() { return selection; }
 
+  // Pointer position relative to the canvas, in CSS pixels.
+  function toScreen(e) {
+    const rect = canvas().getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
   // Draws the current state: the image dimmed, the exported area sharp, and
   // the outline of the chosen shape.
   function drawEditor() {
@@ -132,24 +138,81 @@
     ctx.restore();
   }
 
-  // Marching-ants rectangle for the crop selection.
+  // Converts the selection (image pixels) to screen space (CSS pixels).
+  function selectionOnScreen() {
+    if (!selection) return null;
+    const sy = view.scaleY ?? view.scale;
+    return {
+      x: view.dx + selection.x * view.scale,
+      y: view.dy + selection.y * sy,
+      w: selection.w * view.scale,
+      h: selection.h * sy,
+    };
+  }
+
+  // The crop box: dimmed surroundings, a dashed outline, thirds guides and
+  // grab handles on the corners and edges.
   function drawSelection(ctx) {
-    const sx = view.dx + selection.x * view.scale;
-    const sy = view.dy + selection.y * (view.scaleY ?? view.scale);
-    const sw = selection.w * view.scale;
-    const sh = selection.h * (view.scaleY ?? view.scale);
-    ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,.45)';
-    // Dim everything except the selection.
+    const b = selectionOnScreen();
+    if (!b) return;
     const { w: CW, h: CH } = canvasBox();
+
+    ctx.save();
+    // Dim everything except the selection.
+    ctx.fillStyle = 'rgba(0,0,0,.55)';
     ctx.beginPath();
     ctx.rect(0, 0, CW, CH);
-    ctx.rect(sx, sy, sw, sh);
+    ctx.rect(b.x, b.y, b.w, b.h);
     ctx.fill('evenodd');
-    ctx.strokeStyle = '#e8ff47';
+
+    // Rule-of-thirds guides inside the box
+    ctx.strokeStyle = 'rgba(255,255,255,.22)';
     ctx.lineWidth = 1;
-    ctx.setLineDash([5, 4]);
-    ctx.strokeRect(sx, sy, sw, sh);
+    ctx.beginPath();
+    for (let i = 1; i < 3; i++) {
+      const gx = b.x + (b.w * i) / 3, gy = b.y + (b.h * i) / 3;
+      ctx.moveTo(gx, b.y); ctx.lineTo(gx, b.y + b.h);
+      ctx.moveTo(b.x, gy); ctx.lineTo(b.x + b.w, gy);
+    }
+    ctx.stroke();
+
+    // Outline
+    ctx.strokeStyle = '#e8ff47';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(b.x, b.y, b.w, b.h);
+
+    // Handles: chunky corners plus a tick in the middle of each side
+    ctx.fillStyle = '#e8ff47';
+    const L = 16, T = 3;                     // corner arm length, thickness
+    const corners = [
+      [b.x, b.y, 1, 1], [b.x + b.w, b.y, -1, 1],
+      [b.x, b.y + b.h, 1, -1], [b.x + b.w, b.y + b.h, -1, -1],
+    ];
+    for (const [cx, cy, sx, sy2] of corners) {
+      ctx.fillRect(cx - (sx < 0 ? T : 0), cy - (sy2 < 0 ? T : 0),
+                   sx * L, sy2 * T || T);
+      ctx.fillRect(cx - (sx < 0 ? T : 0), cy - (sy2 < 0 ? T : 0),
+                   sx * T || T, sy2 * L);
+    }
+    const M = 14;
+    ctx.fillRect(b.x + b.w / 2 - M / 2, b.y - T / 2, M, T);              // top
+    ctx.fillRect(b.x + b.w / 2 - M / 2, b.y + b.h - T / 2, M, T);        // bottom
+    ctx.fillRect(b.x - T / 2, b.y + b.h / 2 - M / 2, T, M);              // left
+    ctx.fillRect(b.x + b.w - T / 2, b.y + b.h / 2 - M / 2, T, M);        // right
+
+    // Live pixel size, so the crop is not guesswork
+    const label = `${Math.round(selection.w)} × ${Math.round(selection.h)}`;
+    ctx.font = '600 12px system-ui, sans-serif';
+    const tw = ctx.measureText(label).width;
+    const bx = b.x + b.w / 2 - tw / 2 - 7;
+    const by = b.y + b.h + 8;
+    const fits = by + 20 < CH;
+    const ty = fits ? by : b.y - 28;
+    ctx.fillStyle = 'rgba(10,10,10,.85)';
+    ctx.fillRect(bx, ty, tw + 14, 20);
+    ctx.fillStyle = '#e8ff47';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, bx + 7, ty + 10);
     ctx.restore();
   }
 
@@ -257,6 +320,11 @@
     });
     document.getElementById('resetZoom').addEventListener('click', () => setZoom(1, onChange));
 
+    // Zoom can also be typed: click the percentage and enter a number.
+    N4DU.editableNumber.makeEditable(
+      document.getElementById('zoomVal'),
+      document.getElementById('zoomSlider'), null, 100);
+
     // Repaint when the container is resized
     new ResizeObserver(() => { if (N4DU.render.source(state)) drawEditor(); }).observe(wrap());
   }
@@ -300,7 +368,8 @@
   N4DU.editorCanvas = {
     initEditorCanvas, drawEditor, syncCanvasUI, setZoom, updateBrushCursor,
     setToolHandler: (h) => { toolHandler = h; },
-    setSelection, getSelection, canvasSize, canvasBox, toImage,
+    setSelection, getSelection, canvasSize, canvasBox, toImage, toScreen,
+    selectionRect: selectionOnScreen,
   };
 
 })(window.N4DU ??= {});
