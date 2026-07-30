@@ -86,6 +86,51 @@
     return res.blob();
   }
 
+  // Takes over a file the server already holds — how a picture arrives when
+  // the page was launched from the right-click entry (?open=TOKEN). The URL
+  // only ever carries a token; the real path stays on the server side.
+  // Returns { file, path } or null when the token is no longer valid.
+  async function adopt(token) {
+    if (!token) return null;
+    try {
+      const res = await fetch('/api/file?token=' + encodeURIComponent(token), { headers: HDR });
+      if (!res.ok) return null;
+      const meta = await res.json();
+      const blob = await readCurrent(token);
+      bridge.token = token;
+      bridge.path = meta.path;
+      return { file: new File([blob], meta.name, { type: blob.type }), path: meta.path };
+    } catch {
+      return null;
+    }
+  }
+
+  // ── Settings ──
+  // The state of the system integration lives on the server (the registry is
+  // the source of truth), so the settings screen always reads it fresh.
+  async function readSettings() {
+    const res = await fetch('/api/settings', { headers: HDR });
+    if (!res.ok) throw new Error('Could not read the settings.');
+    return res.json();
+  }
+
+  // patch is { contextMenu: bool } and/or { appWindow: bool }. Returns the
+  // new state; throws with the reason when the system refused.
+  async function writeSettings(patch) {
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { ...HDR, 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const info = await safeJson(res);
+    if (!res.ok) {
+      const err = new Error(info.error || 'Could not apply the setting.');
+      err.status = info;   // the unchanged state, so the switch can snap back
+      throw err;
+    }
+    return info;
+  }
+
   // The current image has no path on disk (drag & drop, paste, browser
   // picker), so there is nothing to replace until a target is chosen.
   function clearFile() {
@@ -122,6 +167,9 @@
   bridge.pickFile = pickFile;
   bridge.pickTarget = pickTarget;
   bridge.readCurrent = () => readCurrent(bridge.token);
+  bridge.adopt = adopt;
+  bridge.readSettings = readSettings;
+  bridge.writeSettings = writeSettings;
   bridge.clearFile = clearFile;
   bridge.replaceOriginal = replaceOriginal;
   bridge.canReplace = () => bridge.active && !!bridge.token;
