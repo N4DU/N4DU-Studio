@@ -182,6 +182,7 @@
     if (!(e.ctrlKey || e.metaKey)) return;
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
     if (!document.getElementById('replaceModal').hidden) return;
+    if (!document.getElementById('settingsModal').hidden) return;
     const k = e.key.toLowerCase();
     if (k === 'o') { e.preventDefault(); chooseFile(); return; }
     if (!state.img) return;
@@ -219,12 +220,32 @@
   initTools(refresh);
   initReplaceDialog(afterReplace);
   initHelp();
+  N4DU.settings.initSettings();
   edit.setOnChanged(() => { /* tools repaint explicitly to stay responsive */ });
 
   document.getElementById('btnExport').addEventListener('click', onDownload);
   document.getElementById('btnCopy').addEventListener('click', onCopy);
   document.getElementById('btnReplace').addEventListener('click', openReplaceDialog);
-  bridge.init().then(syncButtons);
+  // ── Launched from the right-click menu ────────────────────────────
+  // main.py puts ?open=TOKEN in the address when the app was started on a
+  // specific file. The token stands for a path the server already holds, so
+  // the picture arrives with its location attached and Replace works
+  // immediately — no dialog, no Downloads folder.
+  async function openStartupFile() {
+    const token = new URLSearchParams(location.search).get('open');
+    if (!token || !bridge.active) return;
+    const picked = await bridge.adopt(token);
+    if (picked) {
+      await onFile(picked.file, true);
+    } else {
+      toast('That file could not be opened — it may have been moved.', 'err');
+    }
+  }
+
+  bridge.init()
+    .then(openStartupFile)
+    .catch(() => {})
+    .finally(syncButtons);
   syncButtons();
 
 })(window.N4DU ??= {});
