@@ -1,15 +1,15 @@
-// Entrada de archivos: arrastrar, clic para elegir y pegar con Ctrl+V.
+// File input: drag & drop, click to browse, and Ctrl+V paste.
 (function (N4DU) {
 
   const { ACCEPT } = N4DU.loader;
 
   let acceptFile = null;
-  let pick = null; // cómo elegir archivo: selector del navegador o diálogo nativo
+  let pick = null; // how to browse: browser picker or the native dialog
 
   function initDropzone(onFile, pickImpl) {
-    // No se filtra por extensión a propósito: el formato se decide leyendo
-    // el contenido, así que un JPEG con extensión rara (.jfif, .foto…) abre
-    // igual. Si de verdad no es una imagen, el decodificador lo dirá.
+    // Deliberately no extension filter: the format is decided by reading
+    // the content, so a JPEG with an odd extension (.jfif, .foto…) still
+    // opens. If it really is not an image, the decoder will say so.
     acceptFile = (file) => { if (file) onFile(file); };
     pick = pickImpl || openPicker;
     const dz = document.getElementById('dropzone');
@@ -18,10 +18,9 @@
     dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('over'); });
     dz.addEventListener('dragleave', () => dz.classList.remove('over'));
 
-    // Soltar en cualquier parte de la ventana funciona (comodidad de
-    // escritorio). Un solo manejador en window cubre también la caja: si
-    // además se escuchara en la caja, un archivo soltado ahí se cargaría
-    // dos veces por el burbujeo.
+    // Dropping anywhere in the window works (desktop convenience). A single
+    // handler on window also covers the drop zone: listening on both would
+    // load a file dropped on the zone twice, through event bubbling.
     window.addEventListener('dragover', e => e.preventDefault());
     window.addEventListener('drop', e => {
       e.preventDefault();
@@ -32,10 +31,10 @@
     dz.addEventListener('click', () => pick());
     document.getElementById('btnChange').addEventListener('click', () => pick());
 
-    // Pegar una imagen desde el portapapeles (Ctrl+V en cualquier parte).
-    // Manda el contenido, no el foco: si en el portapapeles hay una imagen
-    // se carga (pegarla en un campo de texto no haría nada útil); si hay
-    // texto, no se toca y el campo lo recibe normalmente.
+    // Paste an image from the clipboard (Ctrl+V anywhere).
+    // Content wins over focus: if the clipboard holds an image it is loaded
+    // (pasting it into a text field would do nothing useful); if it holds
+    // text, this stays out of the way and the field receives it.
     window.addEventListener('paste', e => {
       const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
       if (item) {
@@ -45,9 +44,9 @@
     });
   }
 
-  // Abre el diálogo de archivos del sistema. El input vive en el DOM (y no
-  // se recrea en cada clic): algunos navegadores ignoran el click() de un
-  // input recién creado y el diálogo nunca aparece.
+  // Opens the system file dialog. The input lives in the DOM instead of
+  // being recreated per click: some browsers ignore click() on a freshly
+  // created input and the dialog never appears.
   function openPicker() {
     let inp = document.getElementById('filePicker');
     if (!inp) {
@@ -58,7 +57,7 @@
       inp.style.display = 'none';
       inp.addEventListener('change', () => {
         if (inp.files[0]) acceptFile(inp.files[0]);
-        inp.value = ''; // permite reabrir el mismo archivo
+        inp.value = ''; // allows re-opening the same file
       });
       document.body.appendChild(inp);
     }
