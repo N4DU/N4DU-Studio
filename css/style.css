@@ -767,6 +767,89 @@ body.has-image .canvas-stack { display: flex; }
 .toast.ok  { border-color: var(--success); color: var(--success); }
 .toast.err { border-color: var(--danger);  color: var(--danger); }
 
+/* ── SETTINGS ── */
+/* Each row is a switch plus an explanation: these flip real things in the
+   operating system, so the wording carries as much weight as the control. */
+.setting {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 14px;
+  align-items: start;
+  padding: 13px 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.setting-name {
+  font-size: .82rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.setting-name em { font-style: normal; color: var(--accent); }
+.setting-desc {
+  margin-top: 5px;
+  font-size: .74rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.setting-desc b { color: var(--text); font-weight: 600; }
+.setting-status {
+  margin-top: 6px;
+  font-size: .7rem;
+  color: var(--faint);
+  line-height: 1.5;
+}
+.setting-status:empty { display: none; }
+
+/* Switch */
+.switch { display: block; margin-top: 2px; cursor: pointer; }
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0; height: 0;
+}
+.switch .track {
+  display: block;
+  width: 40px; height: 22px;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: 999px;
+  position: relative;
+  transition: background .15s, border-color .15s;
+}
+.switch .track::after {
+  content: "";
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--faint);
+  transition: transform .15s, background .15s;
+}
+.switch input:checked + .track {
+  background: rgba(232,255,71,.16);
+  border-color: var(--accent);
+}
+.switch input:checked + .track::after {
+  transform: translateX(18px);
+  background: var(--accent);
+}
+.switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+.switch input:disabled + .track { opacity: .4; }
+.switch input:disabled { cursor: not-allowed; }
+.setting:has(input:disabled) { opacity: .75; }
+
+/* The honest limitations, kept where the switches are rather than hidden */
+.fine-print {
+  font-size: .71rem;
+  color: var(--faint);
+  line-height: 1.6;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.fine-print b { color: var(--muted); }
+.fine-print em { font-style: normal; color: var(--muted); }
+
 /* ── SHORT AND NARROW WINDOWS ──
    The panels must never scroll, so spacing and control sizes shrink
    instead. */
