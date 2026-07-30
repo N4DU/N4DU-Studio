@@ -12,19 +12,42 @@
   let stroke = null;          // points of the stroke in progress
   let cropStart = null;       // origin of the crop rectangle being dragged
 
+  // What each tool does, shown above the picture at all times. This line is
+  // the main reason the app can be used without reading anything else.
+  const INSTRUCTIONS = {
+    move:   'Drag the picture to reposition it · scroll to zoom',
+    crop:   'Drag a box over the part you want to keep, then press <b>Apply</b>',
+    brush:  'Drag to paint · change the colour and size on the left',
+    blur:   'Drag over anything you want to blur out',
+    erase:  'Drag to rub pixels away, leaving them see-through',
+    remove: 'Click the colour you want gone (a background, for example)',
+    pick:   'Click any colour to load it into the brush',
+  };
+
+  // Plain-word meaning for the blur slider, so the number is not the only clue.
+  function blurWord(v) {
+    if (v <= 4) return 'subtle';
+    if (v <= 12) return 'medium';
+    if (v <= 25) return 'strong';
+    return 'heavy';
+  }
+
+  const OPTION_TITLES = {
+    move: 'Move options', crop: 'Crop', brush: 'Brush',
+    blur: 'Blur', erase: 'Eraser', remove: 'Cut colour', pick: 'Colour picker',
+  };
+
   // ── Setup ─────────────────────────────────────────────────────────
 
   function initTools(onChange) {
     refresh = onChange;
 
-    // Tool selection
     document.querySelectorAll('#toolGrid .tool').forEach(btn => {
       btn.addEventListener('click', () => selectTool(btn.dataset.tool));
     });
 
-    // Options
     bindRange('brushSize', 'brushSizeVal', v => `${v} px`, v => state.brushSize = v);
-    bindRange('blurRadius', 'blurRadiusVal', v => `${v} px`, v => state.blurRadius = v);
+    bindRange('blurRadius', 'blurRadiusVal', v => `${v} px · ${blurWord(v)}`, v => state.blurRadius = v);
     bindRange('tolerance', 'toleranceVal', v => `${v}%`, v => state.tolerance = v);
 
     $('brushColor').addEventListener('input', e => {
@@ -33,9 +56,9 @@
     });
     $('contiguous').addEventListener('change', e => {
       state.contiguous = e.target.checked;
+      syncTools();
     });
 
-    // Crop actions
     $('cropApply').addEventListener('click', applyCrop);
     $('cropCancel').addEventListener('click', () => {
       setSelection(null);
@@ -43,41 +66,41 @@
       drawEditor();
     });
 
-    // Transform
     $('rotL').addEventListener('click', () => geometryOp(() => edit.rotate(-90)));
     $('rotR').addEventListener('click', () => geometryOp(() => edit.rotate(90)));
     $('flipH').addEventListener('click', () => geometryOp(() => edit.flip('h'), true));
     $('flipV').addEventListener('click', () => geometryOp(() => edit.flip('v'), true));
-    $('blurAll').addEventListener('click', () => {
-      edit.blurAll(state.blurRadius);
-      toast(`Blurred the whole image (${state.blurRadius} px)`, 'ok');
-    });
 
-    // History
-    $('btnUndo').addEventListener('click', () => {
-      if (!edit.undo()) return;
-      afterHistory();
-    });
-    $('btnRedo').addEventListener('click', () => {
-      if (!edit.redo()) return;
-      afterHistory();
-    });
+    // Blurring a whole picture can take a moment on a large file, so the
+    // canvas shows that work is happening instead of appearing frozen.
+    $('blurAll').addEventListener('click', () => withBusy(() => {
+      edit.blurAll(state.blurRadius);
+      toast(`Blurred the whole picture (${blurWord(state.blurRadius)})`, 'ok');
+      refresh();
+    }));
+
+    // Undo and redo live in the title bar, next to the file name.
+    $('btnUndo').addEventListener('click', () => stepHistory(edit.undo));
+    $('btnRedo').addEventListener('click', () => stepHistory(edit.redo));
+
     $('btnRevert').addEventListener('click', () => {
       if (!state.img) return;
       edit.revert(state.img);
-      afterHistory();
-      toast('All edits discarded', 'ok');
+      N4DU.syncToSurface(edit.width(), edit.height());
+      setSelection(null);
+      refresh();
+      toast('Back to the picture you opened', 'ok');
     });
 
     setToolHandler({ down: onDown, move: onMove, up: onUp });
   }
 
   function bindRange(id, valId, fmt, apply) {
-    const el = $(id);
-    el.addEventListener('input', e => {
+    $(id).addEventListener('input', e => {
       const v = parseInt(e.target.value, 10);
       apply(v);
       $(valId).textContent = fmt(v);
+      N4DU.editorCanvas.updateBrushCursor();
     });
   }
 
@@ -85,6 +108,16 @@
     state.tool = tool;
     if (tool !== 'crop') setSelection(null);
     refresh();
+  }
+
+  // Runs a slow operation with the busy overlay visible. Two frames are
+  // yielded first so the overlay actually paints before the work blocks.
+  function withBusy(fn) {
+    const busy = $('busy');
+    busy.hidden = false;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      try { fn(); } finally { busy.hidden = true; }
+    }));
   }
 
   // ── Pointer handling ──────────────────────────────────────────────
@@ -107,10 +140,14 @@
         return true;
 
       case 'remove': {
-        const ok = edit.removeColor(pt.x, pt.y, state.tolerance, state.contiguous);
-        toast(ok
-          ? (state.contiguous ? 'Removed the connected area' : 'Removed that colour everywhere')
-          : 'Nothing matched at that spot — try a higher tolerance', ok ? 'ok' : 'err');
+        // A flood fill over a big picture is not instant.
+        withBusy(() => {
+          const ok = edit.removeColor(pt.x, pt.y, state.tolerance, state.contiguous);
+          toast(ok
+            ? (state.contiguous ? 'Cut out the area you clicked' : 'Cut that colour out of the whole picture')
+            : 'Nothing matched there — try raising the tolerance', ok ? 'ok' : 'err');
+          refresh();
+        });
         return true;
       }
 
@@ -120,7 +157,7 @@
           state.brushColor = hex;
           $('brushColor').value = hex;
           $('brushColorHex').textContent = hex;
-          toast(`Colour picked: ${hex}`, 'ok');
+          toast(`Brush colour set to ${hex}`, 'ok');
           selectTool('brush');
         }
         return true;
@@ -131,7 +168,11 @@
 
   function onMove(e, pt) {
     if (stroke) {
-      stroke.push(pt);
+      // Only the newest segment is drawn (see applyStroke), so keep just the
+      // previous point: re-tracing the whole path on every move made long
+      // strokes progressively slower.
+      const prev = stroke[stroke.length - 1];
+      stroke = [prev, pt];
       applyStroke();
       return true;
     }
@@ -147,7 +188,7 @@
   function onUp() {
     if (stroke) {
       stroke = null;
-      refresh();          // update preview and estimated size once
+      refresh();          // update the preview and estimated size once
       return true;
     }
     if (cropStart) {
@@ -158,8 +199,10 @@
     return false;
   }
 
-  // Draws the stroke so far. Only the canvas is repainted while drawing:
-  // re-encoding the preview on every pointer move would stutter.
+  // Draws the newest segment of the stroke. Only the canvas is repainted
+  // while drawing: re-encoding the preview on every pointer move would
+  // stutter. The brush is opaque, so drawing segment by segment looks
+  // identical to tracing the whole path.
   function applyStroke() {
     if (state.tool === 'blur') {
       edit.blurStroke(stroke, { width: state.brushSize, radius: state.blurRadius });
@@ -189,7 +232,7 @@
     const sel = getSelection();
     if (!sel || sel.w < 2 || sel.h < 2) return;
     if (!edit.crop(sel.x, sel.y, sel.w, sel.h)) {
-      toast('That selection is too small', 'err');
+      toast('That box is too small', 'err');
       return;
     }
     setSelection(null);
@@ -198,16 +241,19 @@
     toast(`Cropped to ${edit.width()}×${edit.height()} px`, 'ok');
   }
 
-  // Runs an operation that may change the pixel dimensions.
-  function geometryOp(fn, keepOutput = false) {
-    fn();
-    N4DU.syncToSurface(edit.width(), edit.height(), keepOutput);
+  // Moves one step through history. Dimensions may change (an undone crop
+  // or rotation), so the output size is re-synced without being reset.
+  function stepHistory(step) {
+    if (!step()) return;
+    N4DU.syncToSurface(edit.width(), edit.height(), true);
     setSelection(null);
     refresh();
   }
 
-  function afterHistory() {
-    N4DU.syncToSurface(edit.width(), edit.height(), true);
+  // Runs an operation that may change the pixel dimensions.
+  function geometryOp(fn, keepOutput = false) {
+    fn();
+    N4DU.syncToSurface(edit.width(), edit.height(), keepOutput);
     setSelection(null);
     refresh();
   }
@@ -224,24 +270,26 @@
       el.classList.toggle('visible', tools.includes(state.tool));
     });
 
-    $('toolHint').textContent = HINTS[state.tool] || '';
+    $('optionsTitle').textContent = OPTION_TITLES[state.tool] || 'Options';
+    $('instruction').innerHTML = INSTRUCTIONS[state.tool] || '';
+
     $('brushColor').value = state.brushColor;
     $('brushColorHex').textContent = state.brushColor;
+    $('brushSize').value = state.brushSize;
+    $('brushSizeVal').textContent = `${state.brushSize} px`;
+    $('blurRadius').value = state.blurRadius;
+    $('blurRadiusVal').textContent = `${state.blurRadius} px · ${blurWord(state.blurRadius)}`;
+    $('tolerance').value = state.tolerance;
+    $('toleranceVal').textContent = `${state.tolerance}%`;
     $('contiguous').checked = state.contiguous;
+    $('contiguousHint').textContent = state.contiguous
+      ? 'The same colour elsewhere in the picture is left alone.'
+      : 'That colour will be cut everywhere it appears.';
 
     syncCropButtons();
     syncHistoryButtons();
+    N4DU.editorCanvas.updateBrushCursor();
   }
-
-  const HINTS = {
-    move:   'Drag to move the view; scroll to zoom.',
-    crop:   'Drag a rectangle over the image, then Apply crop.',
-    brush:  'Drag to paint. Use Pick to sample a colour from the image.',
-    blur:   'Drag to blur only what you cover.',
-    erase:  'Drag to erase to transparency (keep PNG or WEBP to preserve it).',
-    remove: 'Click the colour to remove. Connected area only keeps the same colour elsewhere.',
-    pick:   'Click the image to sample a colour into the brush.',
-  };
 
   function syncCropButtons() {
     const sel = getSelection();
@@ -255,6 +303,6 @@
     $('btnRedo').disabled = !edit.canRedo();
   }
 
-  N4DU.tools = { initTools, syncTools, selectTool };
+  N4DU.tools = { initTools, syncTools, selectTool, withBusy, stepHistory };
 
 })(window.N4DU ??= {});
