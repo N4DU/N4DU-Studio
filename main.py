@@ -10,7 +10,8 @@ REPLACE files on disk, even when the format changes.
 No dependencies: the Python 3.8+ standard library only.
 Binds to 127.0.0.1 exclusively (your machine; never exposed to the network).
 
-    python3 main.py        # or double-click start.bat / start.command
+    python3 main.py                 # or double-click start.bat / start.command
+    python3 main.py --open PIC.PNG  # open that file (used by the right-click entry)
 
 Stops with Ctrl+C, or on its own: when the page closes it waits a few
 seconds in case it was a reload, then shuts down if nobody returns.
@@ -20,16 +21,28 @@ import os
 import sys
 import json
 import time
+import atexit
 import secrets
 import mimetypes
 import subprocess
 import threading
 import webbrowser
+import urllib.error
+import urllib.request
 from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs, unquote
+from urllib.parse import urlparse, parse_qs, unquote, urlencode
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+
+# Our own folder, ahead of the import: normally Python puts a script's
+# directory first anyway, but not when main.py is loaded from somewhere else
+# (a wrapper, an embedded interpreter, a test harness). Without this the
+# sibling module would go missing depending on how the app was started.
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+import shell_integration  # noqa: E402  (needs the path fixed up first)
 HOST = "127.0.0.1"
 PORTS = range(4517, 4537)          # first free port in this range
 GRACE_SECONDS = 3                  # wait after the page closes (was it a reload?)
@@ -55,9 +68,109 @@ _lock = threading.Lock()
 _page = {"connected": False, "last_ping": 0.0, "closing_since": None}
 _shutdown = {"event": threading.Event(), "reason": ""}
 
+# Images the right-click entry is allowed to hand over. Wider than
+# ALLOWED_EXT (which is about what we can WRITE); anything the browser can
+# decode is fine to OPEN.
+OPENABLE_EXT = {"png", "jpg", "jpeg", "jfif", "webp", "avif", "gif",
+                "bmp", "ico", "tif", "tiff", "svg"}
+
+
+# ── Where settings and the running-instance marker live ─────────────
+def state_dir():
+    """A per-user folder outside the app, so the settings survive moving,
+    updating or re-downloading the program."""
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        path = os.path.join(base, "N4DU Studio")
+    elif sys.platform == "darwin":
+        path = os.path.expanduser("~/Library/Application Support/N4DU Studio")
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+        path = os.path.join(base, "n4du-studio")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _state_file(name):
+    return os.path.join(state_dir(), name)
+
+
+DEFAULT_SETTINGS = {
+    # Open in a small window of its own instead of a browser tab.
+    "appWindow": True,
+}
+
+
+def load_settings():
+    try:
+        with open(_state_file("settings.json"), "r", encoding="utf-8") as fh:
+            saved = json.load(fh)
+    except (OSError, ValueError):
+        saved = {}
+    settings = dict(DEFAULT_SETTINGS)
+    for key, default in DEFAULT_SETTINGS.items():
+        if isinstance(saved.get(key), type(default)):
+            settings[key] = saved[key]
+    return settings
+
+
+def save_settings(settings):
+    try:
+        with open(_state_file("settings.json"), "w", encoding="utf-8") as fh:
+            json.dump(settings, fh, indent=2)
+    except OSError:
+        pass  # settings are a convenience; failing to store them is not fatal
+
+
+# ── Running-instance marker ─────────────────────────────────────────
+# Lets a second launch (someone right-clicking another image) hand the file
+# to the copy that is already running instead of starting a second server.
+def write_session(port):
+    data = {"port": port, "secret": SECRET, "pid": os.getpid()}
+    try:
+        with open(_state_file("session.json"), "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+        # Readable by this user only where the platform supports it.
+        if os.name != "nt":
+            os.chmod(_state_file("session.json"), 0o600)
+    except OSError:
+        pass
+
+
+def clear_session():
+    """Removes the marker, but only if it is still ours: a newer instance
+    may already have taken over."""
+    try:
+        with open(_state_file("session.json"), "r", encoding="utf-8") as fh:
+            if json.load(fh).get("pid") != os.getpid():
+                return
+        os.remove(_state_file("session.json"))
+    except (OSError, ValueError):
+        pass
+
+
+def read_session():
+    try:
+        with open(_state_file("session.json"), "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data.get("port"), int) and isinstance(data.get("secret"), str):
+            return data
+    except (OSError, ValueError):
+        pass
+    return None
+
 
 # ── Console ─────────────────────────────────────────────────────────
+# There may be no console at all. The right-click entry launches the program
+# with pythonw.exe, where sys.stdout is None: printing anything would raise
+# AttributeError and take the app down before it ever opened a window.
+def _has_console():
+    return getattr(sys, "stdout", None) is not None
+
+
 def _supports_color():
+    if not _has_console():
+        return False
     if os.name == "nt":
         os.system("")  # enables ANSI sequences on the Windows console
     try:
@@ -70,10 +183,12 @@ def _supports_unicode():
     """Can the console display the nicer symbols? On Windows with a legacy
     code page (cp1252) printing them raises UnicodeEncodeError and takes the
     program down, so ASCII stand-ins are used instead."""
+    if not _has_console():
+        return False
     try:
-        "─✓⚠⟳⬈".encode(sys.stdout.encoding or "ascii")
+        "─✓⚠⟳⬈".encode(getattr(sys.stdout, "encoding", None) or "ascii")
         return True
-    except (UnicodeEncodeError, LookupError, TypeError):
+    except (UnicodeEncodeError, LookupError, TypeError, AttributeError):
         return False
 
 
@@ -99,12 +214,20 @@ _print_lock = threading.Lock()
 
 
 def _write(text):
-    """Prints without ever failing on the console encoding."""
+    """Prints without ever failing — on the console encoding, or on there
+    being no console (launched from the right-click entry)."""
+    if not _has_console():
+        return
     try:
         print(text)
     except UnicodeEncodeError:
-        enc = sys.stdout.encoding or "ascii"
-        print(text.encode(enc, "replace").decode(enc, "replace"))
+        enc = getattr(sys.stdout, "encoding", None) or "ascii"
+        try:
+            print(text.encode(enc, "replace").decode(enc, "replace"))
+        except OSError:
+            pass
+    except (OSError, AttributeError):
+        pass
 
 
 def event(symbol, text, color="0"):
@@ -246,6 +369,41 @@ def replace_file(original, data, ext, new_stem=None, overwrite=False):
     return target, warning
 
 
+def openable(path):
+    """Is this something we should open? Returns (ok, reason).
+
+    Checked here rather than trusted from the caller: the right-click entry
+    is wired to image types, but the command line can be typed by hand.
+    """
+    if not path or not isinstance(path, str):
+        return False, "No file given."
+    if not os.path.isfile(path):
+        return False, "That file does not exist: " + path
+    ext = os.path.splitext(path)[1].lower().lstrip(".")
+    if ext not in OPENABLE_EXT:
+        return False, "Not an image N4DU Studio can open: ." + ext
+    return True, ""
+
+
+# ── Settings shown in the interface ─────────────────────────────────
+def settings_status():
+    """Everything the settings screen needs, in one call."""
+    integration = shell_integration.status()
+    settings = load_settings()
+    browser = shell_integration.find_app_browser()
+    return {
+        "platform": integration["platform"],
+        "contextMenu": integration,
+        "appWindow": {
+            "enabled": settings["appWindow"],
+            "available": browser is not None,
+            "browser": os.path.basename(browser) if browser else None,
+        },
+        "folder": ROOT,
+        "settingsFolder": state_dir(),
+    }
+
+
 # ── File sessions ───────────────────────────────────────────────────
 def remember_file(path):
     """Stores the path and returns a token, evicting the oldest entry when
@@ -359,6 +517,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True})
         if path == "/api/read":
             return self._read()
+        if path == "/api/file":
+            if not self._guard():
+                return
+            return self._file_meta()
+        if path == "/api/settings":
+            if not self._guard():
+                return
+            return self._json(settings_status())
         return self._static(path)
 
     # ── POST ──
@@ -387,6 +553,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._pick()
         if path == "/api/replace":
             return self._replace()
+        if path == "/api/settings":
+            return self._settings()
+        if path == "/api/adopt":
+            return self._adopt()
         self.send_error(404)
 
     # ── Endpoints ──
@@ -408,6 +578,66 @@ class Handler(BaseHTTPRequestHandler):
         event(SYM["open"], f"{verb}: {path}", "0")
         return self._json({"token": token, "path": path,
                            "name": os.path.basename(path)})
+
+    def _file_meta(self):
+        """Name and path behind a token, so a page opened from the
+        right-click entry can show what it is editing."""
+        token = parse_qs(urlparse(self.path).query).get("token", [""])[0]
+        path = lookup_file(token)
+        if not path or not os.path.isfile(path):
+            return self._json({"error": "File not available."}, 404)
+        return self._json({"path": path, "name": os.path.basename(path)})
+
+    # ── Settings ──
+    def _settings(self):
+        try:
+            body = json.loads(self._body().decode("utf-8") or "{}")
+        except ValueError:
+            return self._json({"error": "Malformed request."}, 400)
+        if not isinstance(body, dict):
+            return self._json({"error": "Malformed request."}, 400)
+
+        if isinstance(body.get("appWindow"), bool):
+            settings = load_settings()
+            settings["appWindow"] = body["appWindow"]
+            save_settings(settings)
+
+        if isinstance(body.get("contextMenu"), bool):
+            try:
+                if body["contextMenu"]:
+                    shell_integration.enable()
+                    event(SYM["ok"], "Right-click entry added for image files", "92")
+                else:
+                    shell_integration.disable()
+                    event(SYM["ok"], "Right-click entry removed", "92")
+            except RuntimeError as exc:
+                return self._json({"error": str(exc), **settings_status()}, 400)
+
+        return self._json(settings_status())
+
+    def _adopt(self):
+        """Another launch of the program (someone right-clicked an image
+        while this one was running) hands its file over.
+
+        Authenticated with this run's secret, which lives in a file only this
+        user can read. Without it any page in the browser could ask the
+        server to open arbitrary paths from disk.
+        """
+        key = self.headers.get("X-N4DU-Key", "")
+        if not secrets.compare_digest(key, SECRET):
+            return self._json({"error": "Not authorised"}, 403)
+        try:
+            body = json.loads(self._body().decode("utf-8") or "{}")
+            path = body.get("path") or ""
+        except ValueError:
+            return self._json({"error": "Malformed request."}, 400)
+
+        ok, reason = openable(path)
+        if not ok:
+            return self._json({"error": reason}, 400)
+        token = remember_file(os.path.abspath(path))
+        event(SYM["open"], "Opened from the right-click menu: " + path, "0")
+        return self._json({"token": token, "url": "/?" + urlencode({"open": token})})
 
     def _read(self):
         if not self._guard():
@@ -512,16 +742,123 @@ def start_server():
         f"  ({last})\n")
 
 
+# ── Launch helpers ──────────────────────────────────────────────────
+def parse_args(argv):
+    """--open PATH (the right-click entry), --no-browser, --settings."""
+    args = {"open": None, "browser": True, "settings": None}
+    rest = list(argv)
+    while rest:
+        arg = rest.pop(0)
+        if arg == "--open":
+            args["open"] = rest.pop(0) if rest else None
+        elif arg.startswith("--open="):
+            args["open"] = arg[len("--open="):]
+        elif arg == "--no-browser":
+            args["browser"] = False
+        elif arg in ("--enable-context-menu", "--disable-context-menu"):
+            args["settings"] = arg
+        elif args["open"] is None and not arg.startswith("-"):
+            # A bare path, so dragging a file onto the launcher also works.
+            args["open"] = arg
+    return args
+
+
+def hand_off(path):
+    """Gives the file to an instance that is already running.
+
+    Returns the URL to open, or None when there is nobody to hand it to (no
+    marker, a stale one, or the other process refused).
+    """
+    session = read_session()
+    if not session:
+        return None
+    url = f"http://{HOST}:{session['port']}/api/adopt"
+    body = json.dumps({"path": os.path.abspath(path)}).encode()
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "Content-Type": "application/json",
+        "X-N4DU": "1",
+        "X-N4DU-Key": session["secret"],
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=3) as res:
+            answer = json.loads(res.read().decode())
+    except (urllib.error.URLError, OSError, ValueError):
+        return None      # not running any more: start our own below
+    if not answer.get("url"):
+        return None
+    return f"http://{HOST}:{session['port']}" + answer["url"]
+
+
+def open_interface(url):
+    """Compact window when the setting allows it and a browser supports it,
+    otherwise an ordinary tab."""
+    if load_settings()["appWindow"] and shell_integration.open_app_window(url):
+        return
+    webbrowser.open(url)
+
+
+def fatal(message):
+    """Reports a problem and stops.
+
+    Launched from the right-click entry there is no console to print to, so
+    on Windows the message goes to a dialog instead of vanishing.
+    """
+    _write("\n  " + message + "\n")
+    if os.name == "nt" and not _has_console():
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, message, "N4DU Studio", 0x10)
+        except Exception:
+            pass
+    raise SystemExit(1)
+
+
 def main():
+    args = parse_args(sys.argv[1:])
+
+    # Support commands: let people fix the right-click entry from a terminal
+    # without opening the interface.
+    if args["settings"]:
+        try:
+            st = (shell_integration.enable() if args["settings"].startswith("--enable")
+                  else shell_integration.disable())
+            _write("  " + shell_integration.describe(st))
+            return
+        except RuntimeError as exc:
+            fatal(str(exc))
+
+    # A file was handed to us (right-click entry, or dropped on the launcher).
+    if args["open"]:
+        ok, reason = openable(args["open"])
+        if not ok:
+            fatal(reason)
+        existing = hand_off(args["open"])
+        if existing:
+            # Another copy is already running: it now holds the file, so this
+            # process only has to show the window and step aside.
+            _write("  " + existing)
+            if args["browser"]:
+                open_interface(existing)
+            return
+
     mimetypes.add_type("text/javascript", ".js")
     server, port = start_server()
     url = f"http://{HOST}:{port}/"
+    if args["open"]:
+        # The page receives a token, never a path: the URL is visible to the
+        # browser (and its history), and tokens die with the process.
+        url += "?" + urlencode({"open": remember_file(os.path.abspath(args["open"]))})
+
+    write_session(port)
+    atexit.register(clear_session)
 
     banner(url)
+    if args["open"]:
+        event(SYM["open"], "Opened: " + os.path.abspath(args["open"]), "0")
     threading.Thread(target=watchdog, daemon=True).start()
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    if "--no-browser" not in sys.argv:
-        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+    if args["browser"]:
+        threading.Timer(0.5, lambda: open_interface(url)).start()
 
     try:
         # Polled instead of a plain wait(): on Windows a blocking wait with no
