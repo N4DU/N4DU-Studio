@@ -23,7 +23,7 @@
   <symbol id="i-blur" viewBox="0 0 24 24"><path d="M12 3s6 6.5 6 10a6 6 0 01-12 0c0-3.5 6-10 6-10z"/><path d="M9 14h.01M12 16h.01M15 13h.01M11 11h.01"/></symbol>
   <symbol id="i-erase" viewBox="0 0 24 24"><path d="M4 16l7-7 7 7-4 4H8l-4-4zM14 20h6"/></symbol>
   <symbol id="i-remove" viewBox="0 0 24 24"><path d="M12 3l7 7-6 6-7-7 6-6zM6 13l-2 5 5-2M15 20h6"/></symbol>
-  <symbol id="i-pick" viewBox="0 0 24 24"><path d="M18 3l3 3-9 9-3-3 9-9zM9 12l-5 5v3h3l5-5"/></symbol>
+  <symbol id="i-pick" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="1.4"/></symbol>
   <symbol id="i-rot-l" viewBox="0 0 24 24"><path d="M4 9h7a5 5 0 110 10H7"/><path d="M4 9l3-3M4 9l3 3"/></symbol>
   <symbol id="i-rot-r" viewBox="0 0 24 24"><path d="M20 9h-7a5 5 0 100 10h4"/><path d="M20 9l-3-3M20 9l-3 3"/></symbol>
   <symbol id="i-flip-h" viewBox="0 0 24 24"><path d="M12 3v18M8 7L4 12l4 5M16 7l4 5-4 5"/></symbol>
@@ -70,8 +70,8 @@
       <button class="btn-ghost" id="btnCopy" disabled title="Copy the result to the clipboard (Ctrl+C)">
         <svg class="bi"><use href="#i-copy"/></svg> Copy
       </button>
-      <button class="btn-ghost btn-swap" id="btnReplace" disabled title="Overwrite a file on your disk (Ctrl+R)">
-        <svg class="bi"><use href="#i-swap"/></svg> Replace
+      <button class="btn-primary btn-swap" id="btnReplace" disabled title="Overwrite a file on your disk (Ctrl+R)">
+        <svg class="bi"><use href="#i-swap"/></svg> Replace file
       </button>
       <button class="btn-accent" id="btnExport" disabled title="Save the result to your Downloads (Ctrl+S)">
         <svg class="bi"><use href="#i-down"/></svg> Download
@@ -105,9 +105,6 @@
           <button class="tool" data-tool="remove">
             <svg><use href="#i-remove"/></svg><span>Cut colour</span>
           </button>
-          <button class="tool" data-tool="pick">
-            <svg><use href="#i-pick"/></svg><span>Pick</span>
-          </button>
         </div>
       </div>
 
@@ -130,6 +127,10 @@
           <div class="color-row">
             <input type="color" id="brushColor" value="#ff3b3b">
             <span class="color-hex" id="brushColorHex">#ff3b3b</span>
+            <button class="icon-btn small-icon" id="btnPick"
+                    title="Pick a colour from the picture">
+              <svg><use href="#i-pick"/></svg>
+            </button>
           </div>
         </div>
 
@@ -151,15 +152,13 @@
         </div>
 
         <div class="opt" data-for="crop">
+          <label>Keeping <span class="opt-val" id="cropSize">—</span></label>
           <div class="row2">
             <button class="btn-ghost grow" id="cropApply" disabled>Apply</button>
-            <button class="btn-ghost" id="cropCancel" disabled>Clear</button>
+            <button class="btn-ghost" id="cropCancel" disabled title="Back to the whole picture">Reset</button>
           </div>
         </div>
 
-        <div class="opt" data-for="pick">
-          <div class="hint">Click any pixel to load its colour into the brush.</div>
-        </div>
       </div>
 
       <div class="section gated">
@@ -185,7 +184,7 @@
           <li><b>1</b> Open a picture</li>
           <li><b>2</b> Edit it with the tools on the left</li>
           <li><b>3</b> Set the size and format on the right</li>
-          <li><b>4</b> Download, copy or replace a file</li>
+          <li><b>4</b> Download, copy — or <b class="hl">replace</b> a file on your disk</li>
         </ol>
         <div class="drop-formats">JPG · PNG · WEBP · AVIF · GIF · BMP · ICO · SVG and more</div>
       </div>
@@ -290,8 +289,14 @@
             <input type="number" id="qualityVal" value="92" min="1" max="100">
           </div>
           <div class="field">
-            <label>Never exceed (KB)</label>
-            <input type="number" id="maxKb" placeholder="any" min="1">
+            <label>Never exceed</label>
+            <div class="unit-row">
+              <input type="number" id="maxSize" placeholder="any" min="1">
+              <select id="maxUnit" title="Unit">
+                <option value="KB" selected>KB</option>
+                <option value="MB">MB</option>
+              </select>
+            </div>
           </div>
         </div>
         <div class="estimate" id="sizeEstimate">—</div>
@@ -391,6 +396,8 @@
 <script src="js/core/exporter.js"></script>
 <script src="js/core/bridge.js"></script>
 <script src="js/ui/toast.js"></script>
+<script src="js/ui/editable-number.js"></script>
+<script src="js/ui/crop-box.js"></script>
 <script src="js/ui/dropzone.js"></script>
 <script src="js/ui/editor-canvas.js"></script>
 <script src="js/ui/previews.js"></script>

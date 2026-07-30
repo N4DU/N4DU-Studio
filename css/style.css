@@ -119,6 +119,63 @@ svg use, .sprite symbol { fill: none; stroke: currentColor; stroke-width: 1.7;
 
 .bi { width: 15px; height: 15px; flex-shrink: 0; }
 
+/* Replacing a file in place is the headline feature, so it carries its own
+   emphasis instead of blending in with the secondary buttons. */
+.btn-primary {
+  background: rgba(232,255,71,.1);
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  color: var(--accent);
+  font-family: var(--fh);
+  font-size: .8rem;
+  font-weight: 700;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.btn-primary:hover:not(:disabled) { background: rgba(232,255,71,.2); }
+.btn-primary:active:not(:disabled) { transform: scale(.97); }
+.btn-primary:disabled { opacity: .35; cursor: not-allowed; }
+
+/* Click-to-type readouts */
+.editable { cursor: text; border-bottom: 1px dotted var(--faint); }
+.editable:hover { border-bottom-color: var(--accent); }
+.inline-number {
+  width: 4.2em;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--fh);
+  font-size: .72rem;
+  padding: 0 4px;
+  text-align: right;
+}
+.inline-number:focus { outline: none; }
+
+/* Weight limit: number plus its unit */
+.unit-row { display: flex; gap: 5px; }
+.unit-row input[type=number] {
+  flex: 1; min-width: 0;
+  background: var(--bg); border: 1px solid var(--border2);
+  border-radius: 7px; color: var(--text); font-family: var(--fb);
+  font-size: .82rem; padding: 5px 8px;
+}
+.unit-row input[type=number]:focus { outline: none; border-color: var(--accent); }
+.unit-row select {
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: 7px;
+  color: var(--text);
+  font-family: var(--fb);
+  font-size: .78rem;
+  padding: 5px 4px;
+  cursor: pointer;
+}
+.unit-row select:focus { outline: none; border-color: var(--accent); }
+
 .icon-btn {
   background: transparent;
   border: 1px solid transparent;
@@ -226,7 +283,15 @@ body:not(.has-image) .gated { opacity: .3; pointer-events: none; }
   background: none; border: 1px solid var(--border2);
   border-radius: 6px; cursor: pointer;
 }
-.color-hex { font-family: var(--fh); font-size: .75rem; color: var(--text); }
+.color-hex { font-family: var(--fh); font-size: .75rem; color: var(--text); flex: 1; }
+.icon-btn.small-icon {
+  width: 26px; height: 26px;
+  border-color: var(--border2);
+}
+.icon-btn.small-icon svg { width: 15px; height: 15px; }
+.icon-btn.armed {
+  background: var(--accent); border-color: var(--accent); color: #000;
+}
 
 .check {
   display: flex; align-items: center; gap: 7px;
@@ -280,6 +345,7 @@ body:not(.has-image) .gated { opacity: .3; pointer-events: none; }
   font-size: .78rem;
 }
 .drop-steps li { display: flex; align-items: center; gap: 9px; }
+.drop-steps .hl { color: var(--accent); }
 .drop-steps b {
   width: 18px; height: 18px; flex-shrink: 0;
   border-radius: 50%;
@@ -646,9 +712,17 @@ body.has-image .canvas-stack { display: flex; }
 }
 .locked-note[hidden] { display: none; }
 
-/* A locked action still shows why it is unavailable */
-.btn-swap.locked { border-color: var(--border2); color: var(--muted); }
-.btn-swap.locked:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
+/* Browser-only mode: still prominent (this is a headline feature), but the
+   dashed edge marks it as needing the desktop launcher. Greying it out made
+   it read as unimportant. */
+.btn-swap.locked {
+  border-style: dashed;
+  background: rgba(232,255,71,.05);
+}
+.btn-swap.locked:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(232,255,71,.14);
+}
 
 /* Editable name for the new file */
 .file-rename {
