@@ -50,6 +50,9 @@
       state.roundness = 0;
       onChange();
     });
+    // The corner readout is typeable too (it shows a word, so the value comes
+    // from the slider).
+    N4DU.editableNumber.makeEditable($('shapeVal'), $('shapeSlider'));
 
     // ── Size: percentages (whole-image mode) ──
     document.querySelectorAll('#percentPills .pill').forEach(btn => {
@@ -107,8 +110,25 @@
       state.quality = Math.max(1, Math.min(100, parseInt(e.target.value) || 92)) / 100;
       onChange();
     });
-    $('maxKb').addEventListener('input', e => {
-      state.maxKb = e.target.value ? Math.max(1, parseInt(e.target.value)) : null;
+    // The weight cap is entered in whatever unit is selected; state keeps it
+    // in KB so nothing downstream has to care.
+    const readLimit = () => {
+      const raw = parseFloat($('maxSize').value);
+      if (!Number.isFinite(raw) || raw <= 0) return null;
+      const factor = $('maxUnit').value === 'MB' ? 1024 : 1;
+      return Math.max(1, Math.round(raw * factor));
+    };
+    $('maxSize').addEventListener('input', () => { state.maxKb = readLimit(); onChange(); });
+    $('maxUnit').addEventListener('change', () => {
+      // Changing the unit only restates the same limit, so state.maxKb is
+      // kept as-is: converting the rounded display back would drift the real
+      // value (500 KB shown as 0.49 MB would come back as 502 KB).
+      state.maxUnit = $('maxUnit').value;
+      if (state.maxKb) {
+        $('maxSize').value = state.maxUnit === 'MB'
+          ? trim(state.maxKb / 1024)
+          : Math.round(state.maxKb);
+      }
       onChange();
     });
 
@@ -165,6 +185,19 @@
   let estimateTimer = null;
   let estimateSeq = 0;
 
+  // Shortest exact-enough decimal (0.49, 1.5, 2) for a megabyte figure.
+  function trim(value) {
+    return parseFloat(value.toFixed(3));
+  }
+
+  // The weight cap, written in the unit the user chose.
+  function limitLabel() {
+    if (!state.maxKb) return '';
+    return state.maxUnit === 'MB'
+      ? `${trim(state.maxKb / 1024)} MB`
+      : `${state.maxKb} KB`;
+  }
+
   function updateEstimate() {
     const el = $('sizeEstimate');
     if (!state.img) { el.textContent = '—'; el.classList.remove('warn'); return; }
@@ -181,7 +214,7 @@
         const kb = size / 1024;
         const label = kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(1) + ' KB';
         if (withLimit && result.limit && !result.limit.ok) {
-          el.textContent = `Size: ${label} — cannot get under ${state.maxKb} KB`;
+          el.textContent = `Size: ${label} — cannot get under ${limitLabel()}`;
           el.classList.add('warn');
         } else {
           el.textContent = `Size: ${label}`;
@@ -192,6 +225,6 @@
     }, 350);
   }
 
-  N4DU.controls = { initControls, syncControls, updateEstimate };
+  N4DU.controls = { initControls, syncControls, updateEstimate, limitLabel };
 
 })(window.N4DU ??= {});
