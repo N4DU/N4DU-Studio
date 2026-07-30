@@ -1,14 +1,14 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>N4DU Studio</title>
-<meta name="description" content="Editor de imágenes de escritorio: redimensioná, convertí de formato, ajustá el peso y recortá — todo local, sin servidores.">
+<meta name="description" content="Desktop image editor: resize, convert formats, control file size, crop, retouch and replace files in place — entirely on your machine.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='42' fill='%23e8ff47'/><circle cx='50' cy='50' r='18' fill='%230d0d0d'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<!-- Carga no bloqueante: si no hay internet o el CDN tarda, la app arranca
-     igual con la fuente del sistema en vez de quedarse esperando. -->
+<!-- Non-blocking: if the CDN is slow or offline the app still starts,
+     falling back to the system font instead of waiting. -->
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&display=swap"
       rel="stylesheet" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="css/style.css">
@@ -17,7 +17,7 @@
 
 <div class="app">
 
-  <!-- ── BARRA DE TÍTULO ── -->
+  <!-- ── TITLE BAR ── -->
   <header class="titlebar">
     <div class="brand">
       <svg class="logo" viewBox="0 0 24 24" aria-hidden="true">
@@ -26,75 +26,160 @@
       </svg>
       <span>N4DU <em>Studio</em></span>
     </div>
-    <div class="title-file" id="titleFile">Sin imagen — abrí un archivo para empezar</div>
+    <div class="title-file" id="titleFile">No image — open a file to start</div>
     <div class="title-actions">
-      <button class="btn-ghost" id="btnChange" title="Abrir imagen (Ctrl+O)">📂 Abrir</button>
-      <button class="btn-ghost btn-swap" id="btnReplace" disabled hidden title="Reemplazar un archivo del disco">⇄ Reemplazar</button>
-      <button class="btn-accent" id="btnExport" disabled title="Descargar (Ctrl+S)">⬇ Descargar</button>
+      <button class="btn-ghost" id="btnChange" title="Open image (Ctrl+O)">Open</button>
+      <button class="btn-ghost" id="btnCopy" disabled title="Copy result to clipboard (Ctrl+C)">Copy</button>
+      <button class="btn-ghost btn-swap" id="btnReplace" disabled title="Replace a file on disk (Ctrl+R)">Replace</button>
+      <button class="btn-accent" id="btnExport" disabled title="Download (Ctrl+S)">Download</button>
     </div>
   </header>
 
-  <!-- ── ÁREA DE TRABAJO ── -->
+  <!-- ── WORKSPACE ── -->
   <div class="workspace">
 
-    <!-- Panel izquierdo: archivo, modo y vista previa -->
+    <!-- Left panel: tools -->
     <aside class="panel panel-left">
       <div class="section gated">
-        <div class="section-title">Archivo</div>
-        <div class="file-info" id="fileInfo">—</div>
+        <div class="section-title">Tools</div>
+        <div class="tool-grid" id="toolGrid">
+          <button class="tool active" data-tool="move"   title="Pan and zoom the view">Move</button>
+          <button class="tool" data-tool="crop"   title="Drag a rectangle, then apply">Crop</button>
+          <button class="tool" data-tool="brush"  title="Paint freehand">Brush</button>
+          <button class="tool" data-tool="blur"   title="Blur where you paint">Blur</button>
+          <button class="tool" data-tool="erase"  title="Erase to transparency">Erase</button>
+          <button class="tool" data-tool="remove" title="Click a colour to remove it">Remove</button>
+          <button class="tool" data-tool="pick"   title="Pick a colour from the image">Pick</button>
+        </div>
+        <div class="hint" id="toolHint">Drag to move the view; scroll to zoom.</div>
+      </div>
+
+      <!-- Tool options (only the relevant ones are shown) -->
+      <div class="section gated" id="toolOptions">
+        <div class="section-title">Options</div>
+
+        <div class="opt" data-for="brush erase blur">
+          <label>Brush size <span class="opt-val" id="brushSizeVal">24 px</span></label>
+          <input type="range" id="brushSize" min="1" max="200" step="1" value="24">
+        </div>
+
+        <div class="opt" data-for="brush">
+          <label>Colour</label>
+          <div class="color-row">
+            <input type="color" id="brushColor" value="#ff3b3b">
+            <span class="color-hex" id="brushColorHex">#ff3b3b</span>
+          </div>
+        </div>
+
+        <div class="opt" data-for="blur">
+          <label>Blur strength <span class="opt-val" id="blurRadiusVal">8 px</span></label>
+          <input type="range" id="blurRadius" min="1" max="40" step="1" value="8">
+        </div>
+
+        <div class="opt" data-for="remove">
+          <label>Tolerance <span class="opt-val" id="toleranceVal">18%</span></label>
+          <input type="range" id="tolerance" min="0" max="100" step="1" value="18">
+          <label class="check">
+            <input type="checkbox" id="contiguous" checked>
+            <span>Connected area only</span>
+          </label>
+          <div class="hint">Off: removes that colour everywhere in the image.</div>
+        </div>
+
+        <div class="opt" data-for="crop">
+          <div class="row2">
+            <button class="btn-ghost grow" id="cropApply" disabled>Apply crop</button>
+            <button class="btn-ghost" id="cropCancel" disabled>Clear</button>
+          </div>
+        </div>
       </div>
 
       <div class="section gated">
-        <div class="section-title">Modo</div>
-        <div class="pills stack" id="modePills">
-          <button class="pill active" data-mode="original">🖼 Imagen completa</button>
-          <button class="pill" data-mode="crop">👤 Recorte (avatar)</button>
+        <div class="section-title">Transform</div>
+        <div class="row2">
+          <button class="btn-ghost grow" id="rotL" title="Rotate 90° left">Rotate ⟲</button>
+          <button class="btn-ghost grow" id="rotR" title="Rotate 90° right">Rotate ⟳</button>
         </div>
-        <div class="hint" id="modeHint">Se exporta la imagen entera, con su proporción original.</div>
+        <div class="row2">
+          <button class="btn-ghost grow" id="flipH" title="Mirror horizontally">Flip ↔</button>
+          <button class="btn-ghost grow" id="flipV" title="Mirror vertically">Flip ↕</button>
+        </div>
+        <div class="row2">
+          <button class="btn-ghost grow" id="blurAll" title="Blur the whole image">Blur all</button>
+        </div>
       </div>
 
       <div class="section gated">
-        <div class="section-title">Vista previa</div>
-        <div class="profile-preview">
-          <div class="preview-frame"><canvas id="thumbCanvas"></canvas></div>
-          <div class="preview-label" id="previewLabel">—</div>
+        <div class="section-title">History</div>
+        <div class="row2">
+          <button class="btn-ghost grow" id="btnUndo" disabled title="Undo (Ctrl+Z)">Undo</button>
+          <button class="btn-ghost grow" id="btnRedo" disabled title="Redo (Ctrl+Shift+Z)">Redo</button>
         </div>
+        <button class="btn-ghost" id="btnRevert" title="Discard all edits">Revert to original</button>
       </div>
     </aside>
 
-    <!-- Escenario central -->
+    <!-- Stage -->
     <main class="stage">
       <div class="dropzone" id="dropzone">
-        <div class="drop-icon">🖼️</div>
-        <div class="drop-label">Arrastrá tu imagen acá</div>
-        <div class="drop-sub">clic para elegir · Ctrl+V para pegar</div>
-        <div class="drop-formats">JPG · PNG · WEBP · AVIF · GIF · BMP · ICO · SVG · JFIF y más</div>
+        <div class="drop-icon">
+          <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="3" y="4" width="18" height="16" rx="2"/>
+            <circle cx="8.5" cy="9.5" r="1.8"/>
+            <path d="M21 16l-5.5-5.5L7 19"/>
+          </svg>
+        </div>
+        <div class="drop-label">Drop an image here</div>
+        <div class="drop-sub">or click to browse · Ctrl+V to paste</div>
+        <div class="drop-formats">JPG · PNG · WEBP · AVIF · GIF · BMP · ICO · SVG and more</div>
       </div>
 
       <div class="canvas-wrap" id="canvasWrap">
         <canvas id="editorCanvas"></canvas>
 
         <div class="float-bar shape-bar">
-          <span class="bar-icon">▢</span>
-          <input type="range" id="shapeSlider" min="0" max="100" step="1" value="0">
-          <span class="bar-icon">●</span>
+          <span class="bar-icon" title="Square">▢</span>
+          <input type="range" id="shapeSlider" min="0" max="100" step="1" value="0" title="Corner rounding">
+          <span class="bar-icon" title="Circle">●</span>
           <span class="bar-val" id="shapeVal">Original</span>
-          <button class="reset-btn" id="resetShape" title="Sin redondeo">↺</button>
+          <button class="reset-btn" id="resetShape" title="No rounding">↺</button>
         </div>
 
         <div class="float-bar zoom-bar" id="zoomBar">
           <label>Zoom</label>
           <input type="range" id="zoomSlider" min="1" max="5" step="0.01" value="1">
           <span class="bar-val narrow" id="zoomVal">100%</span>
-          <button class="reset-btn" id="resetZoom" title="Volver a 100%">↺</button>
+          <button class="reset-btn" id="resetZoom" title="Back to 100%">↺</button>
         </div>
       </div>
     </main>
 
-    <!-- Panel derecho: propiedades de salida -->
+    <!-- Right panel: output -->
     <aside class="panel panel-right">
       <div class="section gated">
-        <div class="section-title">Tamaño de salida</div>
+        <div class="section-title">File</div>
+        <div class="file-info" id="fileInfo">—</div>
+      </div>
+
+      <div class="section gated">
+        <div class="section-title">Framing</div>
+        <div class="pills stack" id="modePills">
+          <button class="pill active" data-mode="original">Whole image</button>
+          <button class="pill" data-mode="crop">Square crop (avatar)</button>
+        </div>
+        <div class="hint" id="modeHint">Exports the whole image at its own aspect ratio.</div>
+      </div>
+
+      <div class="section gated">
+        <div class="section-title">Preview</div>
+        <div class="profile-preview">
+          <div class="preview-frame"><canvas id="thumbCanvas"></canvas></div>
+          <div class="preview-label" id="previewLabel">—</div>
+        </div>
+      </div>
+
+      <div class="section gated">
+        <div class="section-title">Output size</div>
         <div class="pills" id="percentPills">
           <button class="pill active" data-pct="100">100%</button>
           <button class="pill" data-pct="75">75%</button>
@@ -110,19 +195,19 @@
         </div>
         <div class="row2 size-row">
           <div class="field">
-            <label>Ancho (px)</label>
+            <label>Width (px)</label>
             <input type="number" id="outW" value="400" min="1" max="8192">
           </div>
-          <button class="lock-btn active" id="lockBtn" title="Mantener proporción">🔗</button>
+          <button class="lock-btn active" id="lockBtn" title="Keep aspect ratio">🔗</button>
           <div class="field">
-            <label>Alto (px)</label>
+            <label>Height (px)</label>
             <input type="number" id="outH" value="400" min="1" max="8192">
           </div>
         </div>
       </div>
 
       <div class="section gated">
-        <div class="section-title">Formato</div>
+        <div class="section-title">Format</div>
         <div class="pills" id="fmtPills">
           <button class="pill active" data-fmt="png">PNG</button>
           <button class="pill" data-fmt="jpeg">JPG</button>
@@ -135,14 +220,14 @@
       </div>
 
       <div class="section gated">
-        <div class="section-title">Calidad y peso</div>
+        <div class="section-title">Quality and size</div>
         <div class="field" id="qualityRow" style="display:none;">
-          <label>Calidad (1–100)</label>
+          <label>Quality (1–100)</label>
           <input type="number" id="qualityVal" value="92" min="1" max="100">
         </div>
         <div class="field">
-          <label>Peso máximo en KB (vacío = sin límite)</label>
-          <input type="number" id="maxKb" placeholder="ej: 1024" min="1">
+          <label>Maximum file size in KB (blank = no limit)</label>
+          <input type="number" id="maxKb" placeholder="e.g. 1024" min="1">
         </div>
         <div class="estimate" id="sizeEstimate">—</div>
       </div>
@@ -150,33 +235,33 @@
 
   </div>
 
-  <!-- ── BARRA DE ESTADO ── -->
+  <!-- ── STATUS BAR ── -->
   <footer class="statusbar">
-    <span id="statusDims">Listo</span>
+    <span id="statusDims">Ready</span>
     <span class="status-spacer"></span>
-    <span class="status-hint">Ctrl+O abrir · Ctrl+V pegar · Ctrl+S exportar · Rueda: zoom · Flechas: mover encuadre</span>
+    <span class="status-hint">Ctrl+O open · Ctrl+V paste · Ctrl+C copy · Ctrl+S download · Ctrl+Z undo</span>
   </footer>
 
 </div>
 
-<!-- Diálogo de reemplazo: qué archivo se sustituye por cuál -->
+<!-- Replace dialog: which file is swapped for which -->
 <div class="modal-backdrop" id="replaceModal" hidden>
   <div class="modal">
-    <div class="modal-title">⇄ Reemplazar archivo</div>
+    <div class="modal-title">Replace file</div>
 
     <div class="swap-row">
-      <!-- Archivo que será reemplazado -->
+      <!-- File that will be replaced -->
       <div class="file-card" id="srcCard">
         <div class="file-doc" id="srcDoc">
           <canvas id="srcThumb"></canvas>
           <span class="file-doc-empty" id="srcEmpty">?</span>
         </div>
-        <div class="file-name" id="srcName">Sin archivo de origen</div>
+        <div class="file-name" id="srcName">No file selected</div>
       </div>
 
       <div class="swap-arrow">→</div>
 
-      <!-- Archivo nuevo (editable) -->
+      <!-- New file (editable name) -->
       <div class="file-card">
         <div class="file-doc">
           <canvas id="dstThumb"></canvas>
@@ -190,11 +275,20 @@
 
     <div class="hint center" id="replaceModalHint"></div>
 
-    <button class="btn-ghost" id="btnPickTarget">📂 Elegir el archivo a reemplazar…</button>
+    <!-- Shown only in browser-only mode -->
+    <div class="locked-note" id="replaceLocked" hidden>
+      <strong>Desktop only.</strong>
+      Writing to your disk is blocked in the browser. Run
+      <code>main.py</code> (or <code>start.bat</code>) and this dialog will
+      overwrite the file on the left with the file on the right — even when
+      the format changes.
+    </div>
+
+    <button class="btn-ghost" id="btnPickTarget">Choose the file to replace…</button>
 
     <div class="modal-actions">
-      <button class="btn-ghost" id="btnReplaceCancel">Cancelar</button>
-      <button class="btn-accent" id="btnReplaceConfirm" disabled>⇄ Reemplazar</button>
+      <button class="btn-ghost" id="btnReplaceCancel">Cancel</button>
+      <button class="btn-accent" id="btnReplaceConfirm" disabled>Replace</button>
     </div>
   </div>
 </div>
@@ -204,6 +298,7 @@
 <script src="js/state.js"></script>
 <script src="js/core/geometry.js"></script>
 <script src="js/core/loader.js"></script>
+<script src="js/core/edit.js"></script>
 <script src="js/core/render.js"></script>
 <script src="js/core/exporter.js"></script>
 <script src="js/core/bridge.js"></script>
@@ -212,6 +307,7 @@
 <script src="js/ui/editor-canvas.js"></script>
 <script src="js/ui/previews.js"></script>
 <script src="js/ui/controls.js"></script>
+<script src="js/ui/tools.js"></script>
 <script src="js/ui/replace-dialog.js"></script>
 <script src="js/main.js"></script>
 </body>

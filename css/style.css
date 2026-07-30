@@ -1,4 +1,4 @@
-/* N4DU Studio — interfaz de escritorio */
+/* N4DU Studio — desktop interface */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
@@ -34,14 +34,14 @@ body {
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--faint); }
 
-/* ── ESTRUCTURA ── */
+/* ── LAYOUT ── */
 .app {
   display: grid;
   grid-template-rows: 46px 1fr 26px;
   height: 100vh;
 }
 
-/* ── BARRA DE TÍTULO ── */
+/* ── TITLE BAR ── */
 .titlebar {
   display: flex;
   align-items: center;
@@ -103,7 +103,7 @@ body {
 .btn-accent:active:not(:disabled) { transform: scale(.97); }
 .btn-accent:disabled { opacity: .35; cursor: not-allowed; }
 
-/* ── ÁREA DE TRABAJO ── */
+/* ── WORKSPACE ── */
 .workspace {
   display: grid;
   grid-template-columns: 248px 1fr 288px;
@@ -132,10 +132,10 @@ body {
   user-select: none;
 }
 
-/* Secciones inactivas hasta cargar una imagen */
+/* Sections stay inert until an image is loaded */
 body:not(.has-image) .gated { opacity: .35; pointer-events: none; }
 
-/* ── ESCENARIO ── */
+/* ── STAGE ── */
 .stage {
   position: relative;
   display: flex;
@@ -147,7 +147,7 @@ body:not(.has-image) .gated { opacity: .35; pointer-events: none; }
   min-height: 0;
 }
 
-/* Drop zone (estado inicial) */
+/* Drop zone (initial state) */
 .dropzone {
   border: 2px dashed var(--border2);
   border-radius: 14px;
@@ -171,7 +171,7 @@ body:not(.has-image) .gated { opacity: .35; pointer-events: none; }
 }
 body.has-image .dropzone { display: none; }
 
-/* Canvas de edición */
+/* Editing canvas */
 .canvas-wrap {
   display: none;
   width: min(88%, calc(100vh - 200px));
@@ -192,7 +192,7 @@ body.has-image .canvas-wrap { display: block; }
 .canvas-wrap canvas.draggable { cursor: grab; }
 .canvas-wrap canvas.dragging  { cursor: grabbing; }
 
-/* Barras flotantes sobre el canvas */
+/* Floating bars over the canvas */
 .float-bar {
   position: absolute;
   left: 50%;
@@ -234,7 +234,73 @@ body.has-image .canvas-wrap { display: block; }
 }
 .reset-btn:hover { border-color: var(--accent); color: var(--accent); transform: rotate(-45deg); }
 
-/* ── CONTROLES ── */
+/* Cursors per active tool */
+.canvas-wrap canvas.tool-paint   { cursor: crosshair; }
+.canvas-wrap canvas.tool-pick    { cursor: copy; }
+.canvas-wrap canvas.tool-crop    { cursor: crosshair; }
+.canvas-wrap canvas.tool-remove  { cursor: cell; }
+.canvas-wrap.busy { cursor: progress; }
+
+/* ── TOOL PALETTE ── */
+.tool-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+.tool {
+  font-family: var(--fb);
+  font-size: .76rem;
+  padding: 7px 4px;
+  border-radius: 7px;
+  border: 1px solid var(--border2);
+  background: var(--bg);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all .15s;
+}
+.tool:hover { border-color: var(--accent); color: var(--text); }
+.tool.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #000;
+  font-weight: 600;
+}
+
+/* Tool options: each block declares which tools it belongs to */
+.opt { display: none; flex-direction: column; gap: 6px; }
+.opt.visible { display: flex; }
+.opt label {
+  font-size: .72rem; color: var(--muted);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.opt input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
+.opt-val { color: var(--accent); font-family: var(--fh); font-size: .72rem; }
+
+.color-row { display: flex; align-items: center; gap: 8px; }
+.color-row input[type=color] {
+  width: 40px; height: 28px; padding: 0;
+  background: none; border: 1px solid var(--border2);
+  border-radius: 6px; cursor: pointer;
+}
+.color-hex { font-family: var(--fh); font-size: .76rem; color: var(--text); }
+
+.check {
+  display: flex; align-items: center; gap: 8px;
+  font-size: .76rem; color: var(--text);
+  cursor: pointer; user-select: none;
+  justify-content: flex-start;
+}
+.check input[type=checkbox] {
+  width: 14px; height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.btn-ghost.grow { flex: 1; }
+.btn-ghost:disabled { opacity: .35; cursor: not-allowed; }
+.btn-ghost:disabled:hover { border-color: var(--border2); }
+
+/* ── CONTROLS ── */
 .pills { display: flex; gap: 5px; flex-wrap: wrap; }
 .pills.stack { flex-direction: column; }
 .pills.stack .pill { text-align: left; padding: 7px 12px; }
@@ -283,7 +349,7 @@ body.has-image .canvas-wrap { display: block; }
 }
 .estimate.warn { color: var(--danger); }
 
-/* Vista previa */
+/* Preview */
 .profile-preview {
   display: flex; flex-direction: column;
   align-items: center; gap: 9px;
@@ -301,11 +367,11 @@ body.has-image .canvas-wrap { display: block; }
 .preview-frame canvas { max-width: 100%; max-height: 100%; display: block; }
 .preview-label { font-size: .7rem; color: var(--muted); text-align: center; }
 
-/* Info archivo */
+/* File info */
 .file-info { font-size: .76rem; color: var(--muted); line-height: 1.7; }
 .file-info strong { color: var(--text); word-break: break-all; }
 
-/* ── BARRA DE ESTADO ── */
+/* ── STATUS BAR ── */
 .statusbar {
   display: flex;
   align-items: center;
@@ -322,12 +388,12 @@ body.has-image .canvas-wrap { display: block; }
 .status-spacer { flex: 1; }
 .status-hint { color: var(--faint); overflow: hidden; text-overflow: ellipsis; }
 
-/* ── BOTÓN REEMPLAZAR ── */
+/* ── REPLACE BUTTON ── */
 .btn-swap { border-color: var(--accent); color: var(--accent); }
 .btn-swap:hover:not(:disabled) { background: rgba(232,255,71,.08); }
 .btn-swap:disabled { opacity: .35; cursor: not-allowed; }
 
-/* ── MODAL DE REEMPLAZO ── */
+/* ── REPLACE DIALOG ── */
 .modal-backdrop {
   position: fixed; inset: 0;
   background: rgba(0,0,0,.6);
@@ -358,7 +424,7 @@ body.has-image .canvas-wrap { display: block; }
 }
 .modal-actions .btn-accent, .modal-actions .btn-ghost { padding: 8px 18px; }
 
-/* Fila de intercambio: archivo viejo → archivo nuevo */
+/* Swap row: old file → new file */
 .swap-row {
   display: flex; align-items: center; justify-content: center;
   gap: 18px;
@@ -375,8 +441,8 @@ body.has-image .canvas-wrap { display: block; }
   gap: 8px; width: 150px;
 }
 
-/* "Hoja" de archivo estilo Windows: papel con esquina doblada y la
-   miniatura de la imagen adentro. */
+/* Windows-style file sheet: paper with a folded corner and the image
+   thumbnail inside. */
 .file-doc {
   position: relative;
   width: 92px; height: 112px;
@@ -385,7 +451,7 @@ body.has-image .canvas-wrap { display: block; }
   display: flex; align-items: center; justify-content: center;
   box-shadow: 0 3px 12px rgba(0,0,0,.45);
 }
-.file-doc::before {           /* esquina doblada */
+.file-doc::before {           /* folded corner */
   content: '';
   position: absolute; top: 0; right: 0;
   width: 0; height: 0;
@@ -422,7 +488,31 @@ body.has-image .canvas-wrap { display: block; }
   line-height: 1.4;
 }
 
-/* Nombre editable del archivo nuevo */
+/* Browser-only notice inside the replace dialog */
+.locked-note {
+  background: rgba(255,95,95,.07);
+  border: 1px solid rgba(255,95,95,.35);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: .75rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.locked-note strong { color: var(--danger); }
+.locked-note code {
+  font-family: var(--fh);
+  color: var(--text);
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.locked-note[hidden] { display: none; }
+
+/* A locked action still shows why it is unavailable */
+.btn-swap.locked { border-color: var(--border2); color: var(--muted); }
+.btn-swap.locked:hover { border-color: var(--danger); color: var(--danger); }
+
+/* Editable name for the new file */
 .file-rename {
   display: flex; align-items: center;
   width: 100%;
@@ -463,7 +553,7 @@ body.has-image .canvas-wrap { display: block; }
 .toast.ok  { border-color: var(--success); color: var(--success); }
 .toast.err { border-color: var(--danger);  color: var(--danger); }
 
-/* ── PANTALLAS ANGOSTAS (por si acaso) ── */
+/* ── NARROW SCREENS ── */
 @media (max-width: 900px) {
   .workspace { grid-template-columns: 200px 1fr 230px; }
 }

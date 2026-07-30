@@ -1,8 +1,9 @@
 @echo off
-rem N4DU Studio - lanzador para Windows (doble clic). Sin dependencias.
+rem N4DU Studio - launcher for Windows (double-click).
+rem No dependencies: the Python standard library is enough.
 cd /d "%~dp0"
 
-rem Buscar Python: primero "python", si no el lanzador "py".
+rem Find Python: try "python" first, then the "py" launcher.
 set "PY="
 where python >nul 2>&1 && set "PY=python"
 if not defined PY (
@@ -10,14 +11,14 @@ if not defined PY (
 )
 if not defined PY (
   echo.
-  echo   No se encontro Python en este equipo.
-  echo   Instalalo desde https://www.python.org/downloads/
-  echo   ^(marca "Add Python to PATH" durante la instalacion^)
+  echo   Python was not found on this machine.
+  echo   Install it from https://www.python.org/downloads/
+  echo   ^(tick "Add Python to PATH" during setup^)
   echo.
   pause
   exit /b 1
 )
 
-rem Sin "||": si el programa termina con error no debe relanzarse solo.
+rem No "||": if the program exits with an error it must not relaunch itself.
 %PY% main.py
 pause

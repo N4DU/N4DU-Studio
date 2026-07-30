@@ -1,8 +1,8 @@
-// Geometría pura: formas y región de recorte. Sin DOM, sin estado.
+// Pure geometry: shapes and the crop region. No DOM, no state mutation.
 (function (N4DU) {
 
-  // Traza un rectángulo con esquinas redondeadas de radio r sobre el contexto.
-  // r = 0 → rectángulo. r = mitad del lado menor → cápsula/círculo.
+  // Traces a rectangle with rounded corners of radius r.
+  // r = 0 → plain rectangle. r = half the shorter side → circle/capsule.
   function shapePath(ctx, x, y, w, h, r) {
     r = Math.max(0, Math.min(r, w / 2, h / 2));
     ctx.beginPath();
@@ -22,18 +22,18 @@
     }
   }
 
-  // Radio en píxeles para un nivel de redondez (0–100) sobre un área w×h.
+  // Radius in pixels for a rounding level (0–100) over a w×h area.
   function radiusFor(roundness, w, h = w) {
     return (roundness / 100) * (Math.min(w, h) / 2);
   }
 
-  // Región cuadrada de recorte en coordenadas de la imagen original.
+  // Square avatar crop region, in surface coordinates.
   function cropRect(state) {
     const side = Math.min(state.origW, state.origH) / state.zoom;
     return { sx: state.cx - side / 2, sy: state.cy - side / 2, side };
   }
 
-  // Mantiene el centro del recorte dentro de la imagen para el zoom actual.
+  // Keeps the crop centre inside the image for the current zoom.
   function clampCenter(state) {
     const side = Math.min(state.origW, state.origH) / state.zoom;
     const r = side / 2;
@@ -41,14 +41,14 @@
     state.cy = Math.max(r, Math.min(state.origH - r, state.cy));
   }
 
-  // Etiqueta legible de la forma actual.
+  // Human-readable label for the current shape.
   function shapeLabel(state) {
     if (state.roundness <= 0) return 'Original';
     if (state.roundness >= 98) {
       const square = state.mode === 'crop' || state.origW === state.origH;
-      return square ? 'Círculo' : 'Cápsula';
+      return square ? 'Circle' : 'Capsule';
     }
-    return `Redondeo ${state.roundness}%`;
+    return `Rounded ${state.roundness}%`;
   }
 
   N4DU.geometry = { shapePath, radiusFor, cropRect, clampCenter, shapeLabel };

@@ -1,6 +1,9 @@
-// Diálogo de reemplazo: muestra qué archivo del disco se sustituye por cuál,
-// con miniaturas estilo Windows y el nombre del resultado editable.
-// Solo se usa cuando el puente (main.py) está activo.
+// Replace dialog: shows which file on disk is swapped for which, with
+// Windows-style thumbnails and an editable output name.
+//
+// It also opens in browser-only mode, where writing to disk is impossible.
+// There the two thumbnails still explain what the feature does, and the
+// action is locked with a short note pointing at the desktop launcher.
 (function (N4DU) {
 
   const { state, toast, bridge } = N4DU;
@@ -10,9 +13,9 @@
 
   const $ = (id) => document.getElementById(id);
 
-  // Miniatura del archivo que será reemplazado (bytes reales del disco).
+  // Thumbnail of the file to be replaced (real bytes from disk).
   let srcBitmap = null;
-  let onDone = null; // callback tras un reemplazo exitoso
+  let onDone = null;  // callback after a successful replacement
 
   function initReplaceDialog(afterReplace) {
     onDone = afterReplace;
@@ -21,7 +24,7 @@
     $('btnReplaceConfirm').addEventListener('click', confirm);
     $('dstStem').addEventListener('input', syncModal);
 
-    // Cerrar con Escape o clic en el fondo
+    // Close on Escape or a click on the backdrop
     $('replaceModal').addEventListener('click', e => {
       if (e.target === $('replaceModal')) close();
     });
@@ -30,22 +33,25 @@
     });
   }
 
+  // The bridge is unavailable: the dialog is a read-only explanation.
+  function locked() { return !bridge.active; }
+
   async function open() {
     if (!state.img) return;
-    srcBitmap = null;
+    releaseSource();
 
-    // Nombre por defecto del resultado: el del archivo a reemplazar si ya
-    // hay uno elegido; si no, el de la imagen de trabajo.
+    // Default output name: the file being replaced if one is chosen,
+    // otherwise the name of the image being edited.
     const stem = bridge.canReplace()
       ? baseName(bridge.path).replace(/\.[^.]+$/, '')
       : state.fileName;
     $('dstStem').value = stem;
 
     $('replaceModal').hidden = false;
-    paintSource();      // nombre y estado (vacío/lleno) al instante…
+    paintSource();            // name and empty/filled state immediately…
     drawDestThumb();
     syncModal();
-    await loadSourceThumb();  // …y la miniatura del origen cuando llegue
+    await loadSourceThumb();  // …and the source thumbnail once it arrives
   }
 
   function close() {
@@ -53,22 +59,26 @@
     releaseSource();
   }
 
-  // Elegir (o cambiar) el archivo del disco a reemplazar.
+  // Choose (or change) which file on disk gets replaced.
   async function chooseTarget() {
+    if (locked()) {
+      toast('Choosing a file requires the desktop version', 'err');
+      return;
+    }
     try {
       const picked = await bridge.pickTarget();
-      if (!picked) return; // canceló
-      // Adoptá el nombre del objetivo elegido (podés editarlo después).
+      if (!picked) return; // cancelled
+      // Adopt the chosen file's name (still editable afterwards).
       $('dstStem').value = baseName(picked.path).replace(/\.[^.]+$/, '');
-      paintSource();        // nombre y botón al instante…
+      paintSource();
       syncModal();
-      await loadSourceThumb();  // …y la miniatura cuando llegue
+      await loadSourceThumb();
     } catch (err) {
       toast(err.message, 'err');
     }
   }
 
-  // Carga los bytes del archivo a reemplazar y arma su miniatura.
+  // Loads the bytes of the file to replace and builds its thumbnail.
   async function loadSourceThumb() {
     releaseSource();
     if (!bridge.canReplace()) return;
@@ -76,12 +86,12 @@
       const blob = await bridge.readCurrent();
       srcBitmap = await loadImage(new File([blob], baseName(bridge.path)));
     } catch {
-      srcBitmap = null; // no se pudo previsualizar; igual se puede reemplazar
+      srcBitmap = null; // no preview available; replacing still works
     }
     paintSource();
   }
 
-  // Libera la miniatura anterior (retiene memoria de imagen decodificada).
+  // Releases the previous thumbnail (holds decoded image memory).
   function releaseSource() {
     if (srcBitmap && typeof srcBitmap.close === 'function') srcBitmap.close();
     srcBitmap = null;
@@ -97,13 +107,14 @@
       else clearCanvas($('srcThumb'));
     } else {
       doc.classList.add('empty');
-      name.textContent = 'Ningún archivo elegido';
+      // In browser-only mode the left card stands for "any file on your disk".
+      name.textContent = locked() ? 'A file on your disk' : 'No file selected';
       clearCanvas($('srcThumb'));
     }
   }
 
-  // Miniatura del resultado: refleja recorte, forma, tamaño real (con el
-  // recorte a 256 del ICO) y el fondo del formato elegido.
+  // Thumbnail of the result: reflects crop, shape, real size (including the
+  // ICO 256 cap) and the background of the chosen format.
   function drawDestThumb() {
     const MAX = 88;
     const { W, H } = outputDims(state);
@@ -123,27 +134,37 @@
     $('dstExt').textContent = '.' + ext;
 
     const stem = cleanStem($('dstStem').value);
-    const canDo = bridge.canReplace() && stem.length > 0;
-    $('btnReplaceConfirm').disabled = !canDo;
+    const isLocked = locked();
+
+    // Browser-only mode: the explanation shows, the action does not run.
+    $('replaceLocked').hidden = !isLocked;
+    $('btnPickTarget').disabled = isLocked;
+    $('dstStem').disabled = isLocked;
+    $('btnReplaceConfirm').disabled = isLocked || !bridge.canReplace() || !stem;
+    $('btnReplaceConfirm').title = isLocked
+      ? 'Available in the desktop version' : '';
 
     const hint = $('replaceModalHint');
-    if (!bridge.canReplace()) {
-      hint.textContent = 'Elegí el archivo del disco que será reemplazado.';
+    if (isLocked) {
+      hint.textContent = 'The file on the left is overwritten by the one on the right.';
+    } else if (!bridge.canReplace()) {
+      hint.textContent = 'Choose the file on disk that will be replaced.';
     } else {
       const from = baseName(bridge.path);
       const to = stem + '.' + ext;
       hint.textContent = from === to
-        ? `Se sobreescribirá ${from}.`
-        : `${from}  →  ${to}   (el archivo anterior se elimina)`;
+        ? `${from} will be overwritten.`
+        : `${from}  →  ${to}   (the previous file is deleted)`;
     }
   }
 
   async function confirm() {
+    if (locked()) return;
     const stem = cleanStem($('dstStem').value);
     if (!bridge.canReplace() || !stem) return;
     const btn = $('btnReplaceConfirm');
     btn.disabled = true;
-    btn.textContent = 'Reemplazando…';
+    btn.textContent = 'Replacing…';
     try {
       const { blob, limit } = await exportBlob(state);
       const ext = FORMATS[state.fmt].ext;
@@ -151,39 +172,39 @@
       try {
         out = await bridge.replaceOriginal(blob, ext, stem);
       } catch (err) {
-        // El destino ya existe y es otro archivo: el servidor no pisa nada
-        // sin permiso, así que se pregunta antes de destruirlo.
+        // The target exists and is a different file: the server refuses to
+        // overwrite it without permission, so ask before destroying it.
         if (!err.conflict) throw err;
         const ok = window.confirm(
-          `Ya existe "${err.conflict}" en esa carpeta.\n\n` +
-          `Si continuás, ese archivo se reemplaza por el nuevo y ` +
-          `"${baseName(bridge.path)}" se elimina.\n\n¿Continuar?`);
-        if (!ok) { toast('Reemplazo cancelado', ''); return; }
+          `"${err.conflict}" already exists in that folder.\n\n` +
+          `Continuing replaces that file with the new one and deletes ` +
+          `"${baseName(bridge.path)}".\n\nContinue?`);
+        if (!ok) { toast('Replacement cancelled', ''); return; }
         out = await bridge.replaceOriginal(blob, ext, stem, true);
       }
       const kb = blob.size / 1024;
-      const peso = kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(0) + ' KB';
+      const size = kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(0) + ' KB';
       close();
       if (limit && !limit.ok) {
-        toast(`Reemplazado ${out.name} · ${peso} — no se pudo bajar de ${limit.maxKb} KB`, 'err');
+        toast(`Replaced ${out.name} · ${size} — could not get under ${limit.maxKb} KB`, 'err');
       } else if (out.warning) {
-        toast(`Reemplazado ${out.name} · ${peso} — ${out.warning}`, 'err');
+        toast(`Replaced ${out.name} · ${size} — ${out.warning}`, 'err');
       } else {
-        toast(`Reemplazado en disco: ${out.name} · ${peso}`, 'ok');
+        toast(`Replaced on disk: ${out.name} · ${size}`, 'ok');
       }
       if (onDone) onDone(out);
     } catch (err) {
-      toast('Error al reemplazar: ' + err.message, 'err');
+      toast('Could not replace: ' + err.message, 'err');
     } finally {
       btn.disabled = false;
-      btn.textContent = '⇄ Reemplazar';
+      btn.textContent = 'Replace';
     }
   }
 
-  // ── Utilidades ──
+  // ── Helpers ───────────────────────────────────────────────────────
   function baseName(p) { return (p || '').split(/[\\/]/).pop(); }
 
-  // Quita caracteres inválidos para nombres de archivo en Windows/Unix.
+  // Strips characters that are invalid in file names on Windows/Unix.
   function cleanStem(s) {
     return (s || '').replace(/[\\/:*?"<>|]/g, '').replace(/^\.+/, '').trim();
   }
