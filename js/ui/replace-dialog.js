@@ -186,7 +186,7 @@
       const size = kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(0) + ' KB';
       close();
       if (limit && !limit.ok) {
-        toast(`Replaced ${out.name} · ${size} — could not get under ${limit.maxKb} KB`, 'err');
+        toast(`Replaced ${out.name} · ${size} — could not get under ${N4DU.controls.limitLabel()}`, 'err');
       } else if (out.warning) {
         toast(`Replaced ${out.name} · ${size} — ${out.warning}`, 'err');
       } else {

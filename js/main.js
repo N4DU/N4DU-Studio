@@ -90,7 +90,7 @@
       download(blob, filename);
       if (limit && !limit.ok) {
         // Never present an oversized file as a success.
-        toast(`Downloaded ${filename} · ${sizeLabel(blob.size)} — could not get under ${limit.maxKb} KB`, 'err');
+        toast(`Downloaded ${filename} · ${sizeLabel(blob.size)} — could not get under ${N4DU.controls.limitLabel()}`, 'err');
       } else {
         toast(`Downloaded ${filename} · ${sizeLabel(blob.size)}`, 'ok');
       }

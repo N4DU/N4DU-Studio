@@ -29,7 +29,8 @@
     lockAspect: true,
     fmt: 'png',
     quality: 0.92,
-    maxKb: null,
+    maxKb: null,       // always kept in KB
+    maxUnit: 'KB',     // unit shown in the field: 'KB' or 'MB'
 
     // Active tool and its options
     tool: 'move',       // move | crop | brush | blur | erase | remove | pick
