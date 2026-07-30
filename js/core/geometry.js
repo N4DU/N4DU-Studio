@@ -41,9 +41,9 @@
     state.cy = Math.max(r, Math.min(state.origH - r, state.cy));
   }
 
-  // Human-readable label for the current shape.
+  // Human-readable label for the current corner shape.
   function shapeLabel(state) {
-    if (state.roundness <= 0) return 'Original';
+    if (state.roundness <= 0) return 'Sharp';
     if (state.roundness >= 98) {
       const square = state.mode === 'crop' || state.origW === state.origH;
       return square ? 'Circle' : 'Capsule';

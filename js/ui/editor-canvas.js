@@ -17,9 +17,16 @@
   // Delegate for tool interaction, installed by the tools module.
   let toolHandler = null;
 
-  function canvasSize() {
+  // Size of the stage in CSS pixels. It is no longer forced to be square:
+  // the frame takes the shape of the exported picture.
+  function canvasBox() {
     const w = wrap();
-    return Math.min(w.clientWidth, w.clientHeight) || 460;
+    return { w: w.clientWidth || 460, h: w.clientHeight || 460 };
+  }
+
+  function canvasSize() {
+    const b = canvasBox();
+    return Math.min(b.w, b.h);
   }
 
   // Is a modal dialog open? (canvas shortcuts must not act)
@@ -47,36 +54,39 @@
     const src = N4DU.render.source(state);
     if (!src) return;
     const c = canvas();
-    const S = canvasSize();
+    const { w: CW, h: CH } = canvasBox();
     // Draw at the screen's real resolution (on a 2× display the canvas would
     // otherwise be half as sharp) while working in CSS pixels.
     const dpr = Math.min(window.devicePixelRatio || 1, 3);
-    c.width = c.height = Math.round(S * dpr);
+    c.width = Math.round(CW * dpr);
+    c.height = Math.round(CH * dpr);
     const ctx = c.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingQuality = 'high';
 
     ctx.fillStyle = '#0d0d0d';
-    ctx.fillRect(0, 0, S, S);
+    ctx.fillRect(0, 0, CW, CH);
 
     let dx, dy, dw, dh;   // where the whole image lands on the canvas
     let fx, fy, fw, fh;   // rectangle of the exported area
 
     if (state.mode === 'crop') {
-      const { sx, sy, side } = cropRect(state);
-      const scale = (S - 4) / side;
-      dx = 2 - sx * scale; dy = 2 - sy * scale;
+      // A square window centred in the stage.
+      const side = Math.min(CW, CH) - 4;
+      const { sx, sy, side: cropSide } = cropRect(state);
+      const scale = side / cropSide;
+      fx = (CW - side) / 2; fy = (CH - side) / 2; fw = fh = side;
+      dx = fx - sx * scale; dy = fy - sy * scale;
       dw = state.origW * scale; dh = state.origH * scale;
-      fx = 2; fy = 2; fw = S - 4; fh = S - 4;
       view = { dx, dy, scale };
     } else {
       // The view follows the OUTPUT aspect ratio: unlock the ratio and
       // distort the size, and it looks distorted here too, exactly like the
       // exported file.
       const outW = Math.max(1, state.outW), outH = Math.max(1, state.outH);
-      const scale = Math.min((S - 4) / outW, (S - 4) / outH);
+      const scale = Math.min((CW - 4) / outW, (CH - 4) / outH);
       dw = outW * scale; dh = outH * scale;
-      dx = (S - dw) / 2; dy = (S - dh) / 2;
+      dx = (CW - dw) / 2; dy = (CH - dh) / 2;
       fx = dx; fy = dy; fw = dw; fh = dh;
       // Image pixels map onto the drawn rectangle, which may be stretched.
       view = { dx, dy, scale: dw / state.origW, scaleY: dh / state.origH };
@@ -131,8 +141,9 @@
     ctx.save();
     ctx.fillStyle = 'rgba(0,0,0,.45)';
     // Dim everything except the selection.
+    const { w: CW, h: CH } = canvasBox();
     ctx.beginPath();
-    ctx.rect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.rect(0, 0, CW, CH);
     ctx.rect(sx, sy, sw, sh);
     ctx.fill('evenodd');
     ctx.strokeStyle = '#e8ff47';
@@ -142,10 +153,45 @@
     ctx.restore();
   }
 
+  // ── Brush cursor ──────────────────────────────────────────────────
+  // A ring the exact size of the brush follows the pointer, so the size
+  // slider needs no interpretation: you see what you are about to paint.
+  let cursorAt = null;   // last pointer position, in CSS pixels
+
+  function isPaintTool() {
+    return state.tool === 'brush' || state.tool === 'erase' || state.tool === 'blur';
+  }
+
+  function updateBrushCursor() {
+    const ring = document.getElementById('brushCursor');
+    if (!ring) return;
+    if (!isPaintTool() || !cursorAt || !N4DU.render.source(state)) {
+      ring.hidden = true;
+      return;
+    }
+    // Brush size is in image pixels; scale it to screen.
+    const size = Math.max(4, state.brushSize * view.scale);
+    ring.hidden = false;
+    ring.style.width = ring.style.height = size + 'px';
+    ring.style.left = cursorAt.x + 'px';
+    ring.style.top = cursorAt.y + 'px';
+  }
+
   function initEditorCanvas(onChange) {
     const c = canvas();
     let dragging = false;
     let last = { x: 0, y: 0 };
+
+    // Track the pointer for the brush ring
+    c.addEventListener('pointermove', e => {
+      const rect = c.getBoundingClientRect();
+      cursorAt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      updateBrushCursor();
+    });
+    c.addEventListener('pointerleave', () => {
+      cursorAt = null;
+      updateBrushCursor();
+    });
 
     c.addEventListener('pointerdown', e => {
       if (!N4DU.render.source(state)) return;
@@ -164,11 +210,11 @@
     c.addEventListener('pointermove', e => {
       if (toolHandler && toolHandler.move(e, toImage(e))) return;
       if (!dragging) return;
-      const { side } = cropRect(state);
-      // The pointer moves in CSS pixels, not canvas pixels.
-      const pxPerCanvas = side / canvasSize();
-      state.cx -= (e.clientX - last.x) * pxPerCanvas;
-      state.cy -= (e.clientY - last.y) * pxPerCanvas;
+      // view.scale is CSS pixels per image pixel, so the inverse converts a
+      // pointer movement straight into image pixels.
+      const perPixel = 1 / (view.scale || 1);
+      state.cx -= (e.clientX - last.x) * perPixel;
+      state.cy -= (e.clientY - last.y) * perPixel;
       last = { x: e.clientX, y: e.clientY };
       clampCenter(state);
       onChange();
@@ -199,7 +245,7 @@
       const m = moves[e.key];
       if (!m) return;
       e.preventDefault();
-      const step = (e.shiftKey ? 40 : 8) * (cropRect(state).side / canvasSize());
+      const step = (e.shiftKey ? 40 : 8) / (view.scale || 1);
       state.cx += m[0] * step;
       state.cy += m[1] * step;
       clampCenter(state);
@@ -227,12 +273,19 @@
   // sets the cursor for the active tool.
   function syncCanvasUI() {
     document.getElementById('zoomBar').style.display = state.mode === 'crop' ? 'flex' : 'none';
+
+    // The frame takes the shape of what will be exported. Extreme ratios are
+    // clamped so a panorama does not squash the stage into a strip.
+    const ratio = state.mode === 'crop'
+      ? 1
+      : Math.max(0.45, Math.min(2.4, (state.outW || 1) / (state.outH || 1)));
+    wrap().style.aspectRatio = String(ratio);
     const c = canvas();
     c.className = '';
     const t = state.tool;
     if (t === 'move') {
       if (state.mode === 'crop') c.classList.add('draggable');
-    } else if (t === 'brush' || t === 'erase' || t === 'blur') {
+    } else if (isPaintTool()) {
       c.classList.add('tool-paint');
     } else if (t === 'pick') {
       c.classList.add('tool-pick');
@@ -241,12 +294,13 @@
     } else if (t === 'remove') {
       c.classList.add('tool-remove');
     }
+    updateBrushCursor();
   }
 
   N4DU.editorCanvas = {
-    initEditorCanvas, drawEditor, syncCanvasUI, setZoom,
+    initEditorCanvas, drawEditor, syncCanvasUI, setZoom, updateBrushCursor,
     setToolHandler: (h) => { toolHandler = h; },
-    setSelection, getSelection, canvasSize, toImage,
+    setSelection, getSelection, canvasSize, canvasBox, toImage,
   };
 
 })(window.N4DU ??= {});
