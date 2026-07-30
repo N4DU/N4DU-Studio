@@ -149,9 +149,6 @@
 
     $('qualityRow').style.display = FORMATS[state.fmt].lossy ? 'flex' : 'none';
 
-    $('modeHint').textContent = state.mode === 'original'
-      ? 'Exports the whole image at its own aspect ratio.'
-      : 'Drag to move the framing; wheel or slider to zoom; arrow keys to nudge.';
 
     const hints = [];
     if (!FORMATS[state.fmt].alpha && state.roundness > 0)

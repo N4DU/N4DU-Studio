@@ -198,11 +198,27 @@
     }
   });
 
+  // ── Help ──────────────────────────────────────────────────────────
+  function initHelp() {
+    const modal = document.getElementById('helpModal');
+    const show = () => { modal.hidden = false; };
+    const hide = () => { modal.hidden = true; };
+    document.getElementById('btnHelp').addEventListener('click', show);
+    document.getElementById('btnHelpClose').addEventListener('click', hide);
+    modal.addEventListener('click', e => { if (e.target === modal) hide(); });
+    window.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && !modal.hidden) hide();
+      // "?" opens help from anywhere outside a text field
+      if (e.key === '?' && !/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName)) show();
+    });
+  }
+
   initDropzone(onFile, chooseFile);
   initEditorCanvas(refresh);
   initControls(refresh);
   initTools(refresh);
   initReplaceDialog(afterReplace);
+  initHelp();
   edit.setOnChanged(() => { /* tools repaint explicitly to stay responsive */ });
 
   document.getElementById('btnExport').addEventListener('click', onDownload);
