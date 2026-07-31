@@ -17,16 +17,27 @@
   const ICO_MAX = 256;
 
   // How the output size is decided.
-  //   keep  — the original pixel dimensions (the default: a converter should
-  //           not resize anything you did not ask it to)
-  //   fit   — fit inside a square of `value` px, never enlarging
+  //
+  // Every mode takes ONE number, never a width AND a height, because the
+  // shape of the picture is never changed — whatever you set, the other side
+  // follows so nothing is squashed. The labels say which side the number is,
+  // since "Fit within 1920" left people looking for the second box.
+  //
+  //   keep  — the original pixel dimensions (a converter should not resize
+  //           anything you did not ask it to)
+  //   fit   — the longest side becomes `value` px, never enlarging
   //   scale — `value` per cent of the original
   //   width — exactly `value` px wide, height follows the aspect ratio
   const RESIZE_MODES = {
-    keep:  { label: 'Keep original', unit: '' },
-    fit:   { label: 'Fit within',    unit: 'px' },
-    width: { label: 'Exact width',   unit: 'px' },
-    scale: { label: 'Scale',         unit: '%' },
+    keep:  { label: 'Keep original',  unit: '',
+             hint: 'Each file keeps the size it already is.' },
+    fit:   { label: 'Longest side',   unit: 'px',
+             hint: 'The longer side becomes this; the other follows, so the '
+                 + 'shape never changes. Smaller pictures are left alone.' },
+    width: { label: 'Width',          unit: 'px',
+             hint: 'Exactly this wide. The height follows the shape.' },
+    scale: { label: 'Scale',          unit: '%',
+             hint: 'This per cent of the original, both sides together.' },
   };
 
   // Target dimensions for one source size. Never upscales on `fit`: blowing

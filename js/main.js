@@ -453,6 +453,13 @@
     offerFolder();
   });
 
+  // In a window of its own the operating system already puts "N4DU Studio"
+  // in the title bar above us, so the interface says it once instead of
+  // twice — and the height that frees up goes to the work area.
+  if (new URLSearchParams(location.search).get('app') === '1') {
+    document.body.classList.add('app-window');
+  }
+
   // Always the converter, every launch. Reopening in the editor because that
   // is where you happened to be last time is wrong when the app has just
   // been handed a fresh batch of files — which is how it is usually opened.
