@@ -102,6 +102,7 @@
       <div class="conv-head">
         <span class="conv-title" id="filesTitle">Files</span>
         <span class="conv-sub" id="filesSummary">nothing loaded</span>
+        <button class="btn-ghost tiny accent" id="btnAddFolder" hidden></button>
         <button class="btn-ghost tiny" id="btnAddFiles">Add files</button>
         <button class="btn-ghost tiny" id="btnClearFiles" disabled>Clear</button>
       </div>
@@ -419,7 +420,8 @@
     <ol class="help-list">
       <li><b>Load the files.</b> As many as you like: drop them in, press
         Ctrl+V, or use <em>Add files</em>. Every one shows up in the list with
-        its size and format.</li>
+        its size and format. When a file comes from your file explorer,
+        <em>+ N more in this folder</em> pulls in the rest of it.</li>
       <li><b>Say what you want out.</b> One format, one size rule and one
         weight cap for the whole batch. If this browser cannot write the
         format you picked, it says so instead of producing broken files.</li>
@@ -504,11 +506,12 @@
       explorer. Right-clicking a picture <em>inside</em> a browser opens the
       browser's own menu, which no desktop program can add to — from there,
       copy the image and press Ctrl+V here instead. On Windows 11 the entry
-      may sit under <em>Show more options</em>, and Windows itself stops
-      offering it past about fifteen files selected at once — for bigger
-      batches use <em>Add files</em>, which has no such limit. Everything is
-      written to your user account only, and switching it off removes exactly
-      what switching it on created.
+      may sit under <em>Show more options</em>. How many of a selection
+      Windows hands over is its decision, not ours, and it varies by version
+      — so however many arrive, the converter offers
+      <em>+ N more in this folder</em> to pull in the rest with one click.
+      Everything is written to your user account only, and switching it off
+      removes exactly what switching it on created.
     </div>
 
     <div class="modal-actions">

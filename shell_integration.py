@@ -194,6 +194,7 @@ def enable():
         for ext in touched:
             _remove_ext(reg, ext)
         raise RuntimeError("Windows refused the change: {}".format(exc))
+    notify_shell()
     return status()
 
 
@@ -204,7 +205,27 @@ def disable():
         raise RuntimeError(_unsupported_reason() or "Not supported on this system.")
     for ext in EXTENSIONS:
         _remove_ext(reg, ext)
+    notify_shell()
     return status()
+
+
+def notify_shell():
+    """Tells Explorer the file associations changed.
+
+    Without this Windows keeps serving the menu it already had in memory, so
+    a corrected entry looks like it did not take — the old behaviour survives
+    until Explorer is restarted or the machine is rebooted.
+    """
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        SHCNE_ASSOCCHANGED = 0x08000000
+        SHCNF_IDLIST = 0x0000
+        ctypes.windll.shell32.SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None)
+        return True
+    except Exception:
+        return False
 
 
 def _remove_ext(reg, ext):
@@ -305,6 +326,49 @@ def _cli(argv):
         print("usage: python shell_integration.py [status|enable|disable]")
         return 2
     return 0
+
+
+def repair_if_stale():
+    """Brings an out-of-date registration up to date, without being asked.
+
+    Relying on somebody remembering to toggle a setting is how a fix fails to
+    reach the machine that needs it. If the entry is there but wrong — an
+    older version's values, or a folder that moved — this quietly rewrites
+    it at launch. It never turns the feature ON: only repairs what the user
+    already chose.
+    """
+    try:
+        st = status()
+    except Exception:
+        return None
+    if not st["supported"] or not st["installed"] or not st["stale"]:
+        return None
+    try:
+        return enable()
+    except RuntimeError:
+        return None
+
+
+def dump():
+    """Everything actually stored, verbatim. For working out why the menu is
+    behaving the way it is on a machine we cannot see."""
+    reg = _winreg()
+    lines = ["platform: " + platform_name()]
+    if reg is None:
+        lines.append("registry: not available on this system")
+        return "\n".join(lines)
+    lines.append("expected command: " + command_line())
+    lines.append("")
+    for ext in EXTENSIONS:
+        key = _KEY_FMT.format(ext=ext, verb=VERB_KEY)
+        cmd = _read_command(reg, ext)
+        if cmd is None:
+            lines.append("{:<7} not registered".format(ext))
+            continue
+        lines.append("{:<7} MultiSelectModel={!r}  MUIVerb={!r}".format(
+            ext, _read_multi(reg, ext), _read_value(reg, key, "MUIVerb")))
+        lines.append("        command={!r}".format(cmd))
+    return "\n".join(lines)
 
 
 def describe(st):
