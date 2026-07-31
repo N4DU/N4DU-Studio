@@ -24,8 +24,14 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 ENTRY = os.path.join(ROOT, "main.py")
 ICON = os.path.join(ROOT, "assets", "n4du.ico")
 
-VERB_KEY = "N4DUStudio"                 # registry key name (never shown)
-VERB_LABEL = "Edit with N4DU Studio"    # what the menu shows
+VERB_KEY = "N4DUStudio"        # registry key name (never shown)
+VERB_LABEL = "N4DU Studio"     # what the menu shows — the name, nothing else
+
+# Without this, Windows runs the command only for the item actually under the
+# cursor: select twelve images, right-click one, and eleven are silently
+# dropped. "Document" means "invoke me once per selected file", which is what
+# makes opening a whole selection work at all.
+MULTI_SELECT_MODEL = "Document"
 
 # Only image types. Registering "all files" would put us in every menu on the
 # machine, which is exactly the kind of thing people uninstall software over.
@@ -89,14 +95,21 @@ def command_line(python=None, entry=None):
 
 
 # ── Reading the current state ───────────────────────────────────────
-def _read_command(reg, ext):
-    """The command currently registered for this extension, or None."""
-    key_path = _KEY_FMT.format(ext=ext, verb=VERB_KEY) + r"\command"
+def _read_value(reg, key_path, name):
     try:
         with reg.OpenKey(reg.HKEY_CURRENT_USER, key_path) as key:
-            return reg.QueryValueEx(key, "")[0]
+            return reg.QueryValueEx(key, name)[0]
     except OSError:
         return None
+
+
+def _read_command(reg, ext):
+    """The command currently registered for this extension, or None."""
+    return _read_value(reg, _KEY_FMT.format(ext=ext, verb=VERB_KEY) + r"\command", "")
+
+
+def _read_multi(reg, ext):
+    return _read_value(reg, _KEY_FMT.format(ext=ext, verb=VERB_KEY), "MultiSelectModel")
 
 
 def status():
@@ -129,7 +142,11 @@ def status():
         if current is None:
             continue
         installed.append(ext)
-        if current.strip().lower() != expected.strip().lower():
+        # Stale covers two things: a command pointing at another folder, and
+        # an entry registered before multi-selection was handled. Both are
+        # repaired by switching the setting off and on again.
+        if (current.strip().lower() != expected.strip().lower()
+                or _read_multi(reg, ext) != MULTI_SELECT_MODEL):
             stale.append(ext)
 
     base["installed"] = installed
@@ -167,6 +184,7 @@ def enable():
             with reg.CreateKey(reg.HKEY_CURRENT_USER, key_path) as key:
                 # MUIVerb is the label; Icon is the logo shown beside it.
                 reg.SetValueEx(key, "MUIVerb", 0, reg.REG_SZ, VERB_LABEL)
+                reg.SetValueEx(key, "MultiSelectModel", 0, reg.REG_SZ, MULTI_SELECT_MODEL)
                 if icon:
                     reg.SetValueEx(key, "Icon", 0, reg.REG_SZ, icon)
             with reg.CreateKey(reg.HKEY_CURRENT_USER, key_path + r"\command") as key:
@@ -204,9 +222,10 @@ def _remove_ext(reg, ext):
 # Chrome and Edge can open a page as its own small window with no tabs or
 # address bar (--app). That is the closest thing to a desktop window without
 # shipping a browser, and it is what the "compact window" setting uses.
-# Sized for the converter, which is a narrow column. Big enough for the
-# editor to be usable if you switch, and you can always maximise.
-_APP_FLAGS = ("--app={url}", "--window-size=840,900")
+# A small starting size so the window does not flash open large. The page
+# then measures its own contents and settles on the right height — small for
+# one file, taller for a big batch (see js/ui/window-size.js).
+_APP_FLAGS = ("--app={url}", "--window-size=640,560")
 
 _WINDOWS_CANDIDATES = (
     r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe",

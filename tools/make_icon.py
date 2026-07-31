@@ -18,28 +18,46 @@ OUT = os.path.join(ROOT, "assets", "n4du.ico")
 
 SIZES = (16, 24, 32, 48, 64, 128, 256)
 
-RING = (0xE8, 0xFF, 0x47)   # brand green
-CORE = (0x14, 0x14, 0x14)   # the dark centre of the logo
+EDGE = (0xE8, 0xFF, 0x47)   # brand green: the outline
+BODY = (0x14, 0x14, 0x14)   # near-black: the letter itself
+
+# The letter N as a three-segment stroke, in a 0..1 box. Drawn rather than
+# set in a font so the .ico and the SVG in the interface agree exactly and
+# nothing depends on what fonts a machine happens to have.
+STROKE = ((0.255, 0.815), (0.255, 0.185), (0.745, 0.815), (0.745, 0.185))
+OUTER = 0.33    # full width of the glyph including its border
+INNER = 0.175   # width of the black letter inside it
+
+
+def _dist_to_stroke(px, py):
+    """Shortest distance from a point to the N's centre line."""
+    best = float("inf")
+    for (x0, y0), (x1, y1) in zip(STROKE, STROKE[1:]):
+        dx, dy = x1 - x0, y1 - y0
+        span = dx * dx + dy * dy
+        # Where the perpendicular lands, clamped to the segment's ends.
+        t = 0.0 if span == 0 else max(0.0, min(1.0, ((px - x0) * dx + (py - y0) * dy) / span))
+        ex, ey = px - (x0 + t * dx), py - (y0 + t * dy)
+        best = min(best, (ex * ex + ey * ey) ** 0.5)
+    return best
 
 
 def raster(size):
-    """The logo as RGBA rows: a green disc with a dark core, antialiased by
-    sampling the distance to each circle edge."""
-    c = (size - 1) / 2
-    r_out = size * 0.47
-    r_in = size * 0.20
+    """The logo as RGBA rows: a black N with a green border, antialiased by
+    fading each edge over a single pixel."""
+    step = 1.0 / size          # one pixel, in glyph units
     rows = []
     for y in range(size):
         row = bytearray()
+        py = (y + 0.5) * step
         for x in range(size):
-            d = ((x - c) ** 2 + (y - c) ** 2) ** 0.5
-            # Coverage of the outer disc, faded over one pixel at the rim.
-            a_out = min(1.0, max(0.0, r_out - d + 0.5))
-            # Coverage of the dark core, same treatment.
-            a_in = min(1.0, max(0.0, r_in - d + 0.5))
-            r = RING[0] * (1 - a_in) + CORE[0] * a_in
-            g = RING[1] * (1 - a_in) + CORE[1] * a_in
-            b = RING[2] * (1 - a_in) + CORE[2] * a_in
+            d = _dist_to_stroke((x + 0.5) * step, py)
+            # Coverage of the whole glyph, and of the black core inside it.
+            a_out = min(1.0, max(0.0, (OUTER / 2 - d) / step + 0.5))
+            a_in = min(1.0, max(0.0, (INNER / 2 - d) / step + 0.5))
+            r = EDGE[0] * (1 - a_in) + BODY[0] * a_in
+            g = EDGE[1] * (1 - a_in) + BODY[1] * a_in
+            b = EDGE[2] * (1 - a_in) + BODY[2] * a_in
             row += bytes((int(r + .5), int(g + .5), int(b + .5), int(a_out * 255 + .5)))
         rows.append(bytes(row))
     return rows

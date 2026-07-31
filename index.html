@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>N4DU Studio</title>
 <meta name="description" content="Desktop image editor: resize, convert formats, control file size, crop, retouch and replace files in place — entirely on your machine.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='42' fill='%23e8ff47'/><circle cx='50' cy='50' r='18' fill='%230d0d0d'/></svg>">
+<!-- The same N as assets/n4du.ico: a black letter with a green border. -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M6.12 19.56V4.44L17.88 19.56V4.44' fill='none' stroke='%23e8ff47' stroke-width='7.92' stroke-linecap='round' stroke-linejoin='round'/><path d='M6.12 19.56V4.44L17.88 19.56V4.44' fill='none' stroke='%23141414' stroke-width='4.2' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <!-- Non-blocking: if the CDN is slow or offline the app still starts,
      falling back to the system font instead of waiting. -->
@@ -44,9 +45,12 @@
   <!-- ── TITLE BAR ── -->
   <header class="titlebar">
     <div class="brand">
+      <!-- Matches assets/n4du.ico exactly: same stroke, same widths. -->
       <svg class="logo" viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="12" cy="12" r="10" fill="#e8ff47"/>
-        <circle cx="12" cy="12" r="4.5" fill="#141414"/>
+        <path d="M6.12 19.56V4.44L17.88 19.56V4.44" fill="none" stroke="#e8ff47"
+              stroke-width="7.92" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M6.12 19.56V4.44L17.88 19.56V4.44" fill="none" stroke="#141414"
+              stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
       <span>N4DU <em>Studio</em></span>
     </div>
@@ -454,9 +458,9 @@
         <div class="setting-name">Right-click an image → <em>Edit with N4DU Studio</em></div>
         <div class="setting-desc">
           Adds the entry, with the logo, to the menu you get when you
-          right-click an image file in the file explorer. Opening a picture
-          that way hands N4DU Studio its real location, so
-          <b>Replace</b> can overwrite it where it already lives.
+          right-click an image file in the file explorer. Select as many as
+          you like — they all land in one window, each knowing where it came
+          from, so <b>Replace originals</b> can overwrite them in place.
         </div>
         <div class="setting-status" id="setStatus"></div>
         <div class="setting-status" id="setPlatformNote"></div>
@@ -500,9 +504,11 @@
       explorer. Right-clicking a picture <em>inside</em> a browser opens the
       browser's own menu, which no desktop program can add to — from there,
       copy the image and press Ctrl+V here instead. On Windows 11 the entry
-      may sit under <em>Show more options</em>. Everything is written to your
-      user account only, and switching it off removes exactly what switching
-      it on created.
+      may sit under <em>Show more options</em>, and Windows itself stops
+      offering it past about fifteen files selected at once — for bigger
+      batches use <em>Add files</em>, which has no such limit. Everything is
+      written to your user account only, and switching it off removes exactly
+      what switching it on created.
     </div>
 
     <div class="modal-actions">
@@ -580,6 +586,7 @@
 <script src="js/ui/replace-dialog.js"></script>
 <script src="js/ui/settings.js"></script>
 <script src="js/ui/batch-ui.js"></script>
+<script src="js/ui/window-size.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

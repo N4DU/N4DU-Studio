@@ -865,17 +865,14 @@ body.mode-convert .toast.show { transform: translateX(-50%) translateY(0); }
    The view the app opens in: a batch of files, three settings, two
    buttons. Sized like a tool, not like a web page — on a wide screen the
    whole thing stays a narrow column instead of stretching out. */
-body.mode-convert .app {
-  max-width: 760px;
-  margin: 0 auto;
-  border-left: 1px solid var(--border);
-  border-right: 1px solid var(--border);
-}
+/* The converter fills its window. Capping the width here left black bars
+   down both sides; the window itself is what should be small, and it sizes
+   itself to the batch (see js/ui/window-size.js). */
+body.mode-convert .app { max-width: none; }
 body.mode-convert .workspace,
 body.mode-convert .edit-only { display: none !important; }
 body.mode-edit .convert,
 body.mode-edit .convert-only { display: none !important; }
-body.mode-edit .app { max-width: none; border: 0; }
 
 .convert {
   display: flex;
@@ -916,6 +913,10 @@ body.mode-edit .app { max-width: none; border: 0; }
   overflow-y: auto;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  /* Rows keep their natural height and the list scrolls. Without this the
+     rows share whatever height is available, and twenty files squash the
+     previews down to a few pixels each. */
+  grid-auto-rows: max-content;
   gap: 8px;
   align-content: start;
 }
