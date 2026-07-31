@@ -54,6 +54,17 @@
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
 
+  // Which framing the stage is showing.
+  //
+  // The crop tool always works on the WHOLE picture, whatever shape the
+  // export is set to. With the square framing on, the stage showed only the
+  // square window, so the crop box — which covers the picture — started
+  // with its corners off the canvas and could not be grabbed at all. The
+  // square preview comes back the moment the tool is put down.
+  function activeFraming() {
+    return state.tool === 'crop' ? 'original' : state.mode;
+  }
+
   // Draws the current state: the image dimmed, the exported area sharp, and
   // the outline of the chosen shape.
   function drawEditor() {
@@ -76,7 +87,7 @@
     let dx, dy, dw, dh;   // where the whole image lands on the canvas
     let fx, fy, fw, fh;   // rectangle of the exported area
 
-    if (state.mode === 'crop') {
+    if (activeFraming() === 'crop') {
       // A square window centred in the stage.
       const side = Math.min(CW, CH) - 4;
       const { sx, sy, side: cropSide } = cropRect(state);
@@ -344,9 +355,13 @@
 
     // The frame takes the shape of what will be exported. Extreme ratios are
     // clamped so a panorama does not squash the stage into a strip.
-    const ratio = state.mode === 'crop'
+    // The stage takes the shape of whatever is being shown — which, while
+    // cropping, is the picture rather than the square export.
+    const ratio = activeFraming() === 'crop'
       ? 1
-      : Math.max(0.45, Math.min(2.4, (state.outW || 1) / (state.outH || 1)));
+      : Math.max(0.45, Math.min(2.4, state.tool === 'crop'
+        ? (state.origW || 1) / (state.origH || 1)
+        : (state.outW || 1) / (state.outH || 1)));
     wrap().style.aspectRatio = String(ratio);
     const c = canvas();
     c.className = '';
