@@ -43,7 +43,9 @@
     // one process per selected file; they all hand their file to this
     // server, which parks it here until the page collects it — so twenty
     // right-clicked images land in ONE window instead of twenty.
-    const ping = () => fetch('/api/ping', { headers: HDR })
+    // take=1: this is the heartbeat, and it is ready to receive files.
+    // The probe in init() deliberately does not ask for them.
+    const ping = () => fetch('/api/ping?take=1', { headers: HDR })
       .then(res => res.json())
       .then(info => {
         if (info && info.pending && info.pending.length) onPending(info.pending);
