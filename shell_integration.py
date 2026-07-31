@@ -80,10 +80,31 @@ def shell_python():
     the page closes, so nothing is left running invisibly.
     """
     exe = sys.executable or "python"
-    if os.name == "nt" and os.path.basename(exe).lower() == "python.exe":
-        quiet = os.path.join(os.path.dirname(exe), "pythonw.exe")
-        if os.path.isfile(quiet):
-            return quiet
+    if os.name != "nt":
+        return exe
+    name = os.path.basename(exe).lower()
+    if name.startswith("pythonw"):
+        return exe                      # already the quiet one
+
+    # Look in more than one place. Next to the interpreter is the usual
+    # answer, but it is not the only one: inside a virtual environment the
+    # console build sits in Scripts\ while the windowed build may only exist
+    # in the base installation, and the "python3.exe" naming has its own
+    # "pythonw3.exe" partner. Falling back to python.exe is what put a black
+    # console on screen every time an image was right-clicked.
+    stem = os.path.splitext(name)[0]                 # python, python3, ...
+    windowed = "pythonw" + stem[len("python"):] if stem.startswith("python") else "pythonw"
+    folders = [os.path.dirname(exe)]
+    for attr in ("_base_executable", "base_prefix", "prefix", "exec_prefix"):
+        value = getattr(sys, attr, None)
+        if not value:
+            continue
+        folders.append(os.path.dirname(value) if attr == "_base_executable" else value)
+    for folder in folders:
+        for candidate in (windowed + ".exe", "pythonw.exe"):
+            path = os.path.join(folder, candidate)
+            if os.path.isfile(path):
+                return path
     return exe
 
 
@@ -470,6 +491,15 @@ def dump():
         lines.append("registry: not available on this system")
         return "\n".join(lines)
     lines.append("expected command: " + command_line())
+    # Whether the menu entry opens a console is decided entirely by this one
+    # file name: pythonw.exe is silent, python.exe puts a black window on
+    # screen. Worth stating outright rather than making it be deduced from
+    # the command string.
+    chosen = shell_python()
+    lines.append("interpreter: {}  ({})".format(
+        chosen,
+        "silent" if os.path.basename(chosen).lower().startswith("pythonw")
+        else "WILL SHOW A CONSOLE — pythonw.exe was not found"))
     lines.append("send to entry: {}  ({})".format(
         "yes" if sendto_installed() else "NO", sendto_path()))
     lines.append("")
