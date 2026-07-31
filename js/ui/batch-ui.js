@@ -358,8 +358,9 @@
     clearTimeout(estimateTimer);
     const seq = ++estimateSeq;
     estimateTimer = setTimeout(async () => {
+      let handle = null;
       try {
-        const handle = await batch.decodeCached(item);
+        handle = await batch.decodeCached(item);
         const out = await convert(handle.bmp, opts);
         if (seq !== estimateSeq) return;    // a newer estimate is running
         const each = sizeLabel(out.blob.size);
@@ -375,6 +376,9 @@
       } catch (err) {
         if (seq === estimateSeq) el.textContent = 'Could not read that file: ' + err.message;
       } finally {
+        // Not optional: the cache hands out a counted reference, and without
+        // this the bitmap it is holding can never be freed.
+        if (handle) handle.release();
         // This line can wrap, which changes how tall the view is.
         if (seq === estimateSeq && N4DU.windowSize) N4DU.windowSize.fit();
       }
@@ -406,7 +410,10 @@
 
     const produced = [];
     let done = 0, failed = 0, replaced = 0, overCap = 0;
-    const targets = replace ? batch.items.filter(it => it.token) : batch.items;
+    // A snapshot, not the live array. Files dropped while a run was going
+    // were swept into it halfway through, and the progress denominator grew
+    // underneath the text that was already counting up to it.
+    const targets = (replace ? batch.items.filter(it => it.token) : batch.items).slice();
 
     for (const [index, item] of targets.entries()) {
       progress(index, targets.length, item.name);
