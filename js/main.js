@@ -84,7 +84,11 @@
   // Hands the editor's current pixels back to the batch item, so converting
   // uses the edited version.
   function returnToConverter() {
-    if (editing !== null && edit.ready()) {
+    // Only when something was actually changed. Handing a bitmap back after
+    // a look-and-leave visit pinned a full-size RGBA surface to every file
+    // that had ever been opened — six 12 MP photos came to about 290 MB —
+    // and switched conversion away from the original bytes for no reason.
+    if (editing !== null && edit.ready() && edit.canUndo()) {
       try {
         const bmp = edit.toBitmap();
         if (bmp) batch.setEdited(editing, bmp);
@@ -132,10 +136,15 @@
       await onFile(files[0], false);
       return;
     }
-    const { added, failed, skipped } = await batch.add(files);
+    const { added, failed, skipped, duplicates } = await batch.add(files);
     if (failed.length) toast(`${failed.length} file${failed.length > 1 ? 's' : ''} could not be read`, 'err');
     else if (skipped) toast(`List is full at ${batch.MAX_ITEMS} files — ${skipped} left out`, 'err');
-    else announceAdded(added);
+    // Say so, rather than appearing to do nothing: a file already in the list
+    // is silently dropped, and without this the drop had no visible effect.
+    else if (!added && duplicates) {
+      toast(duplicates > 1 ? `Those ${duplicates} files are already in the list`
+                           : 'That file is already in the list', '');
+    } else announceAdded(added);
   }
 
   function announceAdded(n) {
@@ -192,7 +201,25 @@
       toast(decodeErrorMessage(file), 'err');
       return;
     }
-    editing = null;          // opened directly, not through the batch list
+    // Give it a place in the list before opening it. A picture opened
+    // straight into the editor — dropped, pasted, Ctrl+O — used to belong to
+    // nothing, so pressing Converter threw both the picture and every edit
+    // made to it away without a word, and the batch went on converting the
+    // file that was there before.
+    const meta = fromBridge ? { token: bridge.token, path: bridge.path } : {};
+    const known = new Set(batch.items.map(it => it.id));
+    // The picture is already decoded, so hand it over rather than making the
+    // list read the same file off disk all over again.
+    await batch.add([file], { ...meta, decoded: bmp });
+    const fresh = batch.items.find(it => !known.has(it.id));
+    const home = fresh || (meta.path && batch.items.find(it => it.path === meta.path));
+    if (home) {
+      batch.select(home.id);
+      editing = home.id;
+    } else {
+      editing = null;       // the list is full; the editor still opens
+      toast(`List is full at ${batch.MAX_ITEMS} files — this one is not in it`, 'err');
+    }
     showInEditor(bmp, file, fromBridge);
   }
 
@@ -335,6 +362,9 @@
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
     if (!document.getElementById('replaceModal').hidden) return;
     if (!document.getElementById('settingsModal').hidden) return;
+    // Help too: Ctrl+R was opening the Replace dialog behind the help sheet,
+    // and Ctrl+S downloading from under it.
+    if (!document.getElementById('helpModal').hidden) return;
     const k = e.key.toLowerCase();
     if (k === 'o') { e.preventDefault(); chooseFile(); return; }
     if (currentMode() === 'convert') return;   // the rest belong to the editor
@@ -344,26 +374,35 @@
     if (k === 'r') { e.preventDefault(); openReplaceDialog(); }
     if (k === 'z') {
       e.preventDefault();
-      const moved = e.shiftKey ? edit.redo() : edit.undo();
-      if (moved) {
-        N4DU.syncToSurface(edit.width(), edit.height(), true);
-        refresh();
-      }
+      // The same path as the Undo button. Doing it by hand here left the old
+      // crop box behind: after Ctrl+Z it sat over a different part of the
+      // restored picture with Apply still enabled, and one click cropped to
+      // the stale rectangle — throwing the undo away.
+      N4DU.tools.stepHistory(e.shiftKey ? edit.redo : edit.undo);
     }
   });
 
   // ── Help ──────────────────────────────────────────────────────────
   function initHelp() {
     const modal = document.getElementById('helpModal');
-    const show = () => { modal.hidden = false; };
+    // Never on top of another dialog. Stacked sheets looked broken, and since
+    // each dialog listens for Escape on its own, one press shut both of them.
+    // Refusing to stack is the fix; the Escape handlers then cannot collide.
+    const show = () => {
+      const busy = ['replaceModal', 'settingsModal'].some(id => {
+        const m = document.getElementById(id);
+        return m && !m.hidden;
+      });
+      if (!busy) modal.hidden = false;
+    };
     const hide = () => { modal.hidden = true; };
     document.getElementById('btnHelp').addEventListener('click', show);
     document.getElementById('btnHelpClose').addEventListener('click', hide);
     modal.addEventListener('click', e => { if (e.target === modal) hide(); });
     window.addEventListener('keydown', e => {
       if (e.key === 'Escape' && !modal.hidden) hide();
-      // "?" opens help from anywhere outside a text field
-      if (e.key === '?' && !/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName)) show();
+      // "?" opens help from anywhere outside a text field.
+      if (e.key === '?' && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) show();
     });
   }
 
