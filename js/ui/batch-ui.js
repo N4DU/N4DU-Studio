@@ -13,14 +13,40 @@
 
   // What the whole view is driven by. Kept apart from the editor's state:
   // these settings apply to every file, not to one open picture.
+  // "Keep" is not a format, it is the absence of one: every file comes out
+  // in the format it went in as. It is the default because the usual reason
+  // to open a folder of pictures is to make them smaller or resize them —
+  // turning a PNG into a JPG on the way is the last thing wanted, and having
+  // to notice and undo it is the kind of thing you only spot afterwards.
+  const KEEP = 'keep';
+
+  // What each source extension is written back as.
+  const EXT_TO_FMT = {
+    png: 'png', jpg: 'jpeg', jpeg: 'jpeg', jfif: 'jpeg', webp: 'webp',
+    avif: 'avif', bmp: 'bmp', ico: 'ico', tif: 'tiff', tiff: 'tiff',
+  };
+
   const opts = {
-    fmt: 'png',
+    fmt: KEEP,
     quality: 0.92,
     maxKb: null,
     maxUnit: 'KB',
     resize: { mode: 'keep', value: 1920 },
     separate: false,
   };
+
+  // The real output format for one file. Anything we cannot write back —
+  // a GIF, an SVG, an unknown extension — becomes PNG, which can hold
+  // whatever the browser managed to decode.
+  function fmtFor(item) {
+    if (opts.fmt !== KEEP) return opts.fmt;
+    const ext = String(item?.name || '').split('.').pop().toLowerCase();
+    const guess = EXT_TO_FMT[ext];
+    return guess && (!support || support[guess]) ? guess : 'png';
+  }
+
+  // The options passed to convert() for one file.
+  const optsFor = item => ({ ...opts, fmt: fmtFor(item) });
 
   let support = null;        // which formats this browser can really write
   let working = false;
@@ -124,7 +150,7 @@
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(STORE) || 'null'); } catch { /* ignore */ }
     if (saved && typeof saved === 'object') {
-      if (FORMATS[saved.fmt]) opts.fmt = saved.fmt;
+      if (saved.fmt === KEEP || FORMATS[saved.fmt]) opts.fmt = saved.fmt;
       if (saved.quality > 0 && saved.quality <= 1) opts.quality = saved.quality;
       if (saved.maxKb === null || saved.maxKb > 0) opts.maxKb = saved.maxKb ?? null;
       if (saved.maxUnit === 'MB' || saved.maxUnit === 'KB') opts.maxUnit = saved.maxUnit;
@@ -151,6 +177,16 @@
   function buildFormats() {
     const box = $('batchFmt');
     box.innerHTML = '';
+
+    const keep = document.createElement('button');
+    keep.className = 'pill';
+    keep.dataset.fmt = KEEP;
+    keep.textContent = 'Keep';
+    keep.title = 'Each file stays in the format it already is';
+    keep.classList.toggle('active', opts.fmt === KEEP);
+    keep.addEventListener('click', () => { opts.fmt = KEEP; changed(); });
+    box.appendChild(keep);
+
     for (const [key, f] of Object.entries(FORMATS)) {
       const btn = document.createElement('button');
       btn.className = 'pill';
@@ -185,8 +221,11 @@
   // ── Painting the view ─────────────────────────────────────────────
   function syncBatch() {
     const totals = batch.totals();
-    const f = FORMATS[opts.fmt];
-    const usable = !support || support[opts.fmt];
+    const keeping = opts.fmt === KEEP;
+    // With "Keep" there is no single format to describe or to check: each
+    // file answers for itself, and anything unwritable falls back to PNG.
+    const f = keeping ? null : FORMATS[opts.fmt];
+    const usable = keeping || !support || support[opts.fmt];
 
     document.querySelectorAll('#batchFmt .pill').forEach(p =>
       p.classList.toggle('active', p.dataset.fmt === opts.fmt));
@@ -198,13 +237,23 @@
         'so pick another format (Chrome and Edge write the most).';
     }
 
-    $('qualityRowBatch').style.display = f.lossy ? '' : 'none';
+    // Keeping formats can mean a mix, so ask the files rather than the
+    // setting: the slider appears when at least one of them will come out in
+    // a lossy format, and stays out of the way the rest of the time.
+    const lossy = keeping
+      ? batch.items.some(it => FORMATS[fmtFor(it)].lossy)
+      : f.lossy;
+    $('qualityRowBatch').style.display = lossy ? '' : 'none';
     $('batchQualityVal').textContent = Math.round(opts.quality * 100);
     $('resizeMode').value = opts.resize.mode;
     const mode = RESIZE_MODES[opts.resize.mode];
     $('resizeValue').style.display = opts.resize.mode === 'keep' ? 'none' : '';
     $('resizeUnit').textContent = mode.unit;
     $('resizeUnit').style.display = mode.unit ? '' : 'none';
+    // One number, never two: hovering says which side it is and why the
+    // other one is not asked for.
+    $('resizeMode').title = mode.hint;
+    $('resizeValue').title = mode.hint;
 
     $('filesTitle').textContent = totals.count ? `Files (${totals.count})` : 'Files';
     $('filesSummary').textContent = totals.count
@@ -222,6 +271,9 @@
       ? `Add the other images in ${folderName}`
       : 'Add the other images from the same folder';
     $('convertDrop').hidden = totals.count > 0;
+    // With no files the panel has nothing to grow for, and letting it stretch
+    // dragged the drop zone into a huge empty rectangle on a full-size tab.
+    document.body.classList.toggle('no-files', totals.count === 0);
     $('convertDropHint').textContent = bridge.active
       ? 'Or right-click images in your file explorer and choose N4DU Studio.'
       : '';
@@ -341,7 +393,7 @@
 
     if (working) return;
     if (!item) { el.textContent = 'Add some files to begin.'; el.classList.remove('warn'); return; }
-    if (support && !support[opts.fmt]) { el.textContent = '—'; return; }
+    if (opts.fmt !== KEEP && support && !support[opts.fmt]) { el.textContent = '—'; return; }
 
     // Once a batch has run, show what actually happened instead of a guess.
     if (totals.done && totals.done + totals.failed >= totals.count) {
@@ -352,8 +404,9 @@
       return;
     }
 
-    const { W, H } = targetSize(item.w, item.h, opts.resize, opts.fmt);
-    el.textContent = `Calculating… → ${W}×${H} ${FORMATS[opts.fmt].label}`;
+    const itemOpts = optsFor(item);
+    const { W, H } = targetSize(item.w, item.h, itemOpts.resize, itemOpts.fmt);
+    el.textContent = `Calculating… → ${W}×${H} ${FORMATS[itemOpts.fmt].label}`;
     el.classList.remove('warn');
     clearTimeout(estimateTimer);
     const seq = ++estimateSeq;
@@ -361,7 +414,7 @@
       let handle = null;
       try {
         handle = await batch.decodeCached(item);
-        const out = await convert(handle.bmp, opts);
+        const out = await convert(handle.bmp, itemOpts);
         if (seq !== estimateSeq) return;    // a newer estimate is running
         const each = sizeLabel(out.blob.size);
         const all = totals.count > 1
@@ -371,7 +424,7 @@
           el.textContent = `${out.W}×${out.H} · ${each} — cannot get under ${limitLabel()}`;
           el.classList.add('warn');
         } else {
-          el.textContent = `${out.W}×${out.H} ${FORMATS[opts.fmt].label} · ${each}${all}`;
+          el.textContent = `${out.W}×${out.H} ${FORMATS[itemOpts.fmt].label} · ${each}${all}`;
         }
       } catch (err) {
         if (seq === estimateSeq) el.textContent = 'Could not read that file: ' + err.message;
@@ -426,17 +479,17 @@
       let handle = null;
       try {
         handle = await batch.decode(item);
-        const out = await convert(handle.bmp, opts);
+        const out = await convert(handle.bmp, optsFor(item));
         item.result = out;
         item.status = 'done';
         if (out.limit && !out.limit.ok) overCap++;
 
         if (replace) {
           const stem = item.name.replace(/\.[^.]+$/, '') || 'image';
-          await bridge.replaceByToken(item.token, out.blob, FORMATS[opts.fmt].ext, stem, true);
+          await bridge.replaceByToken(item.token, out.blob, FORMATS[fmtFor(item)].ext, stem, true);
           replaced++;
         } else {
-          produced.push({ name: outputName(item.name, opts.fmt), blob: out.blob });
+          produced.push({ name: outputName(item.name, fmtFor(item)), blob: out.blob });
         }
         done++;
       } catch (err) {
@@ -471,7 +524,9 @@
     }
     const stamp = new Date().toISOString().slice(0, 10);
     const archive = await N4DU.zip.zip(produced);
-    download(archive, `n4du-${FORMATS[opts.fmt].ext}-${stamp}.zip`);
+    // With mixed formats there is no one extension to name the archive after.
+    const tag = opts.fmt === KEEP ? 'images' : FORMATS[opts.fmt].ext;
+    download(archive, `n4du-${tag}-${stamp}.zip`);
   }
 
   function report({ replace, done, failed, replaced, overCap, total }) {

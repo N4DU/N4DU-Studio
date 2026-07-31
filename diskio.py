@@ -76,10 +76,14 @@ def native_pick(intent="open"):
     # UnicodeEncodeError there — reported back to the user, wrongly, as
     # "tkinter is missing".
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    # CREATE_NO_WINDOW: when the app was started from a console the child
+    # inherits python.exe, and a black window flashed up behind the file
+    # dialog every time it opened.
+    flags = {"creationflags": 0x08000000} if os.name == "nt" else {}
     try:
         proc = subprocess.run([sys.executable, "-c", _PICKER_SCRIPT, title, mode],
                               capture_output=True, encoding="utf-8", env=env,
-                              timeout=PICK_TIMEOUT)
+                              timeout=PICK_TIMEOUT, **flags)
     except subprocess.TimeoutExpired:
         # A dialog nobody ever answers must not pin a handler thread and an
         # interpreter for the rest of the session.
