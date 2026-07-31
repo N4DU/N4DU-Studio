@@ -766,8 +766,13 @@ def browser_profile():
 def open_interface(url):
     """Compact window when the setting allows it and a browser supports it,
     otherwise an ordinary tab."""
+    # app=1 tells the page it is in a window of its own. That window already
+    # carries "N4DU Studio" in its own title bar, so the interface drops its
+    # wordmark rather than saying the name twice — and the height that frees
+    # up goes to the part of the window that actually does something.
     if load_settings()["appWindow"] and shell_integration.open_app_window(
-            url, profile=browser_profile()):
+            url + ("&" if "?" in url else "?") + "app=1",
+            profile=browser_profile()):
         return
     webbrowser.open(url)
 
