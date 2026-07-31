@@ -135,8 +135,8 @@
     const menu = status.contextMenu;
     if (!menu.supported) return '';
     if (menu.stale) {
-      return 'Registered, but pointing at another folder — the app was moved. ' +
-             'Switch it off and on again to repair it.';
+      return 'Registered by an older version, or pointing at a folder that has ' +
+             'moved. Switch it off and on again to bring it up to date.';
     }
     if (menu.enabled) {
       return `On for ${menu.installed.length} image types. Stored in your own ` +

@@ -59,6 +59,7 @@
     }
     if (edit_) refresh();
     else N4DU.batchUI.syncBatch();
+    N4DU.windowSize.fit();
   }
 
   // Opening the editor on one item of the batch. The picture the editor
@@ -333,6 +334,7 @@
   initHelp();
   N4DU.settings.initSettings();
   N4DU.batchUI.initBatchUI({ onAdd: chooseFile, onEdit: editItem });
+  N4DU.windowSize.init();
   edit.setOnChanged(() => { /* tools repaint explicitly to stay responsive */ });
 
   document.getElementById('btnExport').addEventListener('click', onDownload);
