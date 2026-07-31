@@ -220,6 +220,8 @@
       : 'Overwriting files needs the desktop version';
 
     updateEstimate();
+    // The window follows the batch: one file needs far less room than forty.
+    if (N4DU.windowSize) N4DU.windowSize.fit();
   }
 
   function buttonLabel(totals) {
@@ -350,6 +352,9 @@
         }
       } catch (err) {
         if (seq === estimateSeq) el.textContent = 'Could not read that file: ' + err.message;
+      } finally {
+        // This line can wrap, which changes how tall the view is.
+        if (seq === estimateSeq && N4DU.windowSize) N4DU.windowSize.fit();
       }
     }, 350);
   }
