@@ -879,14 +879,15 @@ class Handler(BaseHTTPRequestHandler):
         if not entries:
             return self._json({"error": refused[0] if refused else "Nothing to open."}, 400)
 
-        # A window is already up: park the files for its next heartbeat
-        # rather than opening a second one. This is what turns "right-click
-        # twenty images" into one list instead of twenty windows.
+        # Every file goes into the queue, always. Deciding between "queue it"
+        # and "let the caller open a window for it" lost exactly one file
+        # whenever the two raced — the whole point of the queue is that it
+        # cannot matter who gets there first. pageLive only tells the caller
+        # whether a window still has to be opened.
+        with _lock:
+            _pending.extend(entries)
         live = page_is_there()
-        if live:
-            with _lock:
-                _pending.extend(entries)
-        else:
+        if not live:
             expect_page()
 
         where = "Added to the open window: " if live else "Opened: "
@@ -1174,15 +1175,13 @@ def main():
         server, port = start_server()
         url = f"http://{HOST}:{port}/"
         if args["open"]:
-            # The page receives tokens, never paths: the URL is visible to
-            # the browser (and its history), and tokens die with the process.
-            # The first rides in the address; the rest wait for the page's
-            # first heartbeat, so a whole selection lands in one list.
-            tokens = [remember_file(os.path.abspath(p)) for p in args["open"]]
-            url += "?" + urlencode({"open": tokens[0]})
-            for token, path in zip(tokens[1:], args["open"][1:]):
-                _pending.append({"token": token, "path": os.path.abspath(path),
-                                 "name": os.path.basename(path)})
+            # Everything the launch was given goes into the same queue the
+            # hand-offs use, and the page collects the lot on its first
+            # heartbeat. One route in, so there is no race to lose a file to.
+            for path in args["open"]:
+                full = os.path.abspath(path)
+                _pending.append({"token": remember_file(full), "path": full,
+                                 "name": os.path.basename(full)})
         write_session(port)
     finally:
         # Held until the marker exists, so the launches waiting behind us

@@ -27,6 +27,11 @@
     const failed = [];
 
     for (const file of incoming) {
+      // The same file can arrive twice — the explorer handing it over while
+      // the folder offer also lists it, or the same selection opened twice.
+      // A path is the identity here; pasted images have none and are always
+      // treated as new.
+      if (meta.path && items.some(it => it.path === meta.path)) continue;
       const item = {
         id: nextId++,
         file,

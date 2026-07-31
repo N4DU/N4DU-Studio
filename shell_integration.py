@@ -341,7 +341,7 @@ def _remove_ext(reg, ext):
 # A small starting size so the window does not flash open large. The page
 # then measures its own contents and settles on the right height — small for
 # one file, taller for a big batch (see js/ui/window-size.js).
-_APP_FLAGS = ("--app={url}", "--window-size=640,560")
+_APP_FLAGS = ("--app={url}", "--window-size=452,400")
 
 _WINDOWS_CANDIDATES = (
     r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe",
