@@ -13,7 +13,7 @@
       rel="stylesheet" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body class="mode-convert">
 
 <!-- Icon set. Inline so it works when the file is opened directly. -->
 <svg class="sprite" aria-hidden="true" focusable="false">
@@ -54,34 +54,122 @@
     <div class="title-file" id="titleFile">No image open</div>
 
     <div class="title-actions">
-      <button class="icon-btn" id="btnUndo" disabled title="Undo (Ctrl+Z)" aria-label="Undo">
+      <button class="icon-btn edit-only" id="btnUndo" disabled title="Undo (Ctrl+Z)" aria-label="Undo">
         <svg><use href="#i-undo"/></svg>
       </button>
-      <button class="icon-btn" id="btnRedo" disabled title="Redo (Ctrl+Shift+Z)" aria-label="Redo">
+      <button class="icon-btn edit-only" id="btnRedo" disabled title="Redo (Ctrl+Shift+Z)" aria-label="Redo">
         <svg><use href="#i-redo"/></svg>
       </button>
-      <span class="sep"></span>
+      <span class="sep edit-only"></span>
       <button class="icon-btn" id="btnHelp" title="How it works" aria-label="Help">
         <svg><use href="#i-help"/></svg>
       </button>
       <button class="icon-btn" id="btnSettings" title="Settings" aria-label="Settings">
         <svg><use href="#i-gear"/></svg>
       </button>
-      <span class="sep"></span>
-      <button class="btn-ghost" id="btnChange" title="Open an image (Ctrl+O)">
+      <!-- The editor is a second mode, not the main event: reachable in one
+           click, but never competing with the converter for attention. -->
+      <button class="mode-btn" id="btnMode" title="Switch between the converter and the editor">
+        <svg class="bi"><use href="#i-brush"/></svg>
+        <span id="modeLabel">Editor</span>
+      </button>
+      <span class="sep edit-only"></span>
+      <button class="btn-ghost edit-only" id="btnChange" title="Open an image (Ctrl+O)">
         <svg class="bi"><use href="#i-open"/></svg> Open
       </button>
-      <button class="btn-ghost" id="btnCopy" disabled title="Copy the result to the clipboard (Ctrl+C)">
+      <button class="btn-ghost edit-only" id="btnCopy" disabled title="Copy the result to the clipboard (Ctrl+C)">
         <svg class="bi"><use href="#i-copy"/></svg> Copy
       </button>
-      <button class="btn-primary btn-swap" id="btnReplace" disabled title="Overwrite a file on your disk (Ctrl+R)">
+      <button class="btn-primary btn-swap edit-only" id="btnReplace" disabled title="Overwrite a file on your disk (Ctrl+R)">
         <svg class="bi"><use href="#i-swap"/></svg> Replace file
       </button>
-      <button class="btn-accent" id="btnExport" disabled title="Save the result to your Downloads (Ctrl+S)">
+      <button class="btn-accent edit-only" id="btnExport" disabled title="Save the result to your Downloads (Ctrl+S)">
         <svg class="bi"><use href="#i-down"/></svg> Download
       </button>
     </div>
   </header>
+
+  <!-- ── CONVERTER (the default view) ──
+       Deliberately small: a batch of files in, the same size, format and
+       weight out. Nothing else on screen. -->
+  <section class="convert" id="convertView">
+
+    <div class="conv-block conv-files">
+      <div class="conv-head">
+        <span class="conv-title" id="filesTitle">Files</span>
+        <span class="conv-sub" id="filesSummary">nothing loaded</span>
+        <button class="btn-ghost tiny" id="btnAddFiles">Add files</button>
+        <button class="btn-ghost tiny" id="btnClearFiles" disabled>Clear</button>
+      </div>
+
+      <div class="file-grid" id="fileGrid"></div>
+
+      <div class="conv-drop" id="convertDrop">
+        <svg class="drop-icon small"><use href="#i-image"/></svg>
+        <div class="drop-label">Drop images here, or click to choose</div>
+        <div class="drop-sub">Ctrl+V pastes · pick as many files as you like</div>
+        <div class="drop-sub dim" id="convertDropHint"></div>
+      </div>
+    </div>
+
+    <div class="conv-block conv-settings">
+      <div class="conv-row">
+        <label class="conv-label">Format</label>
+        <div class="pills tight" id="batchFmt"></div>
+      </div>
+      <div class="warn-line" id="fmtWarning" hidden></div>
+
+      <div class="conv-row">
+        <label class="conv-label">Size</label>
+        <div class="conv-fields">
+          <select id="resizeMode"></select>
+          <input type="number" id="resizeValue" min="1" max="20000" value="1920">
+          <span class="unit" id="resizeUnit">px</span>
+        </div>
+      </div>
+
+      <div class="conv-row" id="qualityRowBatch">
+        <label class="conv-label">Quality</label>
+        <div class="conv-fields">
+          <input type="range" id="batchQuality" min="1" max="100" step="1" value="92">
+          <span class="bar-val narrow" id="batchQualityVal">92</span>
+        </div>
+      </div>
+
+      <div class="conv-row">
+        <label class="conv-label">Max weight</label>
+        <div class="conv-fields">
+          <input type="number" id="batchMaxSize" placeholder="any" min="1">
+          <select id="batchMaxUnit">
+            <option value="KB" selected>KB</option>
+            <option value="MB">MB</option>
+          </select>
+          <span class="conv-note">per file</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="conv-block conv-actions">
+      <div class="conv-estimate" id="batchEstimate">—</div>
+      <div class="conv-progress" id="batchProgress" hidden>
+        <div class="conv-progress-bar"><span id="batchProgressBar"></span></div>
+        <span class="conv-progress-text" id="batchProgressText"></span>
+      </div>
+      <div class="conv-buttons">
+        <label class="check inline" title="One download per file instead of a single archive">
+          <input type="checkbox" id="batchSeparate">
+          <span>Separate files</span>
+        </label>
+        <button class="btn-primary btn-swap" id="btnReplaceAll" disabled>
+          <svg class="bi"><use href="#i-swap"/></svg> Replace originals
+        </button>
+        <button class="btn-accent" id="btnConvertAll" disabled>
+          <svg class="bi"><use href="#i-down"/></svg> Convert &amp; download
+        </button>
+      </div>
+    </div>
+
+  </section>
 
   <!-- ── WORKSPACE ── -->
   <div class="workspace">
@@ -281,6 +369,7 @@
           <button class="pill" data-fmt="avif">AVIF</button>
           <button class="pill" data-fmt="bmp">BMP</button>
           <button class="pill" data-fmt="ico">ICO</button>
+          <button class="pill" data-fmt="tiff">TIFF</button>
         </div>
         <div class="hint" id="fmtHint"></div>
       </div>
@@ -313,7 +402,8 @@
   <footer class="statusbar">
     <span id="statusDims">Ready</span>
     <span class="status-spacer"></span>
-    <span class="status-hint">Ctrl+O open · Ctrl+V paste · Ctrl+C copy · Ctrl+S download · Ctrl+Z undo</span>
+    <span class="status-hint edit-only">Ctrl+O open · Ctrl+V paste · Ctrl+C copy · Ctrl+S download · Ctrl+Z undo</span>
+    <span class="status-hint convert-only">Ctrl+O add files · Ctrl+V paste · double-click a file to edit it</span>
   </footer>
 
 </div>
@@ -323,21 +413,23 @@
   <div class="modal modal-wide">
     <div class="modal-title">How it works</div>
     <ol class="help-list">
-      <li><b>Open a picture.</b> Drop it anywhere in the window, press Ctrl+V
-        to paste, or use <em>Open</em>.</li>
-      <li><b>Edit it.</b> Pick a tool on the left. The line above the picture
-        always says what that tool does. <em>Undo every edit</em> puts the
-        original back.</li>
-      <li><b>Choose the export.</b> On the right: whole picture or square for a
-        profile photo, the pixel size, the file type, and an optional weight
-        cap the app will compress down to.</li>
-      <li><b>Take it away.</b> <em>Download</em> saves it, <em>Copy</em> puts it
-        on the clipboard for pasting elsewhere, and <em>Replace</em> overwrites
-        an existing file on your disk (desktop version).</li>
-      <li><b>Skip step one.</b> In <em>Settings</em> you can add N4DU Studio to
-        the right-click menu for images. After that, right-clicking a picture
-        in your file explorer opens it here already knowing where it lives, so
-        <em>Replace</em> works straight away.</li>
+      <li><b>Load the files.</b> As many as you like: drop them in, press
+        Ctrl+V, or use <em>Add files</em>. Every one shows up in the list with
+        its size and format.</li>
+      <li><b>Say what you want out.</b> One format, one size rule and one
+        weight cap for the whole batch. If this browser cannot write the
+        format you picked, it says so instead of producing broken files.</li>
+      <li><b>Take them away.</b> <em>Convert &amp; download</em> gives you a
+        single .zip (or separate files, if you prefer). <em>Replace
+        originals</em> overwrites them where they already are — no Downloads
+        folder, no renaming (desktop version).</li>
+      <li><b>Skip step one.</b> In <em>Settings</em>, add N4DU Studio to the
+        right-click menu for images. After that: select the files in your file
+        explorer, right-click, and they open here already knowing where they
+        live — so <em>Replace originals</em> works straight away.</li>
+      <li><b>Need to touch one up?</b> <em>Editor</em>, in the title bar, opens
+        the selected picture with crop, brush, blur, rotate and colour
+        removal. Come back and the batch uses your edited version.</li>
     </ol>
     <div class="help-note">
       Nothing is uploaded anywhere. Every picture stays on this machine.
@@ -391,6 +483,15 @@
       A web page cannot change your system. Run <code>main.py</code> (or
       <code>start.bat</code>) and these switches will set up the right-click
       entry for you — no registry editing, no administrator rights.
+    </div>
+
+    <div class="setting-foot" id="forgetRow">
+      <button class="link-btn danger" id="btnForget">Remove every trace from this machine</button>
+      <span class="setting-status" id="forgetNote">
+        Undoes the right-click entry and deletes the folder N4DU Studio keeps
+        its settings in. After that, deleting the program's folder leaves
+        nothing behind.
+      </span>
     </div>
 
     <div class="fine-print">
@@ -464,6 +565,9 @@
 <script src="js/core/edit.js"></script>
 <script src="js/core/render.js"></script>
 <script src="js/core/exporter.js"></script>
+<script src="js/core/convert.js"></script>
+<script src="js/core/zip.js"></script>
+<script src="js/core/batch.js"></script>
 <script src="js/core/bridge.js"></script>
 <script src="js/ui/toast.js"></script>
 <script src="js/ui/editable-number.js"></script>
@@ -475,6 +579,7 @@
 <script src="js/ui/tools.js"></script>
 <script src="js/ui/replace-dialog.js"></script>
 <script src="js/ui/settings.js"></script>
+<script src="js/ui/batch-ui.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

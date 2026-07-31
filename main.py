@@ -43,6 +43,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import shell_integration  # noqa: E402  (needs the path fixed up first)
+
 HOST = "127.0.0.1"
 PORTS = range(4517, 4537)          # first free port in this range
 GRACE_SECONDS = 3                  # wait after the page closes (was it a reload?)
@@ -64,8 +65,16 @@ SECRET = secrets.token_urlsafe(24)
 _files = OrderedDict()
 _lock = threading.Lock()
 
-# Page state (drives the auto-shutdown)
-_page = {"connected": False, "last_ping": 0.0, "closing_since": None}
+# Page state (drives the auto-shutdown).
+# expected_until: a window has just been launched but has not reported in
+# yet. Without it, twenty images right-clicked at once would each decide
+# "no page is running" and open twenty windows.
+_page = {"connected": False, "last_ping": 0.0, "closing_since": None,
+         "expected_until": 0.0}
+
+# Files handed over while a window was already open. The page collects them
+# on its next heartbeat, so they join the list it is already showing.
+_pending = []
 _shutdown = {"event": threading.Event(), "reason": ""}
 
 # Images the right-click entry is allowed to hand over. Wider than
@@ -76,9 +85,14 @@ OPENABLE_EXT = {"png", "jpg", "jpeg", "jfif", "webp", "avif", "gif",
 
 
 # ── Where settings and the running-instance marker live ─────────────
-def state_dir():
+def state_dir(create=False):
     """A per-user folder outside the app, so the settings survive moving,
-    updating or re-downloading the program."""
+    updating or re-downloading the program.
+
+    Only created when something is actually about to be written into it:
+    merely asking where it would be must not conjure it into existence, or
+    "leave no trace" could never finish.
+    """
     if os.name == "nt":
         base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
         path = os.path.join(base, "N4DU Studio")
@@ -87,12 +101,13 @@ def state_dir():
     else:
         base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
         path = os.path.join(base, "n4du-studio")
-    os.makedirs(path, exist_ok=True)
+    if create:
+        os.makedirs(path, exist_ok=True)
     return path
 
 
-def _state_file(name):
-    return os.path.join(state_dir(), name)
+def _state_file(name, create=False):
+    return os.path.join(state_dir(create), name)
 
 
 DEFAULT_SETTINGS = {
@@ -115,11 +130,56 @@ def load_settings():
 
 
 def save_settings(settings):
+    # Nothing worth storing → store nothing. A settings file that only says
+    # "everything is default" is litter in the user's profile.
+    if all(settings.get(k) == v for k, v in DEFAULT_SETTINGS.items()):
+        _forget("settings.json")
+        return
     try:
-        with open(_state_file("settings.json"), "w", encoding="utf-8") as fh:
+        with open(_state_file("settings.json", create=True), "w", encoding="utf-8") as fh:
             json.dump(settings, fh, indent=2)
     except OSError:
         pass  # settings are a convenience; failing to store them is not fatal
+
+
+def _forget(name):
+    try:
+        os.remove(_state_file(name))
+    except OSError:
+        pass
+
+
+def tidy_state():
+    """Leaves nothing behind once there is nothing to remember.
+
+    Turning the right-click entry off should undo everything the program put
+    on the machine — not leave a folder with a file in it saying "off". The
+    folder itself goes too, as soon as the last live file (this run's
+    session marker) is gone.
+    """
+    save_settings(load_settings())      # drops settings.json when all default
+    try:
+        leftovers = set(os.listdir(state_dir())) - {"session.json", "start.lock"}
+    except OSError:
+        return False
+    if leftovers:
+        return False
+    _state["purge_on_exit"] = True      # the marker is still in use right now
+    return True
+
+
+def purge_state():
+    """Removes the folder entirely. Safe to call when nothing is running."""
+    for name in ("settings.json", "session.json", "start.lock"):
+        _forget(name)
+    try:
+        os.rmdir(state_dir())
+        return True
+    except OSError:
+        return False      # something else is in there; leave it alone
+
+
+_state = {"purge_on_exit": False}
 
 
 # ── Running-instance marker ─────────────────────────────────────────
@@ -128,7 +188,7 @@ def save_settings(settings):
 def write_session(port):
     data = {"port": port, "secret": SECRET, "pid": os.getpid()}
     try:
-        with open(_state_file("session.json"), "w", encoding="utf-8") as fh:
+        with open(_state_file("session.json", create=True), "w", encoding="utf-8") as fh:
             json.dump(data, fh)
         # Readable by this user only where the platform supports it.
         if os.name != "nt":
@@ -146,6 +206,47 @@ def clear_session():
                 return
         os.remove(_state_file("session.json"))
     except (OSError, ValueError):
+        pass
+    # Asked to leave nothing behind: with the marker gone, the folder can go.
+    if _state["purge_on_exit"]:
+        purge_state()
+
+
+LOCK_STALE = 25          # seconds before a start lock is assumed abandoned
+
+
+def acquire_start_lock():
+    """Wins the right to start the server, or returns False.
+
+    Right-clicking twenty images launches twenty processes at once. Without
+    this they would all find no session marker and all start a server —
+    twenty ports, twenty windows. Exactly one gets the lock; the rest wait
+    for its marker and hand their file over.
+    """
+    lock = _state_file("start.lock", create=True)
+    try:
+        # O_EXCL is the atomic part: the filesystem picks the winner.
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+        return True
+    except FileExistsError:
+        try:
+            # A crash could leave the lock behind for ever; ignore an old one.
+            if time.time() - os.path.getmtime(lock) > LOCK_STALE:
+                os.remove(lock)
+                return acquire_start_lock()
+        except OSError:
+            pass
+        return False
+    except OSError:
+        return True      # cannot lock (odd filesystem): carrying on beats hanging
+
+
+def release_start_lock():
+    try:
+        os.remove(_state_file("start.lock"))
+    except OSError:
         pass
 
 
@@ -250,37 +351,48 @@ def banner(url):
 
 
 # ── Native dialog (in a subprocess: tkinter needs its own main thread) ──
+# Paths come back one per line: a file name can contain almost anything
+# except a newline, so this is the one separator that cannot be ambiguous.
 _PICKER_SCRIPT = """
 import sys, tkinter as tk
 from tkinter import filedialog
 title = sys.argv[1] if len(sys.argv) > 1 else "N4DU Studio"
+many = len(sys.argv) > 2 and sys.argv[2] == "many"
 root = tk.Tk(); root.withdraw()
 root.attributes("-topmost", True)
-path = filedialog.askopenfilename(title=title, filetypes=[
+kinds = [
     ("Images", "*.png *.jpg *.jpeg *.jfif *.webp *.avif *.gif *.bmp *.ico *.svg *.tif *.tiff"),
-    ("All files", "*.*")])
-print(path or "", end="")
+    ("All files", "*.*")]
+if many:
+    paths = list(root.tk.splitlist(filedialog.askopenfilenames(title=title, filetypes=kinds)))
+else:
+    one = filedialog.askopenfilename(title=title, filetypes=kinds)
+    paths = [one] if one else []
+sys.stdout.write("\\n".join(p for p in paths if p))
 """
 
 _PICK_TITLES = {
-    "open":   "N4DU Studio - Open image",
-    "target": "N4DU Studio - Choose the file to replace",
+    "open":      "N4DU Studio - Open image",
+    "open-many": "N4DU Studio - Choose images to convert",
+    "target":    "N4DU Studio - Choose the file to replace",
 }
 
 
 def native_pick(intent="open"):
-    """Returns the chosen path, '' if cancelled, or raises without tkinter."""
+    """Returns the chosen paths as a list ([] if cancelled), or raises when
+    tkinter is unavailable."""
     test = os.environ.get("N4DU_TEST_PICK")  # hook for automated tests
     if test is not None:
-        return test
+        return [p for p in test.split("\n") if p]
     title = _PICK_TITLES.get(intent, _PICK_TITLES["open"])
-    proc = subprocess.run([sys.executable, "-c", _PICKER_SCRIPT, title],
+    mode = "many" if intent == "open-many" else "one"
+    proc = subprocess.run([sys.executable, "-c", _PICKER_SCRIPT, title, mode],
                           capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(
             "Could not open the system dialog (tkinter is missing). "
             "Use the browser picker; replacing files will be unavailable.")
-    return proc.stdout.strip()
+    return [p for p in proc.stdout.split("\n") if p.strip()]
 
 
 # ── Replacing files on disk ─────────────────────────────────────────
@@ -426,8 +538,35 @@ def lookup_file(token):
 
 
 # ── Page heartbeat / auto-shutdown ──────────────────────────────────
+def page_is_there():
+    """Is a window showing the interface right now — or about to?
+
+    Decides whether an incoming file joins the open list or gets a window of
+    its own.
+    """
+    now = time.time()
+    if now < _page["expected_until"]:
+        return True
+    return (_page["connected"]
+            and _page["closing_since"] is None
+            and now - _page["last_ping"] < 5)
+
+
+def expect_page(seconds=20):
+    _page["expected_until"] = time.time() + seconds
+
+
+def take_pending():
+    """Hands the queued files to the page, exactly once."""
+    with _lock:
+        queued = list(_pending)
+        _pending.clear()
+    return queued
+
+
 def page_alive():
     _page["last_ping"] = time.time()
+    _page["expected_until"] = 0.0     # it is really here now
     if _page["closing_since"] is not None:
         _page["closing_since"] = None
         event(SYM["ok"], "Page reconnected", "92")
@@ -514,7 +653,7 @@ class Handler(BaseHTTPRequestHandler):
             if not self._guard():
                 return
             page_alive()
-            return self._json({"ok": True})
+            return self._json({"ok": True, "pending": take_pending()})
         if path == "/api/read":
             return self._read()
         if path == "/api/file":
@@ -563,21 +702,26 @@ class Handler(BaseHTTPRequestHandler):
     def _pick(self):
         intent = parse_qs(urlparse(self.path).query).get("intent", ["open"])[0]
         try:
-            path = native_pick(intent)
+            paths = native_pick(intent)
         except RuntimeError as exc:
             return self._json({"error": str(exc)}, 501)
-        if not path:
-            self.send_response(204)  # cancelled
+        paths = [p for p in paths if os.path.isfile(p)]
+        if not paths:
+            self.send_response(204)  # cancelled, or nothing usable
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-        if not os.path.isfile(path):
-            return self._json({"error": "That file does not exist."}, 400)
-        token = remember_file(path)
+
+        files = [{"token": remember_file(p), "path": p,
+                  "name": os.path.basename(p)} for p in paths]
         verb = "Target" if intent == "target" else "Opened"
-        event(SYM["open"], f"{verb}: {path}", "0")
-        return self._json({"token": token, "path": path,
-                           "name": os.path.basename(path)})
+        if len(files) == 1:
+            event(SYM["open"], f"{verb}: {paths[0]}", "0")
+        else:
+            event(SYM["open"], f"{verb} {len(files)} files", "0")
+        # The single-file shape is kept alongside the list so the editor and
+        # the converter can both read the same answer.
+        return self._json({"files": files, **files[0]})
 
     def _file_meta(self):
         """Name and path behind a token, so a page opened from the
@@ -609,9 +753,22 @@ class Handler(BaseHTTPRequestHandler):
                     event(SYM["ok"], "Right-click entry added for image files", "92")
                 else:
                     shell_integration.disable()
+                    tidy_state()
                     event(SYM["ok"], "Right-click entry removed", "92")
             except RuntimeError as exc:
                 return self._json({"error": str(exc), **settings_status()}, 400)
+
+        # "Leave no trace": undo the system entry and delete everything the
+        # program stored, so uninstalling is just deleting the folder.
+        if body.get("forget") is True:
+            try:
+                if shell_integration.status()["supported"]:
+                    shell_integration.disable()
+            except RuntimeError:
+                pass
+            _forget("settings.json")
+            _state["purge_on_exit"] = True
+            event(SYM["ok"], "Removed every trace from this machine", "92")
 
         return self._json(settings_status())
 
@@ -635,9 +792,23 @@ class Handler(BaseHTTPRequestHandler):
         ok, reason = openable(path)
         if not ok:
             return self._json({"error": reason}, 400)
-        token = remember_file(os.path.abspath(path))
-        event(SYM["open"], "Opened from the right-click menu: " + path, "0")
-        return self._json({"token": token, "url": "/?" + urlencode({"open": token})})
+        path = os.path.abspath(path)
+        token = remember_file(path)
+        entry = {"token": token, "path": path, "name": os.path.basename(path)}
+
+        # A window is already up: park the file for its next heartbeat rather
+        # than opening a second one. This is what turns "right-click twenty
+        # images" into one list instead of twenty windows.
+        live = page_is_there()
+        if live:
+            with _lock:
+                _pending.append(entry)
+        else:
+            expect_page()
+
+        event(SYM["open"], ("Added to the open window: " if live else "Opened: ") + path, "0")
+        return self._json({**entry, "pageLive": live,
+                           "url": "/?" + urlencode({"open": token})})
 
     def _read(self):
         if not self._guard():
@@ -755,7 +926,7 @@ def parse_args(argv):
             args["open"] = arg[len("--open="):]
         elif arg == "--no-browser":
             args["browser"] = False
-        elif arg in ("--enable-context-menu", "--disable-context-menu"):
+        elif arg in ("--enable-context-menu", "--disable-context-menu", "--forget"):
             args["settings"] = arg
         elif args["open"] is None and not arg.startswith("-"):
             # A bare path, so dragging a file onto the launcher also works.
@@ -766,8 +937,10 @@ def parse_args(argv):
 def hand_off(path):
     """Gives the file to an instance that is already running.
 
-    Returns the URL to open, or None when there is nobody to hand it to (no
-    marker, a stale one, or the other process refused).
+    Returns (url, page_live), or None when there is nobody to hand it to (no
+    marker, a stale one, or the other process refused). page_live tells the
+    caller whether a window is already showing the interface, in which case
+    it must NOT open another one.
     """
     session = read_session()
     if not session:
@@ -786,7 +959,23 @@ def hand_off(path):
         return None      # not running any more: start our own below
     if not answer.get("url"):
         return None
-    return f"http://{HOST}:{session['port']}" + answer["url"]
+    return (f"http://{HOST}:{session['port']}" + answer["url"],
+            bool(answer.get("pageLive")))
+
+
+def wait_for_hand_off(path, seconds=15):
+    """Retries the hand-off while another launch is starting the server.
+
+    The loser of the start lock lands here: it polls until the winner has
+    written its marker, then gives its file to it.
+    """
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        answer = hand_off(path)
+        if answer:
+            return answer
+        time.sleep(0.25)
+    return None
 
 
 def open_interface(url):
@@ -820,36 +1009,64 @@ def main():
     # without opening the interface.
     if args["settings"]:
         try:
+            if args["settings"] == "--forget":
+                if shell_integration.status()["supported"]:
+                    shell_integration.disable()
+                gone = purge_state()
+                _write("  Removed the right-click entry and every stored setting.")
+                _write("  " + ("Nothing of N4DU Studio is left on this machine."
+                               if gone else
+                               "Note: " + state_dir() + " was not empty and was kept."))
+                return
             st = (shell_integration.enable() if args["settings"].startswith("--enable")
                   else shell_integration.disable())
+            if args["settings"].startswith("--disable"):
+                tidy_state()
             _write("  " + shell_integration.describe(st))
             return
         except RuntimeError as exc:
             fatal(str(exc))
 
     # A file was handed to us (right-click entry, or dropped on the launcher).
+    holds_lock = False
     if args["open"]:
         ok, reason = openable(args["open"])
         if not ok:
             fatal(reason)
         existing = hand_off(args["open"])
+        if not existing:
+            # Nobody is running yet — but twenty of these may have started at
+            # the same instant, so exactly one of us starts the server and
+            # the others queue up behind it.
+            holds_lock = acquire_start_lock()
+            if not holds_lock:
+                existing = wait_for_hand_off(args["open"])
         if existing:
-            # Another copy is already running: it now holds the file, so this
-            # process only has to show the window and step aside.
-            _write("  " + existing)
-            if args["browser"]:
-                open_interface(existing)
+            # Another copy holds the file now. Only open a window if there
+            # is not one already: twenty right-clicked images must land in
+            # one list, not twenty windows.
+            url, page_live = existing
+            _write("  " + url)
+            if args["browser"] and not page_live:
+                open_interface(url)
+            if holds_lock:
+                release_start_lock()
             return
 
     mimetypes.add_type("text/javascript", ".js")
-    server, port = start_server()
-    url = f"http://{HOST}:{port}/"
-    if args["open"]:
-        # The page receives a token, never a path: the URL is visible to the
-        # browser (and its history), and tokens die with the process.
-        url += "?" + urlencode({"open": remember_file(os.path.abspath(args["open"]))})
-
-    write_session(port)
+    try:
+        server, port = start_server()
+        url = f"http://{HOST}:{port}/"
+        if args["open"]:
+            # The page receives a token, never a path: the URL is visible to
+            # the browser (and its history), and tokens die with the process.
+            url += "?" + urlencode({"open": remember_file(os.path.abspath(args["open"]))})
+        write_session(port)
+    finally:
+        # Held until the marker exists, so the launches waiting behind us
+        # find something to hand their file to.
+        if holds_lock:
+            release_start_lock()
     atexit.register(clear_session)
 
     banner(url)
@@ -858,6 +1075,9 @@ def main():
     threading.Thread(target=watchdog, daemon=True).start()
     threading.Thread(target=server.serve_forever, daemon=True).start()
     if args["browser"]:
+        # From here on, a file arriving joins this window instead of opening
+        # one of its own.
+        expect_page()
         threading.Timer(0.5, lambda: open_interface(url)).start()
 
     try:

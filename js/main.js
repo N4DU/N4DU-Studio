@@ -3,7 +3,7 @@
 // adds the native open dialog and replacing files on disk.
 (function (N4DU) {
 
-  const { state, resetForImage, toast, bridge, edit } = N4DU;
+  const { state, resetForImage, toast, bridge, edit, batch } = N4DU;
   const { loadImage, decodeErrorMessage } = N4DU.loader;
   const { exportBlob, download, FORMATS } = N4DU.exporter;
   const { initDropzone, openPicker } = N4DU.dropzone;
@@ -36,19 +36,114 @@
     }
   }
 
-  // Browse for a file: the native dialog when the bridge is up, otherwise
-  // the browser picker.
+  // ── Modes ─────────────────────────────────────────────────────────
+  // The converter is what the app opens in. The editor is the same code,
+  // the same window, a different arrangement — reached in one click and
+  // never in the way.
+  const MODE_KEY = 'n4du.mode';
+
+  function currentMode() {
+    return document.body.classList.contains('mode-edit') ? 'edit' : 'convert';
+  }
+
+  function setMode(mode, { remember = true } = {}) {
+    const edit_ = mode === 'edit';
+    document.body.classList.toggle('mode-edit', edit_);
+    document.body.classList.toggle('mode-convert', !edit_);
+    document.getElementById('modeLabel').textContent = edit_ ? 'Converter' : 'Editor';
+    document.getElementById('btnMode').title = edit_
+      ? 'Back to the converter'
+      : 'Open the editor for the selected picture';
+    if (remember) {
+      try { localStorage.setItem(MODE_KEY, mode); } catch { /* not always available */ }
+    }
+    if (edit_) refresh();
+    else N4DU.batchUI.syncBatch();
+  }
+
+  // Opening the editor on one item of the batch. The picture the editor
+  // works on is that item's, and what comes back replaces it in the list.
+  async function editItem(id) {
+    const item = batch.items.find(it => it.id === id) || batch.selected();
+    if (!item) {
+      toast('Add a picture first', '');
+      return;
+    }
+    batch.select(item.id);
+    editing = item.id;
+    let handle = null;
+    try {
+      handle = await batch.decode(item);
+      // A copy, so closing the editor's bitmap never frees the item's own.
+      const copy = await createImageBitmap(handle.bmp);
+      await adoptIntoEditor(copy, item);
+      setMode('edit');
+    } catch (err) {
+      toast('Could not open that picture: ' + err.message, 'err');
+    } finally {
+      if (handle) handle.release();
+    }
+  }
+
+  // Hands the editor's current pixels back to the batch item, so converting
+  // uses the edited version.
+  function returnToConverter() {
+    if (editing !== null && edit.ready()) {
+      try {
+        const bmp = edit.toBitmap();
+        if (bmp) batch.setEdited(editing, bmp);
+      } catch { /* nothing worth losing the mode switch over */ }
+    }
+    setMode('convert');
+  }
+
+  let editing = null;   // which batch item the editor is showing
+
+  // Browse for files: the native dialog when the bridge is up, otherwise
+  // the browser picker. In the converter every chosen file joins the list;
+  // in the editor only the first is opened.
   async function chooseFile() {
     if (bridge.active) {
       try {
-        const picked = await bridge.pickFile();
-        if (picked) await onFile(picked.file, true);
+        const picked = await bridge.pickFiles(currentMode() === 'convert');
+        if (picked.length) await acceptPicked(picked);
         return;
       } catch (err) {
         toast(err.message, 'err'); // fall back to the browser picker
       }
     }
     openPicker();
+  }
+
+  // Files that arrived with a real location on disk (native dialog, or the
+  // right-click menu), so they can be overwritten in place.
+  async function acceptPicked(picked) {
+    if (currentMode() === 'edit') {
+      bridge.token = picked[0].token;
+      bridge.path = picked[0].path;
+      await onFile(picked[0].file, true);
+      return;
+    }
+    for (const one of picked) {
+      await batch.add([one.file], { token: one.token, path: one.path });
+    }
+    announceAdded(picked.length);
+  }
+
+  // Files with no location: dropped, pasted, or chosen through the browser.
+  async function onFiles(files) {
+    if (currentMode() === 'edit') {
+      await onFile(files[0], false);
+      return;
+    }
+    const { added, failed, skipped } = await batch.add(files);
+    if (failed.length) toast(`${failed.length} file${failed.length > 1 ? 's' : ''} could not be read`, 'err');
+    else if (skipped) toast(`List is full at ${batch.MAX_ITEMS} files — ${skipped} left out`, 'err');
+    else announceAdded(added);
+  }
+
+  function announceAdded(n) {
+    if (n > 0) toast(`Added ${n} file${n > 1 ? 's' : ''}`, 'ok');
   }
 
   async function onFile(file, fromBridge = false) {
@@ -59,24 +154,39 @@
       toast(decodeErrorMessage(file), 'err');
       return;
     }
-    resetForImage(bmp, file);
+    editing = null;          // opened directly, not through the batch list
+    showInEditor(bmp, file, fromBridge);
+  }
+
+  // Puts a decoded picture into the editor. Shared by "open a file" and
+  // "edit this item of the batch", so both paths behave identically.
+  function showInEditor(bmp, meta, fromBridge) {
+    resetForImage(bmp, meta);
     edit.load(bmp);          // fresh editing session for this image
     // Dropped, pasted or browser-picked files have no path on disk, so the
     // replacement target is cleared (it is chosen inside the dialog).
     if (!fromBridge) bridge.clearFile();
 
     document.getElementById('fileInfo').innerHTML =
-      `<strong>${escapeHtml(file.name)}</strong><br>` +
+      `<strong>${escapeHtml(meta.name)}</strong><br>` +
       `${state.origW} × ${state.origH} px<br>` +
-      `${(file.size / 1024).toFixed(0)} KB`;
+      `${(meta.size / 1024).toFixed(0)} KB`;
     document.getElementById('titleFile').textContent =
-      `${file.name} — ${state.origW}×${state.origH} px`;
+      `${meta.name} — ${state.origW}×${state.origH} px`;
 
     document.body.classList.add('has-image');
     document.getElementById('zoomSlider').value = 1;
     document.getElementById('zoomVal').textContent = '100%';
 
     refresh();
+  }
+
+  // The editor opened on a batch item: its path (if any) becomes the
+  // replacement target, so Replace still overwrites the right file.
+  async function adoptIntoEditor(bmp, item) {
+    bridge.token = item.token || null;
+    bridge.path = item.path || null;
+    showInEditor(bmp, { name: item.name, size: item.size }, !!item.token);
   }
 
   // ── Download ──────────────────────────────────────────────────────
@@ -185,6 +295,7 @@
     if (!document.getElementById('settingsModal').hidden) return;
     const k = e.key.toLowerCase();
     if (k === 'o') { e.preventDefault(); chooseFile(); return; }
+    if (currentMode() === 'convert') return;   // the rest belong to the editor
     if (!state.img) return;
     if (k === 's' || k === 'e') { e.preventDefault(); onDownload(); }
     if (k === 'c') { e.preventDefault(); onCopy(); }
@@ -214,18 +325,24 @@
     });
   }
 
-  initDropzone(onFile, chooseFile);
+  initDropzone(onFiles, chooseFile);
   initEditorCanvas(refresh);
   initControls(refresh);
   initTools(refresh);
   initReplaceDialog(afterReplace);
   initHelp();
   N4DU.settings.initSettings();
+  N4DU.batchUI.initBatchUI({ onAdd: chooseFile, onEdit: editItem });
   edit.setOnChanged(() => { /* tools repaint explicitly to stay responsive */ });
 
   document.getElementById('btnExport').addEventListener('click', onDownload);
   document.getElementById('btnCopy').addEventListener('click', onCopy);
   document.getElementById('btnReplace').addEventListener('click', openReplaceDialog);
+  document.getElementById('btnMode').addEventListener('click', () => {
+    if (currentMode() === 'edit') returnToConverter();
+    else editItem(batch.selectedId);
+  });
+
   // ── Launched from the right-click menu ────────────────────────────
   // main.py puts ?open=TOKEN in the address when the app was started on a
   // specific file. The token stands for a path the server already holds, so
@@ -235,17 +352,31 @@
     const token = new URLSearchParams(location.search).get('open');
     if (!token || !bridge.active) return;
     const picked = await bridge.adopt(token);
-    if (picked) {
-      await onFile(picked.file, true);
-    } else {
-      toast('That file could not be opened — it may have been moved.', 'err');
-    }
+    if (picked) await batch.add([picked.file], { token: picked.token, path: picked.path });
+    else toast('That file could not be opened — it may have been moved.', 'err');
   }
+
+  // More files arriving while the window is already open: every image
+  // right-clicked in one go lands in this same list.
+  bridge.setOnPending(async (metas) => {
+    const picked = await bridge.collect(metas);
+    for (const one of picked) {
+      await batch.add([one.file], { token: one.token, path: one.path });
+    }
+    if (picked.length) toast(`Added ${picked.length} file${picked.length > 1 ? 's' : ''} from your file explorer`, 'ok');
+  });
+
+  // The converter is the default. A returning user gets whichever mode they
+  // left in, unless a file was handed over — that always means "convert".
+  let startMode = 'convert';
+  try { startMode = localStorage.getItem(MODE_KEY) || 'convert'; } catch { /* ignore */ }
+  if (new URLSearchParams(location.search).get('open')) startMode = 'convert';
+  setMode(startMode === 'edit' ? 'edit' : 'convert', { remember: false });
 
   bridge.init()
     .then(openStartupFile)
     .catch(() => {})
-    .finally(syncButtons);
+    .finally(() => { syncButtons(); N4DU.batchUI.syncBatch(); });
   syncButtons();
 
 })(window.N4DU ??= {});

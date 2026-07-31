@@ -43,6 +43,14 @@
     return canvasFrom(surface);
   }
 
+  // The current pixels as a standalone bitmap, for handing the result back
+  // to the converter. Taken from a copy, so the live surface is untouched
+  // and the caller owns what it gets.
+  function toBitmap() {
+    const copy = snapshot();
+    return copy ? copy.transferToImageBitmap() : null;
+  }
+
   // Call before mutating the surface.
   function pushHistory() {
     const snap = snapshot();
@@ -441,7 +449,7 @@
   }
 
   N4DU.edit = {
-    load, setOnChanged, source, width, height, ready,
+    load, setOnChanged, source, width, height, ready, toBitmap,
     canUndo, canRedo, undo, redo, revert,
     rotate, flip, crop, blurAll, removeColor,
     beginStroke, paintStroke, blurStroke, pickColor,
