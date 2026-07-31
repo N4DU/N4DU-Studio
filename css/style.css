@@ -764,6 +764,10 @@ body.has-image .canvas-stack { display: flex; }
   max-width: 90vw; overflow: hidden; text-overflow: ellipsis;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* In the converter the action buttons live at the bottom of a small window,
+   so a toast anchored there would sit on top of them. */
+body.mode-convert .toast { bottom: auto; top: 60px; transform: translateX(-50%) translateY(-16px); }
+body.mode-convert .toast.show { transform: translateX(-50%) translateY(0); }
 .toast.ok  { border-color: var(--success); color: var(--success); }
 .toast.err { border-color: var(--danger);  color: var(--danger); }
 
@@ -839,6 +843,13 @@ body.has-image .canvas-stack { display: flex; }
 .switch input:disabled { cursor: not-allowed; }
 .setting:has(input:disabled) { opacity: .75; }
 
+.setting-foot {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 0 2px;
+}
+.link-btn.danger { color: var(--danger); align-self: flex-start; }
+.link-btn.danger:hover { color: #ff8a8a; }
+
 /* The honest limitations, kept where the switches are rather than hidden */
 .fine-print {
   font-size: .71rem;
@@ -849,6 +860,229 @@ body.has-image .canvas-stack { display: flex; }
 }
 .fine-print b { color: var(--muted); }
 .fine-print em { font-style: normal; color: var(--muted); }
+
+/* ── THE CONVERTER ──
+   The view the app opens in: a batch of files, three settings, two
+   buttons. Sized like a tool, not like a web page — on a wide screen the
+   whole thing stays a narrow column instead of stretching out. */
+body.mode-convert .app {
+  max-width: 760px;
+  margin: 0 auto;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+body.mode-convert .workspace,
+body.mode-convert .edit-only { display: none !important; }
+body.mode-edit .convert,
+body.mode-edit .convert-only { display: none !important; }
+body.mode-edit .app { max-width: none; border: 0; }
+
+.convert {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: var(--gap);
+  min-height: 0;
+  overflow: hidden;
+}
+.conv-block {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.conv-files { flex: 1 1 auto; min-height: 0; }
+
+.conv-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+.conv-title {
+  font-family: var(--fh);
+  font-size: .74rem;
+  font-weight: 700;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.conv-sub { font-size: .72rem; color: var(--muted); flex: 1; }
+.btn-ghost.tiny { padding: 3px 9px; font-size: .7rem; }
+
+/* The file list is the one thing here allowed to scroll: fifty files have
+   to go somewhere, and shrinking them further would make the previews
+   useless. */
+.file-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+  align-content: start;
+}
+.file-grid:empty { display: none; }
+
+.file-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 6px 7px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  cursor: pointer;
+  font-family: var(--fb);
+  color: var(--text);
+  transition: border-color .12s, background .12s;
+  overflow: hidden;
+}
+.file-tile:hover { border-color: var(--border2); background: var(--surface2); }
+.file-tile.selected { border-color: var(--accent); background: rgba(232,255,71,.06); }
+.file-thumb {
+  width: 100%;
+  height: 68px;
+  object-fit: contain;
+  background:
+    conic-gradient(#1c1c1c 25%, #141414 0 50%, #1c1c1c 0 75%, #141414 0) 0 0/12px 12px;
+  border-radius: 5px;
+}
+.file-tile-name {
+  font-size: .68rem;
+  width: 100%;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-tile-meta { font-size: .63rem; color: var(--muted); }
+.file-tile.st-done  { border-color: rgba(95,255,170,.4); }
+.file-tile.st-done .file-tile-meta { color: var(--success); }
+.file-tile.st-error { border-color: rgba(255,95,95,.5); }
+.file-tile.st-error .file-tile-meta { color: var(--danger); }
+.file-tile.st-working { opacity: .65; }
+
+/* A dot means "this one came from your disk", so it is obvious before you
+   press Replace which files can actually be overwritten. */
+.file-tile-disk {
+  position: absolute; top: 5px; left: 6px;
+  font-size: .5rem; color: var(--accent);
+  line-height: 1;
+}
+.file-tile-x {
+  position: absolute; top: 2px; right: 5px;
+  font-size: .9rem; color: var(--faint);
+  line-height: 1; padding: 2px 4px;
+}
+.file-tile-x:hover { color: var(--danger); }
+
+.conv-drop {
+  border: 1.5px dashed var(--border2);
+  border-radius: 11px;
+  padding: 22px 16px;
+  text-align: center;
+  cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  transition: border-color .15s, background .15s;
+}
+.conv-drop:hover, .conv-drop.over { border-color: var(--accent); background: rgba(232,255,71,.04); }
+.conv-drop[hidden] { display: none; }
+.drop-icon.small { width: 30px; height: 30px; }
+.drop-sub.dim { color: var(--faint); font-size: .68rem; }
+
+/* Settings: one row per decision, labels in a fixed column so the eye
+   runs straight down the values. */
+.conv-row {
+  display: grid;
+  grid-template-columns: 86px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+.conv-label { font-size: .74rem; color: var(--muted); }
+.conv-fields { display: flex; align-items: center; gap: 7px; }
+.conv-fields input[type=number] {
+  background: var(--bg); border: 1px solid var(--border2);
+  border-radius: 7px; color: var(--text); font-family: var(--fb);
+  font-size: .8rem; padding: 5px 8px; width: 86px;
+}
+.conv-fields input[type=number]:focus,
+.conv-fields select:focus { outline: none; border-color: var(--accent); }
+.conv-fields input[type=range] { flex: 1; max-width: 220px; }
+.conv-fields select {
+  background: var(--bg); border: 1px solid var(--border2);
+  border-radius: 7px; color: var(--text); font-family: var(--fb);
+  font-size: .8rem; padding: 5px 7px;
+}
+.conv-fields .unit, .conv-note { font-size: .72rem; color: var(--faint); }
+.pills.tight { display: flex; flex-wrap: wrap; gap: 5px; }
+
+/* A format this browser cannot write stays visible and says so. Hiding it
+   would leave you wondering where AVIF went. */
+.pill.unsupported {
+  border-style: dashed;
+  color: var(--faint);
+  text-decoration: line-through;
+}
+.pill.unsupported.active {
+  background: rgba(255,95,95,.12);
+  border-color: var(--danger);
+  color: var(--danger);
+  text-decoration: none;
+}
+.warn-line {
+  font-size: .72rem;
+  color: var(--danger);
+  background: rgba(255,95,95,.07);
+  border: 1px solid rgba(255,95,95,.3);
+  border-radius: 7px;
+  padding: 7px 9px;
+  line-height: 1.5;
+}
+.warn-line[hidden] { display: none; }
+
+.conv-actions {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  gap: 11px;
+}
+.conv-estimate {
+  font-size: .78rem;
+  color: var(--muted);
+  font-family: var(--fh);
+  min-height: 1.1em;
+}
+.conv-estimate.warn { color: var(--danger); }
+.conv-progress { display: flex; align-items: center; gap: 10px; }
+.conv-progress[hidden] { display: none; }
+.conv-progress-bar {
+  flex: 1; height: 5px; border-radius: 3px;
+  background: var(--surface2); overflow: hidden;
+}
+.conv-progress-bar span {
+  display: block; height: 100%; width: 0;
+  background: var(--accent); transition: width .18s;
+}
+.conv-progress-text { font-size: .7rem; color: var(--muted); white-space: nowrap; }
+.conv-buttons { display: flex; align-items: center; gap: 8px; }
+.conv-buttons .btn-accent, .conv-buttons .btn-primary { padding: 8px 14px; }
+.check.inline { flex: 1; font-size: .72rem; }
+
+/* The mode button: present, findable, and deliberately quiet — the editor
+   is the second thing this app does, not the first. */
+.mode-btn {
+  display: flex; align-items: center; gap: 6px;
+  background: transparent;
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  color: var(--muted);
+  font-family: var(--fb);
+  font-size: .74rem;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.mode-btn:hover { color: var(--accent); border-color: var(--accent); }
+.mode-btn .bi { width: 13px; height: 13px; }
 
 /* ── SHORT AND NARROW WINDOWS ──
    The panels must never scroll, so spacing and control sizes shrink

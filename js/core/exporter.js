@@ -10,10 +10,13 @@
     avif: { mime: 'image/avif',   ext: 'avif', label: 'AVIF', lossy: true,  alpha: true  },
     bmp:  { mime: 'image/bmp',    ext: 'bmp',  label: 'BMP',  lossy: false, alpha: false },
     ico:  { mime: 'image/x-icon', ext: 'ico',  label: 'ICO',  lossy: false, alpha: true  },
+    tiff: { mime: 'image/tiff',   ext: 'tif',  label: 'TIFF', lossy: false, alpha: true  },
   };
 
   const ICO_MAX = 256; // the ICO format allows up to 256×256
-  const MANUAL = new Set(['ico', 'bmp']); // hand-written encoders, always available
+  // Written by hand here, so they work in every browser regardless of what
+  // the canvas can encode.
+  const MANUAL = new Set(['ico', 'bmp', 'tiff']);
 
   // Detects which formats this browser can ENCODE (decoding is a separate
   // matter). AVIF, for instance, cannot be encoded everywhere yet.
@@ -49,8 +52,9 @@
   // pixels are re-encoded, not just renamed.
   async function encodeCanvas(canvas, fmt, quality) {
     const f = FORMATS[fmt];
-    if (fmt === 'ico') return encodeIco(canvas);
-    if (fmt === 'bmp') return encodeBmp(canvas);
+    if (fmt === 'ico')  return encodeIco(canvas);
+    if (fmt === 'bmp')  return encodeBmp(canvas);
+    if (fmt === 'tiff') return encodeTiff(canvas);
     if (f.lossy) return canvas.convertToBlob({ type: f.mime, quality });
     return canvas.convertToBlob({ type: f.mime });
   }
@@ -110,6 +114,59 @@
       }
     }
     return Promise.resolve(new Blob([buf], { type: 'image/bmp' }));
+  }
+
+  // Baseline TIFF, uncompressed RGBA. No browser encodes TIFF, but pipelines
+  // and print tools still ask for it, so it is written here by hand: an 8
+  // byte header, the pixels, then the tag directory pointing at them.
+  function encodeTiff(canvas) {
+    const w = canvas.width, h = canvas.height;
+    const data = canvas.getContext('2d').getImageData(0, 0, w, h).data;
+    const pixels = w * h * 4;
+
+    const TAGS = 11;
+    const pixelOffset = 8;
+    const bitsOffset = pixelOffset + pixels;   // four SHORTs live out of line
+    const ifdOffset = bitsOffset + 8;
+    const buf = new ArrayBuffer(ifdOffset + 2 + TAGS * 12 + 4);
+    const dv = new DataView(buf);
+
+    dv.setUint16(0, 0x4949, true);   // "II": little endian
+    dv.setUint16(2, 42, true);       // the magic number that says TIFF
+    dv.setUint32(4, ifdOffset, true);
+
+    new Uint8Array(buf, pixelOffset, pixels).set(data);
+    for (let i = 0; i < 4; i++) dv.setUint16(bitsOffset + i * 2, 8, true);
+
+    const SHORT = 3, LONG = 4;
+    let p = ifdOffset;
+    dv.setUint16(p, TAGS, true);
+    p += 2;
+    // Tags must be written in ascending order; readers rely on it.
+    const tag = (id, type, count, value) => {
+      dv.setUint16(p, id, true);
+      dv.setUint16(p + 2, type, true);
+      dv.setUint32(p + 4, count, true);
+      // A value of four bytes or fewer is stored inline, otherwise this
+      // field holds an offset. SHORTs sit in the first two bytes.
+      if (type === SHORT && count === 1) dv.setUint16(p + 8, value, true);
+      else dv.setUint32(p + 8, value, true);
+      p += 12;
+    };
+    tag(256, LONG, 1, w);            // ImageWidth
+    tag(257, LONG, 1, h);            // ImageLength
+    tag(258, SHORT, 4, bitsOffset);  // BitsPerSample: 8,8,8,8
+    tag(259, SHORT, 1, 1);           // Compression: none
+    tag(262, SHORT, 1, 2);           // PhotometricInterpretation: RGB
+    tag(273, LONG, 1, pixelOffset);  // StripOffsets
+    tag(277, SHORT, 1, 4);           // SamplesPerPixel
+    tag(278, LONG, 1, h);            // RowsPerStrip: the whole image
+    tag(279, LONG, 1, pixels);       // StripByteCounts
+    tag(284, SHORT, 1, 1);           // PlanarConfiguration: chunky
+    tag(338, SHORT, 1, 2);           // ExtraSamples: unassociated alpha
+    dv.setUint32(p, 0, true);        // no further directory
+
+    return Promise.resolve(new Blob([buf], { type: 'image/tiff' }));
   }
 
   // Renders and encodes the current state, ignoring the weight limit.
@@ -205,6 +262,7 @@
   N4DU.exporter = {
     FORMATS, detectEncodeSupport, outputDims,
     encodeCanvas, renderAndEncode, exportBlob, download,
+    binarySearchQuality,   // shared with the batch converter
   };
 
 })(window.N4DU ??= {});
