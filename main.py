@@ -52,7 +52,11 @@ GRACE_SECONDS = 3                  # wait after the page closes (was it a reload
 # per minute), so a short threshold would shut the server down while it is
 # still in use. Normal shutdown does not rely on this — /api/bye is instant.
 STALL_SECONDS = 150
-MAX_SESSIONS = 64                  # remembered files (oldest is evicted)
+# Remembered files (oldest is evicted). Generous on purpose: a batch can be
+# hundreds of files, and every one needs its token to stay valid until it is
+# replaced — an evicted token means "Replace originals" silently skips it.
+MAX_SESSIONS = 600
+MAX_SIBLINGS = 400                 # matches the converter's list limit
 ALLOWED_EXT = {"png", "jpg", "webp", "avif", "bmp", "ico"}
 
 # Per-run secret. Authenticates /api/bye, which cannot require headers
@@ -481,6 +485,24 @@ def replace_file(original, data, ext, new_stem=None, overwrite=False):
     return target, warning
 
 
+def _natural_key(name):
+    """Sorts page 2 before page 10, the way a person reading a folder of
+    scans expects."""
+    parts = []
+    digits = ""
+    for ch in name.lower():
+        if ch.isdigit():
+            digits += ch
+        else:
+            if digits:
+                parts.append((1, int(digits), ""))
+                digits = ""
+            parts.append((0, 0, ch))
+    if digits:
+        parts.append((1, int(digits), ""))
+    return parts
+
+
 def openable(path):
     """Is this something we should open? Returns (ok, reason).
 
@@ -660,6 +682,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self._guard():
                 return
             return self._file_meta()
+        if path == "/api/siblings":
+            if not self._guard():
+                return
+            return self._siblings()
         if path == "/api/settings":
             if not self._guard():
                 return
@@ -731,6 +757,44 @@ class Handler(BaseHTTPRequestHandler):
         if not path or not os.path.isfile(path):
             return self._json({"error": "File not available."}, 404)
         return self._json({"path": path, "name": os.path.basename(path)})
+
+    def _siblings(self):
+        """The other images sitting next to a file that is already open.
+
+        Windows decides for itself how many files a right-click hands over,
+        and that decision is not ours to make. This is the way out: one file
+        arrived, so offer the rest of its folder. The folder is never named
+        by the browser — it comes from a token the user already opened, so
+        this cannot be used to go fishing through the disk.
+        """
+        query = parse_qs(urlparse(self.path).query)
+        token = query.get("token", [""])[0]
+        anchor = lookup_file(token)
+        if not anchor or not os.path.isfile(anchor):
+            return self._json({"error": "File not available."}, 404)
+
+        folder = os.path.dirname(os.path.abspath(anchor))
+        # Paths already in the list, so they are not offered twice.
+        known = {os.path.abspath(p) for p in query.get("have", []) if p}
+        try:
+            names = sorted(os.listdir(folder), key=_natural_key)
+        except OSError as exc:
+            return self._json({"error": "Could not read the folder: " + (exc.strerror or "")}, 500)
+
+        found = []
+        for name in names:
+            full = os.path.join(folder, name)
+            if full in known or not os.path.isfile(full):
+                continue
+            if os.path.splitext(name)[1].lower().lstrip(".") not in OPENABLE_EXT:
+                continue
+            found.append(full)
+            if len(found) >= MAX_SIBLINGS:
+                break
+
+        files = [{"token": remember_file(p), "path": p, "name": os.path.basename(p)}
+                 for p in found]
+        return self._json({"folder": folder, "files": files})
 
     # ── Settings ──
     def _settings(self):
@@ -926,7 +990,8 @@ def parse_args(argv):
             args["open"] = arg[len("--open="):]
         elif arg == "--no-browser":
             args["browser"] = False
-        elif arg in ("--enable-context-menu", "--disable-context-menu", "--forget"):
+        elif arg in ("--enable-context-menu", "--disable-context-menu",
+                     "--forget", "--check"):
             args["settings"] = arg
         elif args["open"] is None and not arg.startswith("-"):
             # A bare path, so dragging a file onto the launcher also works.
@@ -1009,6 +1074,12 @@ def main():
     # without opening the interface.
     if args["settings"]:
         try:
+            if args["settings"] == "--check":
+                _write("")
+                _write(shell_integration.dump())
+                _write("")
+                _write("  " + shell_integration.describe(shell_integration.status()))
+                return
             if args["settings"] == "--forget":
                 if shell_integration.status()["supported"]:
                     shell_integration.disable()
@@ -1026,6 +1097,10 @@ def main():
             return
         except RuntimeError as exc:
             fatal(str(exc))
+
+    # An entry left over from an older version is rewritten now, quietly.
+    # Waiting for someone to toggle a setting is how a fix never arrives.
+    repaired = shell_integration.repair_if_stale()
 
     # A file was handed to us (right-click entry, or dropped on the launcher).
     holds_lock = False
@@ -1070,6 +1145,8 @@ def main():
     atexit.register(clear_session)
 
     banner(url)
+    if repaired:
+        event(SYM["ok"], "Right-click entry brought up to date", "92")
     if args["open"]:
         event(SYM["open"], "Opened: " + os.path.abspath(args["open"]), "0")
     threading.Thread(target=watchdog, daemon=True).start()
