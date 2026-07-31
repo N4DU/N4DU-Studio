@@ -23,14 +23,11 @@ import json
 import time
 import atexit
 import secrets
-import shutil
 import mimetypes
-import subprocess
 import threading
 import webbrowser
 import urllib.error
 import urllib.request
-from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote, urlencode
 
@@ -44,6 +41,23 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import shell_integration  # noqa: E402  (needs the path fixed up first)
+import appstate          # noqa: E402  settings, session marker, file tokens
+import diskio            # noqa: E402  the file dialog and replacing on disk
+
+# Re-exported so the rest of this file — and anything importing main — can
+# keep saying replace_file() rather than diskio.replace_file(). The split is
+# about where the code LIVES, not about renaming everything that uses it.
+from appstate import (  # noqa: E402
+    SECRET, MAX_SESSIONS, LOCK_STALE,
+    state_dir, load_settings, save_settings, tidy_state, purge_state,
+    write_session, clear_session, read_session,
+    acquire_start_lock, release_start_lock,
+    remember_file, lookup_file, retarget_file, forget_everything,
+)
+from diskio import (  # noqa: E402
+    ALLOWED_EXT, OPENABLE_EXT, PICK_TIMEOUT,
+    native_pick, target_path, replace_file, openable, _natural_key, _safe_stem,
+)
 
 HOST = "127.0.0.1"
 PORTS = range(4517, 4537)          # first free port in this range
@@ -53,24 +67,8 @@ GRACE_SECONDS = 3                  # wait after the page closes (was it a reload
 # per minute), so a short threshold would shut the server down while it is
 # still in use. Normal shutdown does not rely on this — /api/bye is instant.
 STALL_SECONDS = 150
-# Remembered files (oldest is evicted). Generous on purpose: a batch can be
-# hundreds of files, and every one needs its token to stay valid until it is
-# replaced — an evicted token means "Replace originals" silently skips it.
-MAX_SESSIONS = 600
 MAX_SIBLINGS = 400                 # matches the converter's list limit
 MAX_UPLOAD = 512 * 1024 * 1024     # a replacement bigger than this is a mistake
-PICK_TIMEOUT = 600                 # a dialog left open this long is abandoned
-ALLOWED_EXT = {"png", "jpg", "webp", "avif", "bmp", "ico"}
-
-# Per-run secret. Authenticates /api/bye, which cannot require headers
-# because sendBeacon does not send them: without this, any website open in
-# another tab could shut the server down.
-SECRET = secrets.token_urlsafe(24)
-
-# Open files: ephemeral token -> real path. The browser only ever sees
-# tokens; no endpoint accepts an arbitrary path.
-_files = OrderedDict()
-_lock = threading.Lock()
 
 # Page state (drives the auto-shutdown).
 # expected_until: a window has just been launched but has not reported in
@@ -82,197 +80,9 @@ _page = {"connected": False, "last_ping": 0.0, "closing_since": None,
 # Files handed over while a window was already open. The page collects them
 # on its next heartbeat, so they join the list it is already showing.
 _pending = []
+_pending_lock = threading.Lock()
 _picking = threading.Semaphore(1)  # only one native dialog at a time
 _shutdown = {"event": threading.Event(), "reason": ""}
-
-# Images the right-click entry is allowed to hand over. Wider than
-# ALLOWED_EXT (which is about what we can WRITE); anything the browser can
-# decode is fine to OPEN.
-OPENABLE_EXT = {"png", "jpg", "jpeg", "jfif", "webp", "avif", "gif",
-                "bmp", "ico", "tif", "tiff", "svg"}
-
-
-# ── Where settings and the running-instance marker live ─────────────
-def state_dir(create=False):
-    """A per-user folder outside the app, so the settings survive moving,
-    updating or re-downloading the program.
-
-    Only created when something is actually about to be written into it:
-    merely asking where it would be must not conjure it into existence, or
-    "leave no trace" could never finish.
-    """
-    if os.name == "nt":
-        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-        path = os.path.join(base, "N4DU Studio")
-    elif sys.platform == "darwin":
-        path = os.path.expanduser("~/Library/Application Support/N4DU Studio")
-    else:
-        base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-        path = os.path.join(base, "n4du-studio")
-    if create:
-        os.makedirs(path, exist_ok=True)
-    return path
-
-
-def _state_file(name, create=False):
-    return os.path.join(state_dir(create), name)
-
-
-DEFAULT_SETTINGS = {
-    # Open in a small window of its own instead of a browser tab.
-    "appWindow": True,
-}
-
-
-def load_settings():
-    try:
-        with open(_state_file("settings.json"), "r", encoding="utf-8") as fh:
-            saved = json.load(fh)
-    except (OSError, ValueError):
-        saved = {}
-    settings = dict(DEFAULT_SETTINGS)
-    for key, default in DEFAULT_SETTINGS.items():
-        if isinstance(saved.get(key), type(default)):
-            settings[key] = saved[key]
-    return settings
-
-
-def save_settings(settings):
-    # Nothing worth storing → store nothing. A settings file that only says
-    # "everything is default" is litter in the user's profile.
-    if all(settings.get(k) == v for k, v in DEFAULT_SETTINGS.items()):
-        _forget("settings.json")
-        return
-    try:
-        with open(_state_file("settings.json", create=True), "w", encoding="utf-8") as fh:
-            json.dump(settings, fh, indent=2)
-    except OSError:
-        pass  # settings are a convenience; failing to store them is not fatal
-
-
-def _forget(name):
-    try:
-        os.remove(_state_file(name))
-    except OSError:
-        pass
-
-
-def tidy_state():
-    """Leaves nothing behind once there is nothing to remember.
-
-    Turning the right-click entry off should undo everything the program put
-    on the machine — not leave a folder with a file in it saying "off". The
-    folder itself goes too, as soon as the last live file (this run's
-    session marker) is gone.
-    """
-    save_settings(load_settings())      # drops settings.json when all default
-    try:
-        leftovers = set(os.listdir(state_dir())) - {"session.json", "start.lock", "browser"}
-    except OSError:
-        return False
-    if leftovers:
-        return False
-    _state["purge_on_exit"] = True      # the marker is still in use right now
-    return True
-
-
-def purge_state():
-    """Removes the folder entirely. Safe to call when nothing is running."""
-    for name in ("settings.json", "session.json", "start.lock"):
-        _forget(name)
-    # The window's own browser profile is ours too, so it goes as well.
-    try:
-        shutil.rmtree(os.path.join(state_dir(), "browser"), ignore_errors=True)
-    except OSError:
-        pass
-    try:
-        os.rmdir(state_dir())
-        return True
-    except OSError:
-        return False      # something else is in there; leave it alone
-
-
-_state = {"purge_on_exit": False}
-
-
-# ── Running-instance marker ─────────────────────────────────────────
-# Lets a second launch (someone right-clicking another image) hand the file
-# to the copy that is already running instead of starting a second server.
-def write_session(port):
-    data = {"port": port, "secret": SECRET, "pid": os.getpid()}
-    try:
-        with open(_state_file("session.json", create=True), "w", encoding="utf-8") as fh:
-            json.dump(data, fh)
-        # Readable by this user only where the platform supports it.
-        if os.name != "nt":
-            os.chmod(_state_file("session.json"), 0o600)
-    except OSError:
-        pass
-
-
-def clear_session():
-    """Removes the marker, but only if it is still ours: a newer instance
-    may already have taken over."""
-    try:
-        with open(_state_file("session.json"), "r", encoding="utf-8") as fh:
-            if json.load(fh).get("pid") != os.getpid():
-                return
-        os.remove(_state_file("session.json"))
-    except (OSError, ValueError):
-        pass
-    # Asked to leave nothing behind: with the marker gone, the folder can go.
-    if _state["purge_on_exit"]:
-        purge_state()
-
-
-LOCK_STALE = 25          # seconds before a start lock is assumed abandoned
-
-
-def acquire_start_lock():
-    """Wins the right to start the server, or returns False.
-
-    Right-clicking twenty images launches twenty processes at once. Without
-    this they would all find no session marker and all start a server —
-    twenty ports, twenty windows. Exactly one gets the lock; the rest wait
-    for its marker and hand their file over.
-    """
-    lock = _state_file("start.lock", create=True)
-    try:
-        # O_EXCL is the atomic part: the filesystem picks the winner.
-        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.write(fd, str(os.getpid()).encode())
-        os.close(fd)
-        return True
-    except FileExistsError:
-        try:
-            # A crash could leave the lock behind for ever; ignore an old one.
-            if time.time() - os.path.getmtime(lock) > LOCK_STALE:
-                os.remove(lock)
-                return acquire_start_lock()
-        except OSError:
-            pass
-        return False
-    except OSError:
-        return True      # cannot lock (odd filesystem): carrying on beats hanging
-
-
-def release_start_lock():
-    try:
-        os.remove(_state_file("start.lock"))
-    except OSError:
-        pass
-
-
-def read_session():
-    try:
-        with open(_state_file("session.json"), "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-        if isinstance(data.get("port"), int) and isinstance(data.get("secret"), str):
-            return data
-    except (OSError, ValueError):
-        pass
-    return None
-
 
 # ── Console ─────────────────────────────────────────────────────────
 # There may be no console at all. The right-click entry launches the program
@@ -363,197 +173,6 @@ def banner(url):
         _write(_c("2", "  " + line))
 
 
-# ── Native dialog (in a subprocess: tkinter needs its own main thread) ──
-# Paths come back one per line: a file name can contain almost anything
-# except a newline, so this is the one separator that cannot be ambiguous.
-_PICKER_SCRIPT = """
-import sys, tkinter as tk
-from tkinter import filedialog
-title = sys.argv[1] if len(sys.argv) > 1 else "N4DU Studio"
-many = len(sys.argv) > 2 and sys.argv[2] == "many"
-root = tk.Tk(); root.withdraw()
-root.attributes("-topmost", True)
-kinds = [
-    ("Images", "*.png *.jpg *.jpeg *.jfif *.webp *.avif *.gif *.bmp *.ico *.svg *.tif *.tiff"),
-    ("All files", "*.*")]
-if many:
-    paths = list(root.tk.splitlist(filedialog.askopenfilenames(title=title, filetypes=kinds)))
-else:
-    one = filedialog.askopenfilename(title=title, filetypes=kinds)
-    paths = [one] if one else []
-sys.stdout.write("\\n".join(p for p in paths if p))
-"""
-
-_PICK_TITLES = {
-    "open":      "N4DU Studio - Open image",
-    "open-many": "N4DU Studio - Choose images to convert",
-    "target":    "N4DU Studio - Choose the file to replace",
-}
-
-
-def native_pick(intent="open"):
-    """Returns the chosen paths as a list ([] if cancelled), or raises when
-    tkinter is unavailable."""
-    test = os.environ.get("N4DU_TEST_PICK")  # hook for automated tests
-    if test is not None:
-        return [p for p in test.split("\n") if p]
-    title = _PICK_TITLES.get(intent, _PICK_TITLES["open"])
-    mode = "many" if intent == "open-many" else "one"
-    # utf-8 on both ends: the child writes the chosen path to the pipe, and
-    # on a Western-locale Windows console a Cyrillic or CJK filename raised
-    # UnicodeEncodeError there — reported back to the user, wrongly, as
-    # "tkinter is missing".
-    env = dict(os.environ, PYTHONIOENCODING="utf-8")
-    try:
-        proc = subprocess.run([sys.executable, "-c", _PICKER_SCRIPT, title, mode],
-                              capture_output=True, encoding="utf-8", env=env,
-                              timeout=PICK_TIMEOUT)
-    except subprocess.TimeoutExpired:
-        # A dialog nobody ever answers must not pin a handler thread and an
-        # interpreter for the rest of the session.
-        return []
-    if proc.returncode != 0:
-        detail = (proc.stderr or "").strip().splitlines()
-        raise RuntimeError(
-            "Could not open the system dialog"
-            + (f" ({detail[-1][:120]})" if detail else "")
-            + ". Use the browser picker; replacing files will be unavailable.")
-    return [p for p in (proc.stdout or "").split("\n") if p.strip()]
-
-
-# ── Replacing files on disk ─────────────────────────────────────────
-# Names Windows reserves for devices: such a file cannot be created (or
-# behaves strangely), so an underscore is appended.
-_WINDOWS_RESERVED = {
-    "con", "prn", "aux", "nul",
-    *(f"com{i}" for i in range(1, 10)),
-    *(f"lpt{i}" for i in range(1, 10)),
-}
-
-
-def _safe_stem(name):
-    """File name with no path and no invalid characters (defence in depth:
-    the front end already sanitises, but the server does not trust it)."""
-    name = os.path.basename(name or "")           # drop any path
-    # Only drop an extension we actually recognise: splitext() turned
-    # "render v1.2" into "render v1", and the original was then deleted
-    # under its old name — a silent rename nobody asked for.
-    stem, ext = os.path.splitext(name)
-    if ext.lower().lstrip(".") in OPENABLE_EXT | ALLOWED_EXT:
-        name = stem
-    for ch in '\\/:*?"<>|':
-        name = name.replace(ch, "")
-    name = "".join(c for c in name if ord(c) >= 32)   # no control characters
-    # Windows does not allow trailing dots or spaces in a name.
-    name = name.strip().strip(".").strip()
-    if name.lower() in _WINDOWS_RESERVED:
-        name += "_"
-    return name[:180]      # every filesystem has a limit; 255 bytes is common
-
-
-def target_path(original, ext, new_stem=None):
-    """The path a replacement would produce, without writing anything."""
-    if ext not in ALLOWED_EXT:
-        raise ValueError(f"Extension not allowed: {ext}")
-    folder = os.path.dirname(original)
-    stem = _safe_stem(new_stem) if new_stem else os.path.splitext(os.path.basename(original))[0]
-    if not stem:
-        raise ValueError("Empty file name.")
-    target = os.path.join(folder, f"{stem}.{ext}")
-    if os.path.dirname(os.path.abspath(target)) != os.path.abspath(folder):
-        raise ValueError("Invalid file name.")
-    return target
-
-
-def replace_file(original, data, ext, new_stem=None, overwrite=False):
-    """Writes the bytes into the original's folder under the new extension
-    (and name, when given), atomically, then deletes the previous file if the
-    resulting path changed.
-
-    If the target is a DIFFERENT file that already exists, nothing is
-    overwritten: FileExistsError is raised so the interface can ask for
-    confirmation. Without this, a repeated name would destroy two files —
-    the unrelated one and the original.
-
-    Returns (final_path, warning_or_None).
-    """
-    target = target_path(original, ext, new_stem)
-    # Not a string comparison. On Windows and macOS the filesystem is
-    # case-insensitive, so IMG.PNG and IMG.png are ONE file while comparing
-    # unequal — the code then wrote the new bytes and deleted "the original",
-    # which was the same file. samefile() asks the filesystem instead.
-    same_file = os.path.exists(target) and os.path.samefile(target, original)
-
-    if not same_file and os.path.exists(target) and not overwrite:
-        raise FileExistsError(os.path.basename(target))
-
-    folder = os.path.dirname(original)
-    stem = os.path.splitext(os.path.basename(target))[0]
-    tmp = os.path.join(folder, f".{stem}.{secrets.token_hex(4)}.tmp")
-    try:
-        with open(tmp, "wb") as fh:
-            fh.write(data)
-            fh.flush()
-            os.fsync(fh.fileno())   # bytes hit the disk before publishing
-        os.replace(tmp, target)     # atomic: never leaves a half-written file
-    except Exception:
-        # A full disk or a vanished network drive used to leave the hidden
-        # temp file behind, one per attempt, invisible and never cleaned up.
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-
-    # The new file is already on disk: from here nothing can fail in a way
-    # that loses work, so a failed delete is only reported as a warning.
-    warning = None
-    if not same_file:
-        try:
-            os.remove(original)
-        except FileNotFoundError:
-            pass
-        except OSError as exc:
-            warning = f"Could not delete {os.path.basename(original)} ({exc.strerror})."
-    return target, warning
-
-
-def _natural_key(name):
-    """Sorts page 2 before page 10, the way a person reading a folder of
-    scans expects."""
-    parts = []
-    digits = ""
-    for ch in name.lower():
-        # ASCII only: '²'.isdigit() is True but int('²') raises, and one such
-        # character in one filename broke sorting for the entire folder.
-        if ch.isascii() and ch.isdigit():
-            digits += ch
-        else:
-            if digits:
-                parts.append((1, int(digits), ""))
-                digits = ""
-            parts.append((0, 0, ch))
-    if digits:
-        parts.append((1, int(digits), ""))
-    return parts
-
-
-def openable(path):
-    """Is this something we should open? Returns (ok, reason).
-
-    Checked here rather than trusted from the caller: the right-click entry
-    is wired to image types, but the command line can be typed by hand.
-    """
-    if not path or not isinstance(path, str):
-        return False, "No file given."
-    if not os.path.isfile(path):
-        return False, "That file does not exist: " + path
-    ext = os.path.splitext(path)[1].lower().lstrip(".")
-    if ext not in OPENABLE_EXT:
-        return False, "Not an image N4DU Studio can open: ." + ext
-    return True, ""
-
-
 # ── Settings shown in the interface ─────────────────────────────────
 def settings_status():
     """Everything the settings screen needs, in one call."""
@@ -573,35 +192,6 @@ def settings_status():
     }
 
 
-# ── File sessions ───────────────────────────────────────────────────
-def remember_file(path):
-    """Stores the path and returns a token, evicting the oldest entry when
-    needed (otherwise the table would grow forever in a long session).
-
-    The same path always gets the same token back. Listing a folder twice
-    used to mint a second set of tokens for the same files, and the table
-    then evicted the FIRST set — the very files the user had selected — so
-    "Replace originals" silently skipped them.
-    """
-    full = os.path.abspath(path)
-    with _lock:
-        for token, known in _files.items():
-            if known == full:
-                _files.move_to_end(token)
-                return token
-        token = secrets.token_urlsafe(16)
-        _files[token] = full
-        while len(_files) > MAX_SESSIONS:
-            _files.popitem(last=False)
-    return token
-
-
-def lookup_file(token):
-    with _lock:
-        path = _files.get(token)
-        if path is not None:
-            _files.move_to_end(token)   # in use: keep it around
-        return path
 
 
 # ── Page heartbeat / auto-shutdown ──────────────────────────────────
@@ -625,7 +215,7 @@ def expect_page(seconds=20):
 
 def take_pending():
     """Hands the queued files to the page, exactly once."""
-    with _lock:
+    with _pending_lock:
         queued = list(_pending)
         _pending.clear()
     return queued
@@ -923,8 +513,7 @@ class Handler(BaseHTTPRequestHandler):
                     shell_integration.disable()
             except RuntimeError:
                 pass
-            _forget("settings.json")
-            _state["purge_on_exit"] = True
+            forget_everything()
             event(SYM["ok"], "Removed every trace from this machine", "92")
 
         return self._json(settings_status())
@@ -966,7 +555,7 @@ class Handler(BaseHTTPRequestHandler):
         # whenever the two raced — the whole point of the queue is that it
         # cannot matter who gets there first. pageLive only tells the caller
         # whether a window still has to be opened.
-        with _lock:
+        with _pending_lock:
             _pending.extend(entries)
             # A window that never arrives must not let this grow for ever.
             if len(_pending) > MAX_SIBLINGS:
@@ -1028,9 +617,7 @@ class Handler(BaseHTTPRequestHandler):
             # overwritten without explicit confirmation.
             return self._json({"error": f"{exc} already exists.", "conflict": str(exc)}, 409)
 
-        with _lock:
-            _files[token] = target  # later replacements follow the new file
-            _files.move_to_end(token)   # just used: not the next to be evicted
+        retarget_file(token, target)   # later replacements follow the new file
         kb = len(data) / 1024
         size = f"{kb/1024:.2f} MB" if kb >= 1024 else f"{kb:.0f} KB"
         old = os.path.basename(original)
