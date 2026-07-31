@@ -10,6 +10,10 @@
   const { FORMATS, encodeCanvas, binarySearchQuality } = N4DU.exporter;
 
   const MAX_SIDE = 20000;   // beyond this a canvas allocation fails outright
+  // A side limit is not enough: 20000x20000 is 400 megapixels, 1.6 GB of
+  // canvas, and the browser hands back a zero-sized canvas that then throws
+  // on encode. Cap the AREA too — 80 MP is far beyond any real photograph.
+  const MAX_PIXELS = 80e6;
   const ICO_MAX = 256;
 
   // How the output size is decided.
@@ -49,6 +53,11 @@
     }
     W = Math.max(1, Math.min(MAX_SIDE, W));
     H = Math.max(1, Math.min(MAX_SIDE, H));
+    if (W * H > MAX_PIXELS) {
+      const s = Math.sqrt(MAX_PIXELS / (W * H));
+      W = Math.max(1, Math.floor(W * s));
+      H = Math.max(1, Math.floor(H * s));
+    }
     return { W, H };
   }
 

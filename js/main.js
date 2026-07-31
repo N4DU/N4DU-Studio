@@ -40,13 +40,11 @@
   // The converter is what the app opens in. The editor is the same code,
   // the same window, a different arrangement — reached in one click and
   // never in the way.
-  const MODE_KEY = 'n4du.mode';
-
   function currentMode() {
     return document.body.classList.contains('mode-edit') ? 'edit' : 'convert';
   }
 
-  function setMode(mode, { remember = true } = {}) {
+  function setMode(mode) {
     const edit_ = mode === 'edit';
     document.body.classList.toggle('mode-edit', edit_);
     document.body.classList.toggle('mode-convert', !edit_);
@@ -54,9 +52,6 @@
     document.getElementById('btnMode').title = edit_
       ? 'Back to the converter'
       : 'Open the editor for the selected picture';
-    if (remember) {
-      try { localStorage.setItem(MODE_KEY, mode); } catch { /* not always available */ }
-    }
     if (edit_) refresh();
     else N4DU.batchUI.syncBatch();
     N4DU.windowSize.fit();
@@ -419,12 +414,10 @@
     offerFolder();
   });
 
-  // The converter is the default. A returning user gets whichever mode they
-  // left in, unless a file was handed over — that always means "convert".
-  let startMode = 'convert';
-  try { startMode = localStorage.getItem(MODE_KEY) || 'convert'; } catch { /* ignore */ }
-  if (new URLSearchParams(location.search).get('open')) startMode = 'convert';
-  setMode(startMode === 'edit' ? 'edit' : 'convert', { remember: false });
+  // Always the converter, every launch. Reopening in the editor because that
+  // is where you happened to be last time is wrong when the app has just
+  // been handed a fresh batch of files — which is how it is usually opened.
+  setMode('convert');
 
   bridge.init()
     .then(openStartupFile)

@@ -879,7 +879,7 @@ body.mode-convert .app { max-width: none; }
 
 /* On a wide screen the settings would stretch to absurd line lengths, so
    they stay a readable column while the file list uses the whole width. */
-.conv-settings, .conv-actions { max-width: 760px; width: 100%; }
+.conv-settings { max-width: 760px; width: 100%; }
 
 /* What the web version cannot do, said where it costs nothing. */
 .status-sell {
@@ -995,6 +995,13 @@ body.mode-convert .edit-only { display: none !important; }
 /* The converter has a list, not one open file, so the editor's filename
    slot has nothing to say here. */
 body.mode-convert .title-file { display: none; }
+/* Help is not one of the working controls, so in the converter it sits on
+   its own at the far right instead of crowding the gear and the mode
+   button. */
+body.mode-convert .title-actions { flex: 1; }
+body.mode-convert #btnSettings { order: 1; }
+body.mode-convert #btnMode { order: 2; }
+body.mode-convert #btnHelp { order: 3; margin-left: auto; }
 body.mode-edit .convert,
 body.mode-edit .convert-only { display: none !important; }
 

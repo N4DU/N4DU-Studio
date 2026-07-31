@@ -58,6 +58,8 @@ STALL_SECONDS = 150
 # replaced — an evicted token means "Replace originals" silently skips it.
 MAX_SESSIONS = 600
 MAX_SIBLINGS = 400                 # matches the converter's list limit
+MAX_UPLOAD = 512 * 1024 * 1024     # a replacement bigger than this is a mistake
+PICK_TIMEOUT = 600                 # a dialog left open this long is abandoned
 ALLOWED_EXT = {"png", "jpg", "webp", "avif", "bmp", "ico"}
 
 # Per-run secret. Authenticates /api/bye, which cannot require headers
@@ -80,6 +82,7 @@ _page = {"connected": False, "last_ping": 0.0, "closing_since": None,
 # Files handed over while a window was already open. The page collects them
 # on its next heartbeat, so they join the list it is already showing.
 _pending = []
+_picking = threading.Semaphore(1)  # only one native dialog at a time
 _shutdown = {"event": threading.Event(), "reason": ""}
 
 # Images the right-click entry is allowed to hand over. Wider than
@@ -396,13 +399,26 @@ def native_pick(intent="open"):
         return [p for p in test.split("\n") if p]
     title = _PICK_TITLES.get(intent, _PICK_TITLES["open"])
     mode = "many" if intent == "open-many" else "one"
-    proc = subprocess.run([sys.executable, "-c", _PICKER_SCRIPT, title, mode],
-                          capture_output=True, text=True)
+    # utf-8 on both ends: the child writes the chosen path to the pipe, and
+    # on a Western-locale Windows console a Cyrillic or CJK filename raised
+    # UnicodeEncodeError there — reported back to the user, wrongly, as
+    # "tkinter is missing".
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    try:
+        proc = subprocess.run([sys.executable, "-c", _PICKER_SCRIPT, title, mode],
+                              capture_output=True, encoding="utf-8", env=env,
+                              timeout=PICK_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        # A dialog nobody ever answers must not pin a handler thread and an
+        # interpreter for the rest of the session.
+        return []
     if proc.returncode != 0:
+        detail = (proc.stderr or "").strip().splitlines()
         raise RuntimeError(
-            "Could not open the system dialog (tkinter is missing). "
-            "Use the browser picker; replacing files will be unavailable.")
-    return [p for p in proc.stdout.split("\n") if p.strip()]
+            "Could not open the system dialog"
+            + (f" ({detail[-1][:120]})" if detail else "")
+            + ". Use the browser picker; replacing files will be unavailable.")
+    return [p for p in (proc.stdout or "").split("\n") if p.strip()]
 
 
 # ── Replacing files on disk ─────────────────────────────────────────
@@ -419,7 +435,12 @@ def _safe_stem(name):
     """File name with no path and no invalid characters (defence in depth:
     the front end already sanitises, but the server does not trust it)."""
     name = os.path.basename(name or "")           # drop any path
-    name = os.path.splitext(name)[0]              # drop any extension
+    # Only drop an extension we actually recognise: splitext() turned
+    # "render v1.2" into "render v1", and the original was then deleted
+    # under its old name — a silent rename nobody asked for.
+    stem, ext = os.path.splitext(name)
+    if ext.lower().lstrip(".") in OPENABLE_EXT | ALLOWED_EXT:
+        name = stem
     for ch in '\\/:*?"<>|':
         name = name.replace(ch, "")
     name = "".join(c for c in name if ord(c) >= 32)   # no control characters
@@ -427,7 +448,7 @@ def _safe_stem(name):
     name = name.strip().strip(".").strip()
     if name.lower() in _WINDOWS_RESERVED:
         name += "_"
-    return name
+    return name[:180]      # every filesystem has a limit; 255 bytes is common
 
 
 def target_path(original, ext, new_stem=None):
@@ -457,7 +478,11 @@ def replace_file(original, data, ext, new_stem=None, overwrite=False):
     Returns (final_path, warning_or_None).
     """
     target = target_path(original, ext, new_stem)
-    same_file = os.path.abspath(target) == os.path.abspath(original)
+    # Not a string comparison. On Windows and macOS the filesystem is
+    # case-insensitive, so IMG.PNG and IMG.png are ONE file while comparing
+    # unequal — the code then wrote the new bytes and deleted "the original",
+    # which was the same file. samefile() asks the filesystem instead.
+    same_file = os.path.exists(target) and os.path.samefile(target, original)
 
     if not same_file and os.path.exists(target) and not overwrite:
         raise FileExistsError(os.path.basename(target))
@@ -465,13 +490,15 @@ def replace_file(original, data, ext, new_stem=None, overwrite=False):
     folder = os.path.dirname(original)
     stem = os.path.splitext(os.path.basename(target))[0]
     tmp = os.path.join(folder, f".{stem}.{secrets.token_hex(4)}.tmp")
-    with open(tmp, "wb") as fh:
-        fh.write(data)
-        fh.flush()
-        os.fsync(fh.fileno())   # bytes hit the disk before publishing
     try:
-        os.replace(tmp, target)  # atomic: never leaves a half-written file
+        with open(tmp, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())   # bytes hit the disk before publishing
+        os.replace(tmp, target)     # atomic: never leaves a half-written file
     except Exception:
+        # A full disk or a vanished network drive used to leave the hidden
+        # temp file behind, one per attempt, invisible and never cleaned up.
         try:
             os.unlink(tmp)
         except OSError:
@@ -497,7 +524,9 @@ def _natural_key(name):
     parts = []
     digits = ""
     for ch in name.lower():
-        if ch.isdigit():
+        # ASCII only: '²'.isdigit() is True but int('²') raises, and one such
+        # character in one filename broke sorting for the entire folder.
+        if ch.isascii() and ch.isdigit():
             digits += ch
         else:
             if digits:
@@ -547,11 +576,21 @@ def settings_status():
 # ── File sessions ───────────────────────────────────────────────────
 def remember_file(path):
     """Stores the path and returns a token, evicting the oldest entry when
-    needed (otherwise the table would grow forever in a long session)."""
-    token = secrets.token_urlsafe(16)
+    needed (otherwise the table would grow forever in a long session).
+
+    The same path always gets the same token back. Listing a folder twice
+    used to mint a second set of tokens for the same files, and the table
+    then evicted the FIRST set — the very files the user had selected — so
+    "Replace originals" silently skipped them.
+    """
+    full = os.path.abspath(path)
     with _lock:
-        _files[token] = path
-        _files.move_to_end(token)
+        for token, known in _files.items():
+            if known == full:
+                _files.move_to_end(token)
+                return token
+        token = secrets.token_urlsafe(16)
+        _files[token] = full
         while len(_files) > MAX_SESSIONS:
             _files.popitem(last=False)
     return token
@@ -633,6 +672,15 @@ class Handler(BaseHTTPRequestHandler):
     # Every API request must carry the X-N4DU header. That forces a CORS
     # preflight this server never authorises, so no external site can call it.
     def _guard(self):
+        # The address must be our own. Under DNS rebinding a page on another
+        # domain resolves to 127.0.0.1 and the browser then treats it as
+        # same-origin — sending no Origin header at all, so the check below
+        # would pass.
+        host = self.headers.get("Host", "").strip()
+        port = self.server.server_address[1]
+        if host not in (f"{HOST}:{port}", f"localhost:{port}"):
+            self._json({"error": "Wrong host"}, 403)
+            return False
         origin = self.headers.get("Origin", "")
         own = f"http://{HOST}:{self.server.server_address[1]}"
         if origin and origin != own:
@@ -649,11 +697,39 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        # Refusals end the connection. Every guard answers before reading the
+        # request body, and the unread bytes were then parsed as the NEXT
+        # request on the same keep-alive connection — so a page on any other
+        # site could send a rejected request whose body was a second,
+        # fully-formed one carrying whatever headers it liked. That walked
+        # straight past the header check this whole design rests on.
+        if status >= 400:
+            self.send_header("Connection", "close")
+            self.close_connection = True
         self.end_headers()
         self.wfile.write(body)
 
     def _body(self):
-        return self.rfile.read(int(self.headers.get("Content-Length", 0) or 0))
+        """Exactly the declared number of bytes, or an error.
+
+        rfile.read(n) returns SHORT at end of stream — it does not promise n
+        bytes. Nothing noticed, so a browser killed mid-upload (tab closed,
+        machine asleep) delivered a truncated image that was then written
+        over the user's only copy, whose original was deleted afterwards.
+        Reported as a success. The declared length is also capped: an absurd
+        Content-Length would otherwise be buffered in full.
+        """
+        declared = int(self.headers.get("Content-Length", 0) or 0)
+        if declared < 0 or declared > MAX_UPLOAD:
+            raise ValueError("That file is too large to write.")
+        buf = bytearray()
+        while len(buf) < declared:
+            chunk = self.rfile.read(min(1 << 20, declared - len(buf)))
+            if not chunk:
+                raise ValueError(
+                    "The upload ended early, so nothing was written. Try again.")
+            buf += chunk
+        return bytes(buf)
 
     # Runs a handler without ever taking the server down. Once the response
     # has started there is no way to send an error on top, so the connection
@@ -738,15 +814,21 @@ class Handler(BaseHTTPRequestHandler):
     # ── Endpoints ──
     def _pick(self):
         intent = parse_qs(urlparse(self.path).query).get("intent", ["open"])[0]
+        # One dialog at a time: without this, repeated calls stack up native
+        # windows and an interpreter process behind each of them.
+        if not _picking.acquire(blocking=False):
+            return self._json({"error": "A file dialog is already open."}, 409)
         try:
             paths = native_pick(intent)
         except RuntimeError as exc:
             return self._json({"error": str(exc)}, 501)
+        finally:
+            _picking.release()
         paths = [p for p in paths if os.path.isfile(p)]
         if not paths:
+            self._started = True
             self.send_response(204)  # cancelled, or nothing usable
-            self.send_header("Content-Length", "0")
-            self.end_headers()
+            self.end_headers()       # 204 must not carry a Content-Length
             return
 
         files = [{"token": remember_file(p), "path": p,
@@ -886,6 +968,9 @@ class Handler(BaseHTTPRequestHandler):
         # whether a window still has to be opened.
         with _lock:
             _pending.extend(entries)
+            # A window that never arrives must not let this grow for ever.
+            if len(_pending) > MAX_SIBLINGS:
+                del _pending[:-MAX_SIBLINGS]
         live = page_is_there()
         if not live:
             expect_page()
@@ -936,6 +1021,8 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             target, warning = replace_file(original, data, ext, new_stem or None, overwrite)
+        except ValueError as exc:
+            return self._json({"error": str(exc)}, 400)
         except FileExistsError as exc:
             # The target is a different existing file: nothing is
             # overwritten without explicit confirmation.
@@ -943,6 +1030,7 @@ class Handler(BaseHTTPRequestHandler):
 
         with _lock:
             _files[token] = target  # later replacements follow the new file
+            _files.move_to_end(token)   # just used: not the next to be evicted
         kb = len(data) / 1024
         size = f"{kb/1024:.2f} MB" if kb >= 1024 else f"{kb:.0f} KB"
         old = os.path.basename(original)
@@ -955,15 +1043,21 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── Static files ──
     def _static(self, path):
-        # A request for interface files during the countdown means a page is
-        # reloading: cancel the shutdown and let the heartbeat watchdog take
-        # over (if no heartbeat ever arrives, it shuts down later anyway).
-        if _page["closing_since"] is not None:
+        # A request for the interface ITSELF during the countdown means the
+        # page is reloading: cancel the shutdown and let the heartbeat
+        # watchdog take over. Any URL used to count, so an <img> tag on any
+        # website could keep a server with file-replacing powers alive for
+        # ever — and an unrelated favicon fetch did it by accident.
+        if _page["closing_since"] is not None and path in ("/", "", "/index.html"):
             _page["closing_since"] = None
             _page["last_ping"] = time.time()
         if path in ("/", ""):
             path = "/index.html"
-        safe = os.path.normpath(os.path.join(ROOT, unquote(path).lstrip("/\\")))
+        wanted = unquote(path)
+        if "\0" in wanted:
+            self.send_error(404)
+            return
+        safe = os.path.normpath(os.path.join(ROOT, wanted.lstrip("/\\")))
         # Compare including the separator: without it a sibling folder that
         # merely starts the same (Avatar_Studio_other) would pass the check.
         if not (safe == ROOT or safe.startswith(ROOT + os.sep)) or not os.path.isfile(safe):
