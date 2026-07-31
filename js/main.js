@@ -145,6 +145,48 @@
 
   function announceAdded(n) {
     if (n > 0) toast(`Added ${n} file${n > 1 ? 's' : ''}`, 'ok');
+    offerFolder();
+  }
+
+  // ── The rest of the folder ────────────────────────────────────────
+  // Windows decides how many files a right-click hands over, and that
+  // decision changes with its version and how many are selected. Rather than
+  // depend on it, the app asks what else is in the folder and offers it.
+  let offering = false;
+
+  async function offerFolder() {
+    if (!bridge.active || offering) return;
+    const anchor = batch.items.find(it => it.token);
+    if (!anchor) { N4DU.batchUI.setFolderOffer(0, ''); return; }
+    try {
+      const have = batch.items.map(it => it.path).filter(Boolean);
+      const { folder, metas } = await bridge.siblings(anchor.token, have);
+      N4DU.batchUI.setFolderOffer(metas.length, folder.split(/[\\/]/).pop());
+    } catch {
+      N4DU.batchUI.setFolderOffer(0, '');
+    }
+  }
+
+  async function addFolder() {
+    const anchor = batch.items.find(it => it.token);
+    if (!anchor || offering) return;
+    offering = true;
+    try {
+      const have = batch.items.map(it => it.path).filter(Boolean);
+      const { metas } = await bridge.siblings(anchor.token, have);
+      const picked = await bridge.collect(metas);
+      for (const one of picked) {
+        await batch.add([one.file], { token: one.token, path: one.path });
+      }
+      toast(picked.length
+        ? `Added ${picked.length} more from the same folder`
+        : 'Nothing else in that folder', picked.length ? 'ok' : '');
+    } catch (err) {
+      toast(err.message, 'err');
+    } finally {
+      offering = false;
+      offerFolder();
+    }
   }
 
   async function onFile(file, fromBridge = false) {
@@ -333,7 +375,7 @@
   initReplaceDialog(afterReplace);
   initHelp();
   N4DU.settings.initSettings();
-  N4DU.batchUI.initBatchUI({ onAdd: chooseFile, onEdit: editItem });
+  N4DU.batchUI.initBatchUI({ onAdd: chooseFile, onAddFolder: addFolder, onEdit: editItem });
   N4DU.windowSize.init();
   edit.setOnChanged(() => { /* tools repaint explicitly to stay responsive */ });
 
@@ -354,8 +396,12 @@
     const token = new URLSearchParams(location.search).get('open');
     if (!token || !bridge.active) return;
     const picked = await bridge.adopt(token);
-    if (picked) await batch.add([picked.file], { token: picked.token, path: picked.path });
-    else toast('That file could not be opened — it may have been moved.', 'err');
+    if (picked) {
+      await batch.add([picked.file], { token: picked.token, path: picked.path });
+      offerFolder();
+    } else {
+      toast('That file could not be opened — it may have been moved.', 'err');
+    }
   }
 
   // More files arriving while the window is already open: every image
@@ -366,6 +412,7 @@
       await batch.add([one.file], { token: one.token, path: one.path });
     }
     if (picked.length) toast(`Added ${picked.length} file${picked.length > 1 ? 's' : ''} from your file explorer`, 'ok');
+    offerFolder();
   });
 
   // The converter is the default. A returning user gets whichever mode they

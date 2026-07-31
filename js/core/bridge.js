@@ -147,6 +147,20 @@
     }
   }
 
+  // The other images sitting beside one that is already open. Windows
+  // decides how many files a right-click hands over; this is how the rest of
+  // the folder can be pulled in regardless.
+  // Returns { folder, files: [{ file, path, token }] }.
+  async function siblings(token, have = []) {
+    const params = new URLSearchParams();
+    params.set('token', token);
+    for (const path of have) params.append('have', path);
+    const res = await fetch('/api/siblings?' + params.toString(), { headers: HDR });
+    if (!res.ok) throw new Error((await safeJson(res)).error || 'Could not read that folder.');
+    const info = await res.json();
+    return { folder: info.folder, metas: info.files || [] };
+  }
+
   // ── Settings ──
   // The state of the system integration lives on the server (the registry is
   // the source of truth), so the settings screen always reads it fresh.
@@ -215,6 +229,7 @@
   bridge.pickFile = pickFile;
   bridge.pickFiles = pickFiles;
   bridge.collect = collect;
+  bridge.siblings = siblings;
   bridge.replaceByToken = replaceByToken;
   bridge.setOnPending = (fn) => { onPending = fn || (() => {}); };
   bridge.pickTarget = pickTarget;
