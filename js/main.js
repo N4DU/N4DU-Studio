@@ -306,6 +306,10 @@
     document.getElementById('btnExport').disabled = !hasImage;
     document.getElementById('btnCopy').disabled = !hasImage;
 
+    // Without the bridge, what is missing is the reason to download it.
+    const sell = document.getElementById('statusSell');
+    if (sell) sell.hidden = bridge.active;
+
     const rep = document.getElementById('btnReplace');
     rep.hidden = false;
     rep.disabled = !hasImage;
@@ -377,7 +381,6 @@
   N4DU.settings.initSettings();
   N4DU.batchUI.initBatchUI({ onAdd: chooseFile, onAddFolder: addFolder, onEdit: editItem });
   N4DU.windowSize.init();
-  N4DU.webChrome.initWebChrome();
   edit.setOnChanged(() => { /* tools repaint explicitly to stay responsive */ });
 
   document.getElementById('btnExport').addEventListener('click', onDownload);

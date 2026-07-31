@@ -124,12 +124,23 @@
       </div>
       <div class="warn-line" id="fmtWarning" hidden></div>
 
-      <div class="conv-row">
+      <!-- Size and weight share a row: two decisions that belong together,
+           and one row fewer is one row fewer in a window meant to be small. -->
+      <div class="conv-row conv-pair">
         <label class="conv-label">Size</label>
         <div class="conv-fields">
           <select id="resizeMode"></select>
           <input type="number" id="resizeValue" min="1" max="20000" value="1920">
           <span class="unit" id="resizeUnit">px</span>
+        </div>
+        <label class="conv-label second">Max</label>
+        <div class="conv-fields">
+          <input type="number" id="batchMaxSize" placeholder="any" min="1">
+          <select id="batchMaxUnit">
+            <option value="KB" selected>KB</option>
+            <option value="MB">MB</option>
+          </select>
+          <span class="conv-note">each</span>
         </div>
       </div>
 
@@ -138,18 +149,6 @@
         <div class="conv-fields">
           <input type="range" id="batchQuality" min="1" max="100" step="1" value="92">
           <span class="bar-val narrow" id="batchQualityVal">92</span>
-        </div>
-      </div>
-
-      <div class="conv-row">
-        <label class="conv-label">Max weight</label>
-        <div class="conv-fields">
-          <input type="number" id="batchMaxSize" placeholder="any" min="1">
-          <select id="batchMaxUnit">
-            <option value="KB" selected>KB</option>
-            <option value="MB">MB</option>
-          </select>
-          <span class="conv-note">per file</span>
         </div>
       </div>
     </div>
@@ -163,7 +162,7 @@
       <div class="conv-buttons">
         <label class="check inline" title="One download per file instead of a single archive">
           <input type="checkbox" id="batchSeparate">
-          <span>Separate files</span>
+          <span>Separate</span>
         </label>
         <button class="btn-primary btn-swap" id="btnReplaceAll" disabled>
           <svg class="bi"><use href="#i-swap"/></svg> Replace originals
@@ -409,6 +408,12 @@
     <span class="status-spacer"></span>
     <span class="status-hint edit-only">Ctrl+O open · Ctrl+V paste · Ctrl+C copy · Ctrl+S download · Ctrl+Z undo</span>
     <span class="status-hint convert-only">Ctrl+O add files · Ctrl+V paste · double-click a file to edit it</span>
+    <!-- Shown only when there is no disk bridge: the honest difference
+         between this and the downloaded version, where you can see it. -->
+    <a class="status-sell" id="statusSell" href="https://github.com/N4DU/N4DU-Studio"
+       target="_blank" rel="noopener" hidden>
+      Replace &amp; right-click open → get the desktop version
+    </a>
   </footer>
 
 </div>
@@ -444,29 +449,6 @@
       <button class="btn-accent" id="btnHelpClose">Got it</button>
     </div>
   </div>
-</div>
-
-<!-- ── SEEN FROM A LINK ──
-     Only when the page is a browser tab rather than a window of its own.
-     A visitor who arrives from GitHub sees a 640px tool floating in a lot
-     of empty space and cannot tell that this IS the whole program — so the
-     empty space says what it is, and offers the real window. -->
-<div class="web-chrome" id="webChrome">
-  <p class="web-line">
-    This is the whole thing — the same tool the desktop version runs.
-    Every picture stays in this browser; nothing is uploaded anywhere.
-  </p>
-  <div class="web-actions">
-    <button class="btn-accent" id="btnOpenWindow">Open it as a window</button>
-    <a class="web-link" href="https://github.com/N4DU/N4DU-Studio" target="_blank" rel="noopener">
-      Get the desktop version →
-    </a>
-  </div>
-  <p class="web-note">
-    The desktop version adds what a web page is not allowed to do: opening
-    images straight from your file explorer, and overwriting files where
-    they already live.
-  </p>
 </div>
 
 <!-- Settings: the switches that change the operating system -->
@@ -613,7 +595,6 @@
 <script src="js/ui/settings.js"></script>
 <script src="js/ui/batch-ui.js"></script>
 <script src="js/ui/window-size.js"></script>
-<script src="js/ui/web-chrome.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

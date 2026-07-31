@@ -10,9 +10,9 @@
 // outcome: nobody wants a web page moving their tabs around.
 (function (N4DU) {
 
-  const WIDTH = 640;           // comfortable for the settings rows
+  const WIDTH = 452;           // the compact window: half the area of the old one
   const EDITOR = { w: 1240, h: 880 };
-  const MIN_H = 430;
+  const MIN_H = 330;   // the empty converter still has to be usable
   const SLACK = 6;             // ignore differences this small
 
   // The last size we asked for. If the window no longer matches it, the
@@ -148,11 +148,12 @@
   // Immediately, before anything is painted: start at the smallest useful
   // size and grow from there.
   //
-  // Chrome remembers an app window's last bounds and restores them whatever
-  // the launcher asked for, so a window that was once large opens large and
-  // then jumps smaller a moment later. Shrinking first turns that into
-  // growing into place, which reads as the window settling rather than as a
-  // glitch. In a normal tab resizeTo does nothing and this costs nothing.
+  // The launcher gives the window its own browser profile so --window-size
+  // is honoured, but a window can still arrive too large — a browser that
+  // ignores the flag, or a session restored from somewhere. Shrinking first
+  // turns that into growing into place, which reads as the window settling
+  // rather than as a glitch. In a normal tab resizeTo does nothing and this
+  // costs nothing.
   apply(WIDTH, MIN_H);
 
   N4DU.windowSize = { init, fit, measure };
