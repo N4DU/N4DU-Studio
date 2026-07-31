@@ -446,6 +446,29 @@
   </div>
 </div>
 
+<!-- ── SEEN FROM A LINK ──
+     Only when the page is a browser tab rather than a window of its own.
+     A visitor who arrives from GitHub sees a 640px tool floating in a lot
+     of empty space and cannot tell that this IS the whole program — so the
+     empty space says what it is, and offers the real window. -->
+<div class="web-chrome" id="webChrome">
+  <p class="web-line">
+    This is the whole thing — the same tool the desktop version runs.
+    Every picture stays in this browser; nothing is uploaded anywhere.
+  </p>
+  <div class="web-actions">
+    <button class="btn-accent" id="btnOpenWindow">Open it as a window</button>
+    <a class="web-link" href="https://github.com/N4DU/N4DU-Studio" target="_blank" rel="noopener">
+      Get the desktop version →
+    </a>
+  </div>
+  <p class="web-note">
+    The desktop version adds what a web page is not allowed to do: opening
+    images straight from your file explorer, and overwriting files where
+    they already live.
+  </p>
+</div>
+
 <!-- Settings: the switches that change the operating system -->
 <div class="modal-backdrop" id="settingsModal" hidden>
   <div class="modal modal-wide">
@@ -590,6 +613,7 @@
 <script src="js/ui/settings.js"></script>
 <script src="js/ui/batch-ui.js"></script>
 <script src="js/ui/window-size.js"></script>
+<script src="js/ui/web-chrome.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

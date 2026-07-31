@@ -150,6 +150,7 @@ def status():
             stale.append(ext)
 
     base["installed"] = installed
+    base["sendTo"] = sendto_installed()
     base["enabled"] = len(installed) == len(EXTENSIONS) and not stale
     base["partial"] = 0 < len(installed) < len(EXTENSIONS)
     base["stale"] = bool(stale)
@@ -194,6 +195,9 @@ def enable():
         for ext in touched:
             _remove_ext(reg, ext)
         raise RuntimeError("Windows refused the change: {}".format(exc))
+    # Send To goes in alongside: it is the only route that hands over a whole
+    # selection, so the two belong to the same switch.
+    install_sendto()
     notify_shell()
     return status()
 
@@ -205,8 +209,99 @@ def disable():
         raise RuntimeError(_unsupported_reason() or "Not supported on this system.")
     for ext in EXTENSIONS:
         _remove_ext(reg, ext)
+    remove_sendto()
     notify_shell()
     return status()
+
+
+# ── Send To ─────────────────────────────────────────────────────────
+# The right-click entry runs once per file — except it does not: Windows
+# invokes it only for the item under the cursor, and MultiSelectModel does
+# not change that for a verb under SystemFileAssociations (verified on a
+# real machine: the value is stored, the behaviour is unchanged).
+#
+# Send To is the mechanism that does work. Windows passes the WHOLE
+# selection to one invocation, which is exactly what "select twenty images
+# and open them" needs. It is also older than the context menu itself, so
+# it behaves the same on every version.
+SENDTO_NAME = "N4DU Studio.lnk"
+
+# Building a .lnk by hand means writing a binary shell-link structure.
+# WScript.Shell has done it correctly since 1998 and ships with Windows, so
+# PowerShell drives it instead — still no dependencies to install.
+_SHORTCUT_PS = """
+$ErrorActionPreference = 'Stop'
+$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:N4DU_LNK)
+$s.TargetPath = $env:N4DU_TARGET
+$s.Arguments = $env:N4DU_ARGS
+$s.WorkingDirectory = $env:N4DU_CWD
+$s.IconLocation = $env:N4DU_ICON
+$s.Description = 'Convert or edit these images with N4DU Studio'
+$s.Save()
+"""
+
+
+def sendto_dir():
+    base = os.environ.get("APPDATA")
+    if not base:
+        return None
+    return os.path.join(base, "Microsoft", "Windows", "SendTo")
+
+
+def sendto_path():
+    folder = sendto_dir()
+    return os.path.join(folder, SENDTO_NAME) if folder else None
+
+
+def sendto_supported():
+    """Can a Send To entry exist here at all? Only then is a missing one
+    worth repairing — otherwise every launch on a machine without the
+    folder would rewrite the registry for nothing."""
+    folder = sendto_dir()
+    return os.name == "nt" and bool(folder) and os.path.isdir(folder)
+
+
+def sendto_installed():
+    path = sendto_path()
+    return bool(path) and os.path.isfile(path)
+
+
+def install_sendto():
+    """Puts N4DU Studio in the Send To menu. Returns True when it is there."""
+    if os.name != "nt":
+        return False
+    path = sendto_path()
+    if not path or not os.path.isdir(os.path.dirname(path)):
+        return False
+    env = dict(os.environ)
+    env.update({
+        "N4DU_LNK": path,
+        "N4DU_TARGET": shell_python(),
+        # Windows appends the selected files after these arguments, and
+        # --open takes every path that follows it.
+        "N4DU_ARGS": '"{}" --open'.format(ENTRY),
+        "N4DU_CWD": ROOT,
+        "N4DU_ICON": ICON if os.path.isfile(ICON) else shell_python(),
+    })
+    try:
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive",
+             "-ExecutionPolicy", "Bypass", "-Command", _SHORTCUT_PS],
+            env=env, capture_output=True, text=True, timeout=30,
+            creationflags=0x08000000)      # no console window flashes
+        return proc.returncode == 0 and os.path.isfile(path)
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def remove_sendto():
+    path = sendto_path()
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
 
 def notify_shell():
@@ -291,13 +386,27 @@ def find_app_browser():
     return None
 
 
-def open_app_window(url, browser=None):
+def open_app_window(url, browser=None, profile=None):
     """Opens the page in its own compact window. Returns True on success;
-    the caller falls back to a normal browser tab when it returns False."""
+    the caller falls back to a normal browser tab when it returns False.
+
+    profile: a folder for the window to keep its own browser state in.
+    This matters more than it looks. When Chrome is ALREADY RUNNING, a
+    second launch does not start a process — it hands the address to the
+    running one, which sizes the window however it likes and throws
+    --window-size away. Measured: asking for 640x560 with Chrome open gave
+    1500x1000, the size of the existing window. With a profile of its own
+    this launch is the first for that profile, so the size is honoured and
+    the window opens right rather than opening large and shrinking.
+    """
     exe = browser or find_app_browser()
     if not exe:
         return False
     argv = [exe] + [flag.format(url=url) for flag in _APP_FLAGS]
+    if profile:
+        argv += ["--user-data-dir=" + profile,
+                 "--no-first-run", "--no-default-browser-check",
+                 "--disable-features=Translate"]
     try:
         # Detached: the app window must outlive nothing in particular, but it
         # must not die with a launcher that exits straight away.
@@ -341,7 +450,10 @@ def repair_if_stale():
         st = status()
     except Exception:
         return None
-    if not st["supported"] or not st["installed"] or not st["stale"]:
+    if not st["supported"] or not st["installed"]:
+        return None
+    missing_sendto = sendto_supported() and not st.get("sendTo")
+    if not st["stale"] and not missing_sendto:
         return None
     try:
         return enable()
@@ -358,6 +470,8 @@ def dump():
         lines.append("registry: not available on this system")
         return "\n".join(lines)
     lines.append("expected command: " + command_line())
+    lines.append("send to entry: {}  ({})".format(
+        "yes" if sendto_installed() else "NO", sendto_path()))
     lines.append("")
     for ext in EXTENSIONS:
         key = _KEY_FMT.format(ext=ext, verb=VERB_KEY)
@@ -376,8 +490,11 @@ def describe(st):
         return "Right-click entry: not available on {}. {}".format(
             st["platform"], st.get("reason", ""))
     if st["enabled"]:
-        return "Right-click entry: ON for {} image types\n  {}".format(
-            len(st["installed"]), st.get("command", ""))
+        return ("Right-click entry: ON for {} image types\n"
+                "  Send To entry: {}\n  {}").format(
+            len(st["installed"]),
+            "yes" if st.get("sendTo") else "MISSING",
+            st.get("command", ""))
     if st["stale"]:
         return ("Right-click entry: registered, but pointing somewhere else "
                 "(the app was moved). Switch it off and on again to repair.")

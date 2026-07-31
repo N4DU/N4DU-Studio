@@ -23,6 +23,7 @@ import json
 import time
 import atexit
 import secrets
+import shutil
 import mimetypes
 import subprocess
 import threading
@@ -163,7 +164,7 @@ def tidy_state():
     """
     save_settings(load_settings())      # drops settings.json when all default
     try:
-        leftovers = set(os.listdir(state_dir())) - {"session.json", "start.lock"}
+        leftovers = set(os.listdir(state_dir())) - {"session.json", "start.lock", "browser"}
     except OSError:
         return False
     if leftovers:
@@ -176,6 +177,11 @@ def purge_state():
     """Removes the folder entirely. Safe to call when nothing is running."""
     for name in ("settings.json", "session.json", "start.lock"):
         _forget(name)
+    # The window's own browser profile is ours too, so it goes as well.
+    try:
+        shutil.rmtree(os.path.join(state_dir(), "browser"), ignore_errors=True)
+    except OSError:
+        pass
     try:
         os.rmdir(state_dir())
         return True
@@ -675,7 +681,12 @@ class Handler(BaseHTTPRequestHandler):
             if not self._guard():
                 return
             page_alive()
-            return self._json({"ok": True, "pending": take_pending()})
+            # Files waiting to be handed over are released only when asked
+            # for. The bridge probes with a plain ping before the page is
+            # ready to receive anything; draining the queue there threw the
+            # files away silently.
+            take = parse_qs(urlparse(self.path).query).get("take", [""])[0] == "1"
+            return self._json({"ok": True, "pending": take_pending() if take else []})
         if path == "/api/read":
             return self._read()
         if path == "/api/file":
@@ -849,30 +860,41 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "Not authorised"}, 403)
         try:
             body = json.loads(self._body().decode("utf-8") or "{}")
-            path = body.get("path") or ""
         except ValueError:
             return self._json({"error": "Malformed request."}, 400)
+        # One path or many: Send To hands over a whole selection at once.
+        paths = body.get("paths")
+        if not isinstance(paths, list):
+            paths = [body.get("path") or ""]
 
-        ok, reason = openable(path)
-        if not ok:
-            return self._json({"error": reason}, 400)
-        path = os.path.abspath(path)
-        token = remember_file(path)
-        entry = {"token": token, "path": path, "name": os.path.basename(path)}
+        entries, refused = [], []
+        for path in paths[:MAX_SIBLINGS]:
+            ok, reason = openable(path)
+            if not ok:
+                refused.append(reason)
+                continue
+            full = os.path.abspath(path)
+            entries.append({"token": remember_file(full), "path": full,
+                            "name": os.path.basename(full)})
+        if not entries:
+            return self._json({"error": refused[0] if refused else "Nothing to open."}, 400)
 
-        # A window is already up: park the file for its next heartbeat rather
-        # than opening a second one. This is what turns "right-click twenty
-        # images" into one list instead of twenty windows.
+        # A window is already up: park the files for its next heartbeat
+        # rather than opening a second one. This is what turns "right-click
+        # twenty images" into one list instead of twenty windows.
         live = page_is_there()
         if live:
             with _lock:
-                _pending.append(entry)
+                _pending.extend(entries)
         else:
             expect_page()
 
-        event(SYM["open"], ("Added to the open window: " if live else "Opened: ") + path, "0")
-        return self._json({**entry, "pageLive": live,
-                           "url": "/?" + urlencode({"open": token})})
+        where = "Added to the open window: " if live else "Opened: "
+        event(SYM["open"], where + (entries[0]["path"] if len(entries) == 1
+                                    else f"{len(entries)} files"), "0")
+        first = entries[0]
+        return self._json({**first, "files": entries, "pageLive": live,
+                           "url": "/?" + urlencode({"open": first["token"]})})
 
     def _read(self):
         if not self._guard():
@@ -979,39 +1001,45 @@ def start_server():
 
 # ── Launch helpers ──────────────────────────────────────────────────
 def parse_args(argv):
-    """--open PATH (the right-click entry), --no-browser, --settings."""
-    args = {"open": None, "browser": True, "settings": None}
+    """--open PATH... (one or many), --no-browser, --settings.
+
+    --open takes every path that follows it, not just one: Send To and a
+    drop onto the launcher both hand over a whole selection in a single
+    command line.
+    """
+    args = {"open": [], "browser": True, "settings": None}
     rest = list(argv)
     while rest:
         arg = rest.pop(0)
         if arg == "--open":
-            args["open"] = rest.pop(0) if rest else None
+            while rest and not rest[0].startswith("--"):
+                args["open"].append(rest.pop(0))
         elif arg.startswith("--open="):
-            args["open"] = arg[len("--open="):]
+            args["open"].append(arg[len("--open="):])
         elif arg == "--no-browser":
             args["browser"] = False
         elif arg in ("--enable-context-menu", "--disable-context-menu",
                      "--forget", "--check"):
             args["settings"] = arg
-        elif args["open"] is None and not arg.startswith("-"):
-            # A bare path, so dragging a file onto the launcher also works.
-            args["open"] = arg
+        elif not arg.startswith("-"):
+            # Bare paths, so dropping files onto the launcher works too.
+            args["open"].append(arg)
     return args
 
 
-def hand_off(path):
-    """Gives the file to an instance that is already running.
+def hand_off(paths):
+    """Gives the files to an instance that is already running.
 
-    Returns (url, page_live), or None when there is nobody to hand it to (no
-    marker, a stale one, or the other process refused). page_live tells the
-    caller whether a window is already showing the interface, in which case
-    it must NOT open another one.
+    Returns (url, page_live), or None when there is nobody to hand them to
+    (no marker, a stale one, or the other process refused). page_live tells
+    the caller whether a window is already showing the interface, in which
+    case it must NOT open another one.
     """
     session = read_session()
     if not session:
         return None
     url = f"http://{HOST}:{session['port']}/api/adopt"
-    body = json.dumps({"path": os.path.abspath(path)}).encode()
+    body = json.dumps({"paths": [os.path.abspath(p) for p in paths]}).encode()
     req = urllib.request.Request(url, data=body, method="POST", headers={
         "Content-Type": "application/json",
         "X-N4DU": "1",
@@ -1028,7 +1056,7 @@ def hand_off(path):
             bool(answer.get("pageLive")))
 
 
-def wait_for_hand_off(path, seconds=15):
+def wait_for_hand_off(paths, seconds=15):
     """Retries the hand-off while another launch is starting the server.
 
     The loser of the start lock lands here: it polls until the winner has
@@ -1036,17 +1064,28 @@ def wait_for_hand_off(path, seconds=15):
     """
     deadline = time.time() + seconds
     while time.time() < deadline:
-        answer = hand_off(path)
+        answer = hand_off(paths)
         if answer:
             return answer
         time.sleep(0.25)
     return None
 
 
+def browser_profile():
+    """Where the app window keeps its own browser state.
+
+    Small (about 4 MB) and deleted along with everything else by "leave no
+    trace". It buys the window opening at the right size instead of
+    inheriting whatever the already-running browser felt like.
+    """
+    return os.path.join(state_dir(create=True), "browser")
+
+
 def open_interface(url):
     """Compact window when the setting allows it and a browser supports it,
     otherwise an ordinary tab."""
-    if load_settings()["appWindow"] and shell_integration.open_app_window(url):
+    if load_settings()["appWindow"] and shell_integration.open_app_window(
+            url, profile=browser_profile()):
         return
     webbrowser.open(url)
 
@@ -1105,9 +1144,11 @@ def main():
     # A file was handed to us (right-click entry, or dropped on the launcher).
     holds_lock = False
     if args["open"]:
-        ok, reason = openable(args["open"])
-        if not ok:
-            fatal(reason)
+        # Keep only what we can actually open; complain only if none survive.
+        usable = [p for p in args["open"] if openable(p)[0]]
+        if not usable:
+            fatal(openable(args["open"][0])[1])
+        args["open"] = usable
         existing = hand_off(args["open"])
         if not existing:
             # Nobody is running yet — but twenty of these may have started at
@@ -1133,9 +1174,15 @@ def main():
         server, port = start_server()
         url = f"http://{HOST}:{port}/"
         if args["open"]:
-            # The page receives a token, never a path: the URL is visible to
+            # The page receives tokens, never paths: the URL is visible to
             # the browser (and its history), and tokens die with the process.
-            url += "?" + urlencode({"open": remember_file(os.path.abspath(args["open"]))})
+            # The first rides in the address; the rest wait for the page's
+            # first heartbeat, so a whole selection lands in one list.
+            tokens = [remember_file(os.path.abspath(p)) for p in args["open"]]
+            url += "?" + urlencode({"open": tokens[0]})
+            for token, path in zip(tokens[1:], args["open"][1:]):
+                _pending.append({"token": token, "path": os.path.abspath(path),
+                                 "name": os.path.basename(path)})
         write_session(port)
     finally:
         # Held until the marker exists, so the launches waiting behind us
@@ -1148,7 +1195,9 @@ def main():
     if repaired:
         event(SYM["ok"], "Right-click entry brought up to date", "92")
     if args["open"]:
-        event(SYM["open"], "Opened: " + os.path.abspath(args["open"]), "0")
+        event(SYM["open"], "Opened: " + (os.path.abspath(args["open"][0])
+                                         if len(args["open"]) == 1
+                                         else f"{len(args['open'])} files"), "0")
     threading.Thread(target=watchdog, daemon=True).start()
     threading.Thread(target=server.serve_forever, daemon=True).start()
     if args["browser"]:

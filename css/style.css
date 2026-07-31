@@ -1127,6 +1127,62 @@ body.mode-edit .convert-only { display: none !important; }
 .mode-btn:hover { color: var(--accent); border-color: var(--accent); }
 .mode-btn .bi { width: 13px; height: 13px; }
 
+/* ── SEEN FROM A LINK ──
+   Shown only in a browser tab, never in a window of its own. The tool is
+   640px wide on purpose; on a big screen the space around it has to say so,
+   or it just looks like something failed to load. */
+.web-chrome { display: none; }
+@media (min-width: 720px) {
+  html:not(.in-window) body.mode-convert { padding-bottom: 8px; }
+  /* Converter only: in the editor the tool fills the window, and anything
+     below it would push the page into scrolling. */
+  html:not(.in-window) body.mode-convert .web-chrome {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    width: 640px;
+    max-width: calc(100vw - 32px);
+    margin: 20px auto 34px;
+    text-align: center;
+  }
+}
+.web-line {
+  font-size: .84rem;
+  color: var(--muted);
+  line-height: 1.6;
+  max-width: 32em;
+}
+.web-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.web-actions .btn-accent { padding: 9px 18px; }
+.web-link {
+  color: var(--accent);
+  font-size: .8rem;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+.web-link:hover { border-bottom-color: var(--accent); }
+.web-note {
+  font-size: .73rem;
+  color: var(--faint);
+  line-height: 1.6;
+  max-width: 34em;
+}
+/* In its own window the tool is the whole page, edge to edge. */
+html.in-window body.mode-convert { padding: 0; background: var(--bg); }
+html.in-window body.mode-convert .app {
+  width: auto; max-width: none; height: 100vh; max-height: none;
+  grid-template-rows: 48px 1fr 24px;
+  border: 0; border-radius: 0; box-shadow: none;
+}
+html.in-window body.mode-convert .file-grid { max-height: none; }
+
 /* ── SHORT AND NARROW WINDOWS ──
    The panels must never scroll, so spacing and control sizes shrink
    instead. */
