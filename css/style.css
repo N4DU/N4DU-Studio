@@ -870,39 +870,126 @@ body.mode-convert .toast.show { transform: translateX(-50%) translateY(0); }
    (The window sizes itself to the batch: js/ui/window-size.js.) */
 body.mode-convert .app { max-width: none; }
 
-/* ── THE SAME TOOL IN A BROWSER TAB ──
-   Opened from a link, or by double-clicking index.html, there is no window
-   to resize: the page gets whatever the browser gives it, usually the whole
-   screen. So the tool draws its own window instead — the same 640px column,
-   the same height that follows the batch, centred on the page. What you see
-   from GitHub is what you get after downloading it.
-   Below 720px the viewport IS the window (that is the compact window, or a
-   small screen), so the frame comes off and it fills the space. */
-@media (min-width: 720px) {
-  body.mode-convert {
-    /* Some breathing room around the card, and something to sit it on. */
-    padding: 22px 0;
-    background:
-      radial-gradient(120% 90% at 50% 0%, #131313 0%, var(--bg) 60%);
-  }
-  body.mode-convert .app {
-    width: 640px;
-    max-width: calc(100vw - 32px);
-    margin: 0 auto;
-    /* Only as tall as the work needs, exactly like the desktop window. */
-    height: auto;
-    max-height: calc(100vh - 44px);
-    grid-template-rows: 48px auto 24px;
-    border: 1px solid var(--border2);
-    border-radius: 12px;
-    overflow: hidden;
-    box-shadow: 0 22px 60px rgba(0, 0, 0, .55);
-  }
-  /* With the card sized to its contents, the list is what gives way when
-     the screen is short. */
-  body.mode-convert .convert { min-height: 0; }
-  body.mode-convert .file-grid { max-height: calc(100vh - 420px); }
+/* ── THE SAME TOOL, WHATEVER IT IS IN ──
+   A browser tab cannot be resized by the page, so there is no point drawing
+   a small window inside a big one: it just looks like something failed to
+   load. The tool fills whatever it is given — a tab, or the compact window
+   the launcher opens — and only the file grid changes shape. */
+body.mode-convert .app { max-width: none; }
+
+/* On a wide screen the settings would stretch to absurd line lengths, so
+   they stay a readable column while the file list uses the whole width. */
+.conv-settings, .conv-actions { max-width: 760px; width: 100%; }
+
+/* What the web version cannot do, said where it costs nothing. */
+.status-sell {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  white-space: nowrap;
 }
+.status-sell:hover { border-bottom-color: var(--accent); }
+.status-sell[hidden] { display: none; }
+
+/* ── SETTINGS ── */
+/* Each row is a switch plus an explanation: these flip real things in the
+   operating system, so the wording carries as much weight as the control. */
+.setting {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 14px;
+  align-items: start;
+  padding: 13px 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.setting-name {
+  font-size: .82rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.setting-name em { font-style: normal; color: var(--accent); }
+.setting-desc {
+  margin-top: 5px;
+  font-size: .74rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.setting-desc b { color: var(--text); font-weight: 600; }
+.setting-status {
+  margin-top: 6px;
+  font-size: .7rem;
+  color: var(--faint);
+  line-height: 1.5;
+}
+.setting-status:empty { display: none; }
+
+/* Switch */
+.switch { display: block; margin-top: 2px; cursor: pointer; }
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0; height: 0;
+}
+.switch .track {
+  display: block;
+  width: 40px; height: 22px;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: 999px;
+  position: relative;
+  transition: background .15s, border-color .15s;
+}
+.switch .track::after {
+  content: "";
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--faint);
+  transition: transform .15s, background .15s;
+}
+.switch input:checked + .track {
+  background: rgba(232,255,71,.16);
+  border-color: var(--accent);
+}
+.switch input:checked + .track::after {
+  transform: translateX(18px);
+  background: var(--accent);
+}
+.switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+.switch input:disabled + .track { opacity: .4; }
+.switch input:disabled { cursor: not-allowed; }
+.setting:has(input:disabled) { opacity: .75; }
+
+.setting-foot {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 0 2px;
+}
+.link-btn.danger { color: var(--danger); align-self: flex-start; }
+.link-btn.danger:hover { color: #ff8a8a; }
+
+/* The honest limitations, kept where the switches are rather than hidden */
+.fine-print {
+  font-size: .71rem;
+  color: var(--faint);
+  line-height: 1.6;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.fine-print b { color: var(--muted); }
+.fine-print em { font-style: normal; color: var(--muted); }
+
+/* ── THE CONVERTER ──
+   The view the app opens in: a batch of files, three settings, two
+   buttons. Sized like a tool, not like a web page — on a wide screen the
+   whole thing stays a narrow column instead of stretching out. */
+/* The converter fills its window — capping the width inside a window that
+   is already the right size left black bars down both sides.
+   (The window sizes itself to the batch: js/ui/window-size.js.) */
+body.mode-convert .app { max-width: none; }
+
 body.mode-convert .workspace,
 body.mode-convert .edit-only { display: none !important; }
 /* The converter has a list, not one open file, so the editor's filename
@@ -1037,9 +1124,59 @@ body.mode-edit .convert-only { display: none !important; }
    runs straight down the values. */
 .conv-row {
   display: grid;
-  grid-template-columns: 86px 1fr;
+  grid-template-columns: 76px 1fr;
   align-items: center;
   gap: 10px;
+}
+/* Size and weight side by side. Below 560px they stack, because two of
+   these do not fit across a narrow window without squeezing the fields to
+   the point of being unusable. */
+.conv-pair {
+  /* Everything hugs the left: a stretching first column pushed "Max" to
+     the far side of a wide window, miles from the field it labels. */
+  grid-template-columns: 76px auto auto auto;
+  justify-content: start;
+  column-gap: 14px;
+}
+.conv-label.second { text-align: right; }
+
+/* ── THE COMPACT WINDOW ──
+   Half the area of the old one, and not by scaling everything down: the
+   previews stay big enough to recognise and the buttons big enough to hit.
+   What shrinks is the padding, the label column and the wasted width. */
+@media (max-width: 560px) {
+  :root { --gap: 11px; --pad: 10px; }
+  .convert { gap: 10px; padding: 11px; }
+  .conv-row { grid-template-columns: 58px 1fr; gap: 7px; }
+  .conv-pair { grid-template-columns: 58px 1fr; }
+  .conv-pair .conv-label.second { text-align: left; }
+  .conv-label { font-size: .7rem; }
+  .conv-fields { gap: 5px; }
+  .conv-fields input[type=number] { width: 62px; padding: 4px 6px; font-size: .75rem; }
+  .conv-fields select { padding: 4px 5px; font-size: .75rem; }
+  .conv-fields .unit, .conv-note { font-size: .66rem; }
+  .conv-title { font-size: .66rem; letter-spacing: .07em; }
+  .conv-sub { font-size: .66rem; }
+  .btn-ghost.tiny { padding: 2px 7px; font-size: .65rem; }
+  .pill { font-size: .67rem; padding: 3px 8px; }
+  .pills.tight { gap: 4px; }
+  /* Tiles: narrower, but the picture inside keeps its height. */
+  .file-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+  .file-tile { padding: 6px 4px 5px; gap: 3px; }
+  .file-thumb { height: 56px; }
+  .file-tile-name { font-size: .62rem; }
+  .file-tile-meta { font-size: .58rem; }
+  .conv-estimate { font-size: .71rem; }
+  .conv-actions { padding-top: 9px; gap: 8px; }
+  /* Buttons keep a real hit area — this is what must not shrink. */
+  .conv-buttons .btn-accent, .conv-buttons .btn-primary { padding: 8px 11px; font-size: .74rem; }
+  .conv-buttons .bi { width: 13px; height: 13px; }
+  .check.inline { font-size: .66rem; }
+  .conv-drop { padding: 16px 12px; }
+  .drop-label { font-size: .84rem; }
+  .titlebar { gap: 8px; padding: 0 8px; }
+  .brand span { font-size: .84rem; }
+  .status-hint { font-size: .62rem; }
 }
 .conv-label { font-size: .74rem; color: var(--muted); }
 .conv-fields { display: flex; align-items: center; gap: 7px; }
@@ -1126,62 +1263,6 @@ body.mode-edit .convert-only { display: none !important; }
 }
 .mode-btn:hover { color: var(--accent); border-color: var(--accent); }
 .mode-btn .bi { width: 13px; height: 13px; }
-
-/* ── SEEN FROM A LINK ──
-   Shown only in a browser tab, never in a window of its own. The tool is
-   640px wide on purpose; on a big screen the space around it has to say so,
-   or it just looks like something failed to load. */
-.web-chrome { display: none; }
-@media (min-width: 720px) {
-  html:not(.in-window) body.mode-convert { padding-bottom: 8px; }
-  /* Converter only: in the editor the tool fills the window, and anything
-     below it would push the page into scrolling. */
-  html:not(.in-window) body.mode-convert .web-chrome {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    width: 640px;
-    max-width: calc(100vw - 32px);
-    margin: 20px auto 34px;
-    text-align: center;
-  }
-}
-.web-line {
-  font-size: .84rem;
-  color: var(--muted);
-  line-height: 1.6;
-  max-width: 32em;
-}
-.web-actions {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-.web-actions .btn-accent { padding: 9px 18px; }
-.web-link {
-  color: var(--accent);
-  font-size: .8rem;
-  text-decoration: none;
-  border-bottom: 1px solid transparent;
-}
-.web-link:hover { border-bottom-color: var(--accent); }
-.web-note {
-  font-size: .73rem;
-  color: var(--faint);
-  line-height: 1.6;
-  max-width: 34em;
-}
-/* In its own window the tool is the whole page, edge to edge. */
-html.in-window body.mode-convert { padding: 0; background: var(--bg); }
-html.in-window body.mode-convert .app {
-  width: auto; max-width: none; height: 100vh; max-height: none;
-  grid-template-rows: 48px 1fr 24px;
-  border: 0; border-radius: 0; box-shadow: none;
-}
-html.in-window body.mode-convert .file-grid { max-height: none; }
 
 /* ── SHORT AND NARROW WINDOWS ──
    The panels must never scroll, so spacing and control sizes shrink
