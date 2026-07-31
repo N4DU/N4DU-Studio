@@ -49,6 +49,12 @@
 
   // files: [{ name, blob }] → a Blob of a valid .zip
   async function zip(files) {
+    // The entry count is a 16-bit field. Past 65535 it wrapped, and the
+    // archive claimed to hold `count % 65536` files — the rest were in the
+    // bytes but invisible to every unzipper.
+    if (files.length > 0xFFFF) {
+      throw new Error('A .zip cannot hold more than 65535 files.');
+    }
     const encoder = new TextEncoder();
     const stamp = dosStamp(new Date());
     const parts = [];       // the archive body, in order
@@ -90,6 +96,16 @@
       central.push(entry.buffer, name);
 
       offset += 30 + name.length + bytes.length;
+    }
+
+    // Plain ZIP stores both of these in fields too narrow to hold more, and
+    // Zip64 is not implemented here. Silently wrapping produced an archive
+    // that opened and was quietly missing its tail — refusing is the honest
+    // answer. Uncompressed TIFF is what makes 4 GiB reachable: a handful of
+    // large ones is enough.
+    if (offset > 0xFFFFFFFF) {
+      throw new Error('Those files come to more than 4 GB together — ' +
+                      'save them individually instead of as a .zip.');
     }
 
     const centralSize = central.reduce((n, part) => n + part.byteLength, 0);
