@@ -995,13 +995,11 @@ body.mode-convert .edit-only { display: none !important; }
 /* The converter has a list, not one open file, so the editor's filename
    slot has nothing to say here. */
 body.mode-convert .title-file { display: none; }
-/* Help is not one of the working controls, so in the converter it sits on
-   its own at the far right instead of crowding the gear and the mode
-   button. */
-body.mode-convert .title-actions { flex: 1; }
-body.mode-convert #btnSettings { order: 1; }
-body.mode-convert #btnMode { order: 2; }
-body.mode-convert #btnHelp { order: 3; margin-left: auto; }
+/* With the filename slot hidden there is nothing left to fill the middle of
+   the bar, so the three buttons drift in towards the centre. Push the whole
+   group into the right-hand corner, kept together — that is where a title
+   bar's controls belong. */
+body.mode-convert .title-actions { margin-left: auto; }
 body.mode-edit .convert,
 body.mode-edit .convert-only { display: none !important; }
 
@@ -1018,7 +1016,18 @@ body.mode-edit .convert-only { display: none !important; }
   flex-direction: column;
   gap: 9px;
 }
-.conv-files { flex: 1 1 auto; min-height: 0; }
+/* A column of its own, so the drop zone can give ground when the window is
+   short. As a plain block it kept its full height and spilled straight over
+   the settings underneath — at 452x400 the dashed box ran 45px into the
+   format row. */
+.conv-files {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.conv-files .file-grid { min-height: 0; }
 
 .conv-head {
   display: flex;
@@ -1121,6 +1130,12 @@ body.mode-edit .convert-only { display: none !important; }
   cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 5px;
   transition: border-color .15s, background .15s;
+  /* Shrinks to whatever room is left rather than overflowing the panel.
+     The heading stays readable because the sub-lines go first. */
+  flex: 1 1 auto;
+  min-height: 0;
+  justify-content: center;
+  overflow: hidden;
 }
 .conv-drop:hover, .conv-drop.over { border-color: var(--accent); background: rgba(232,255,71,.04); }
 .conv-drop[hidden] { display: none; }
