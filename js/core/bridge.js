@@ -15,6 +15,7 @@
   const HDR = { 'X-N4DU': '1' };
 
   let byeKey = null;   // secret authorising the shutdown notice
+  let onPending = () => {};   // files handed over while the page was open
 
   async function init() {
     if (location.protocol !== 'http:' && location.protocol !== 'https:') return false;
@@ -37,7 +38,17 @@
       byeKey = (await res.json()).key || null;
     } catch { /* the server still detects the missing heartbeat */ }
 
-    const ping = () => fetch('/api/ping', { headers: HDR }).catch(() => {});
+    // The heartbeat doubles as the delivery channel for files opened from
+    // the right-click menu while this window was already up. Windows starts
+    // one process per selected file; they all hand their file to this
+    // server, which parks it here until the page collects it — so twenty
+    // right-clicked images land in ONE window instead of twenty.
+    const ping = () => fetch('/api/ping', { headers: HDR })
+      .then(res => res.json())
+      .then(info => {
+        if (info && info.pending && info.pending.length) onPending(info.pending);
+      })
+      .catch(() => {});
     setInterval(ping, 1000);
     // Coming back from a background tab (where browsers throttle timers),
     // report immediately that the page is alive.
@@ -53,12 +64,42 @@
   // Opens the native file dialog. Returns { file, path } or null if the
   // user cancelled. Throws when the server cannot show dialogs.
   async function pickFile() {
-    const meta = await pick('open');
-    if (!meta) return null;
-    const blob = await readCurrent(meta.token);
-    bridge.token = meta.token;
-    bridge.path = meta.path;
-    return { file: new File([blob], meta.name, { type: blob.type }), path: meta.path };
+    const picked = await pickFiles(false);
+    if (!picked.length) return null;
+    const one = picked[0];
+    bridge.token = one.token;
+    bridge.path = one.path;
+    return one;
+  }
+
+  // The dialog in multi-select mode, for the converter. Every file keeps its
+  // own token, which is what lets a whole batch be overwritten in place.
+  // Returns [{ file, path, token }].
+  async function pickFiles(many = true) {
+    const res = await fetch('/api/pick?intent=' + (many ? 'open-many' : 'open'),
+                            { method: 'POST', headers: HDR });
+    if (res.status === 204) return []; // cancelled
+    if (!res.ok) throw new Error((await safeJson(res)).error || 'Could not open the dialog.');
+    const info = await res.json();
+    const metas = info.files || (info.token ? [info] : []);
+    return collect(metas);
+  }
+
+  // Turns [{token, name, path}] into real File objects by reading each one
+  // back through the bridge.
+  async function collect(metas) {
+    const out = [];
+    for (const meta of metas) {
+      try {
+        const blob = await readCurrent(meta.token);
+        out.push({
+          file: new File([blob], meta.name, { type: blob.type }),
+          path: meta.path,
+          token: meta.token,
+        });
+      } catch { /* a file that vanished between listing and reading */ }
+    }
+    return out;
   }
 
   // Chooses WHICH file on disk will be replaced, without touching the image
@@ -96,10 +137,11 @@
       const res = await fetch('/api/file?token=' + encodeURIComponent(token), { headers: HDR });
       if (!res.ok) return null;
       const meta = await res.json();
-      const blob = await readCurrent(token);
-      bridge.token = token;
-      bridge.path = meta.path;
-      return { file: new File([blob], meta.name, { type: blob.type }), path: meta.path };
+      const [picked] = await collect([{ ...meta, token }]);
+      if (!picked) return null;
+      bridge.token = picked.token;
+      bridge.path = picked.path;
+      return picked;
     } catch {
       return null;
     }
@@ -143,7 +185,15 @@
   // writes the new file and deletes the old one.
   // overwrite = true confirms replacing a different file that already exists.
   async function replaceOriginal(blob, ext, stem, overwrite = false) {
-    const headers = { ...HDR, 'X-N4DU-Token': bridge.token, 'X-N4DU-Ext': ext };
+    const out = await replaceByToken(bridge.token, blob, ext, stem, overwrite);
+    bridge.path = out.path; // further replacements follow the new file
+    return out;
+  }
+
+  // Same, for a file the batch converter holds. Each item in a batch has its
+  // own token, so the single "current file" the editor uses is not enough.
+  async function replaceByToken(token, blob, ext, stem, overwrite = false) {
+    const headers = { ...HDR, 'X-N4DU-Token': token, 'X-N4DU-Ext': ext };
     if (stem) headers['X-N4DU-Name'] = encodeURIComponent(stem);
     if (overwrite) headers['X-N4DU-Overwrite'] = '1';
     const res = await fetch('/api/replace', { method: 'POST', headers, body: blob });
@@ -154,9 +204,7 @@
       if (res.status === 409) err.conflict = info.conflict;
       throw err;
     }
-    const out = await res.json();
-    bridge.path = out.path; // further replacements follow the new file
-    return out;
+    return res.json();
   }
 
   async function safeJson(res) {
@@ -165,6 +213,10 @@
 
   bridge.init = init;
   bridge.pickFile = pickFile;
+  bridge.pickFiles = pickFiles;
+  bridge.collect = collect;
+  bridge.replaceByToken = replaceByToken;
+  bridge.setOnPending = (fn) => { onPending = fn || (() => {}); };
   bridge.pickTarget = pickTarget;
   bridge.readCurrent = () => readCurrent(bridge.token);
   bridge.adopt = adopt;

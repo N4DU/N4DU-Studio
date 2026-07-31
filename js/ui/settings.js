@@ -25,6 +25,24 @@
       apply({ contextMenu: e.target.checked }));
     $('setAppWindow').addEventListener('change', e =>
       apply({ appWindow: e.target.checked }));
+
+    // Deliberately a two-step action: it undoes system changes and deletes a
+    // folder, so it should never happen on a stray click.
+    $('btnForget').addEventListener('click', () => {
+      const btn = $('btnForget');
+      if (btn.dataset.armed !== '1') {
+        btn.dataset.armed = '1';
+        btn.textContent = 'Click again to confirm';
+        setTimeout(() => {
+          btn.dataset.armed = '';
+          btn.textContent = 'Remove every trace from this machine';
+        }, 4000);
+        return;
+      }
+      btn.dataset.armed = '';
+      btn.textContent = 'Remove every trace from this machine';
+      apply({ forget: true });
+    });
   }
 
   function open() {
@@ -55,6 +73,9 @@
         toast(patch.contextMenu
           ? 'Added to the right-click menu for images'
           : 'Removed from the right-click menu', 'ok');
+      }
+      if (patch.forget) {
+        toast('Removed. Nothing of N4DU Studio is left outside its own folder.', 'ok');
       }
     } catch (err) {
       render(err.status && err.status.contextMenu ? err.status : current);
