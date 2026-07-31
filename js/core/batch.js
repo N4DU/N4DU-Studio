@@ -25,13 +25,14 @@
     const incoming = [...files].slice(0, Math.max(0, MAX_ITEMS - items.length));
     const skipped = files.length - incoming.length;
     const failed = [];
+    let duplicates = 0;
 
     for (const file of incoming) {
       // The same file can arrive twice — the explorer handing it over while
       // the folder offer also lists it, or the same selection opened twice.
       // A path is the identity here; pasted images have none and are always
       // treated as new.
-      if (meta.path && items.some(it => it.path === meta.path)) continue;
+      if (meta.path && items.some(it => it.path === meta.path)) { duplicates++; continue; }
       const item = {
         id: nextId++,
         file,
@@ -55,7 +56,11 @@
       }
       onChange();
     }
-    return { added: incoming.length - failed.length, failed, skipped };
+    // A file dropped for being already in the list was still being counted as
+    // added, so re-opening the same picture said "Added 1 file" and added
+    // nothing. Report it separately instead.
+    return { added: incoming.length - failed.length - duplicates,
+             failed, skipped, duplicates };
   }
 
   // Reads the dimensions and builds the preview, then lets the full-size
@@ -96,24 +101,55 @@
   // change to the format, size or weight cap, and decoding a 4000×3000 scan
   // each time makes the controls feel stuck. Exactly ONE picture is held —
   // the one being estimated — so the memory cost stays bounded.
-  let hot = { id: null, bmp: null };
+  //
+  // The handle is REFCOUNTED and release() is not optional. Clicking another
+  // thumbnail used to close the cached bitmap out from under an estimate
+  // that was still running on it, and the conversion died with "The image
+  // source is detached" — or worse, read width 0 and produced nothing.
+  let hot = { id: null, bmp: null, refs: 0, doomed: false };
+  let decodeSeq = 0;
 
   async function decodeCached(item) {
-    if (hot.id === item.id && hot.bmp) return { bmp: hot.bmp, release() {} };
+    if (hot.id === item.id && hot.bmp) {
+      const entry = hot;
+      entry.refs++;
+      return { bmp: entry.bmp, release: () => releaseHot(entry) };
+    }
     dropHot();
     if (item.edited) {
       // Owned by the item, so never cached or released here.
       return { bmp: item.edited, release() {} };
     }
+    const seq = ++decodeSeq;
     const bmp = await loadImage(item.file);
-    hot = { id: item.id, bmp };
-    return { bmp, release() {} };
+    if (seq !== decodeSeq) {
+      // Another decode started while this one was in flight and owns the slot
+      // now. Two overlapping calls both used to install themselves, orphaning
+      // the first bitmap with nothing left holding a reference to close it —
+      // one leaked full-size decode per race. Hand this one out uncached.
+      return { bmp, release() { if (typeof bmp.close === 'function') bmp.close(); } };
+    }
+    hot = { id: item.id, bmp, refs: 1, doomed: false };
+    const entry = hot;
+    return { bmp, release: () => releaseHot(entry) };
+  }
+
+  function releaseHot(entry) {
+    entry.refs--;
+    if (entry.doomed && entry.refs <= 0 && entry.bmp) {
+      if (typeof entry.bmp.close === 'function') entry.bmp.close();
+      entry.bmp = null;
+    }
   }
 
   function dropHot(id) {
     if (id !== undefined && hot.id !== id) return;
-    if (hot.bmp && typeof hot.bmp.close === 'function') hot.bmp.close();
-    hot = { id: null, bmp: null };
+    if (hot.bmp) {
+      // Still being read: mark it and let the last release() do the closing.
+      if (hot.refs > 0) hot.doomed = true;
+      else if (typeof hot.bmp.close === 'function') hot.bmp.close();
+    }
+    hot = { id: null, bmp: null, refs: 0, doomed: false };
   }
 
   // ── Removing ──────────────────────────────────────────────────────
@@ -171,6 +207,13 @@
     item.status = 'ready';
     item.result = null;
     shrink(bmp, THUMB).then(thumb => {
+      // Removing the file while the thumbnail was still being built wrote the
+      // new bitmap onto the dead item, after dispose() had already run — it
+      // came back from the grave holding a bitmap nothing would ever close.
+      if (!items.includes(item)) {
+        if (typeof thumb.close === 'function') thumb.close();
+        return;
+      }
       if (item.thumb && typeof item.thumb.close === 'function') item.thumb.close();
       item.thumb = thumb;
       onChange();

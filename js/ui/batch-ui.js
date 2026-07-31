@@ -358,8 +358,9 @@
     clearTimeout(estimateTimer);
     const seq = ++estimateSeq;
     estimateTimer = setTimeout(async () => {
+      let handle = null;
       try {
-        const handle = await batch.decodeCached(item);
+        handle = await batch.decodeCached(item);
         const out = await convert(handle.bmp, opts);
         if (seq !== estimateSeq) return;    // a newer estimate is running
         const each = sizeLabel(out.blob.size);
@@ -375,6 +376,9 @@
       } catch (err) {
         if (seq === estimateSeq) el.textContent = 'Could not read that file: ' + err.message;
       } finally {
+        // Not optional: the cache hands out a counted reference, and without
+        // this the bitmap it is holding can never be freed.
+        if (handle) handle.release();
         // This line can wrap, which changes how tall the view is.
         if (seq === estimateSeq && N4DU.windowSize) N4DU.windowSize.fit();
       }
