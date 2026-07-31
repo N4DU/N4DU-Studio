@@ -768,6 +768,10 @@ body.has-image .canvas-stack { display: flex; }
    so a toast anchored there would sit on top of them. */
 body.mode-convert .toast { bottom: auto; top: 60px; transform: translateX(-50%) translateY(-16px); }
 body.mode-convert .toast.show { transform: translateX(-50%) translateY(0); }
+/* And in the editor it landed exactly on the Corners / Zoom bars under the
+   stage, covering the slider, its label and its reset button. */
+body.mode-edit .toast { bottom: auto; top: 60px; transform: translateX(-50%) translateY(-16px); }
+body.mode-edit .toast.show { transform: translateX(-50%) translateY(0); }
 .toast.ok  { border-color: var(--success); color: var(--success); }
 .toast.err { border-color: var(--danger);  color: var(--danger); }
 
@@ -890,105 +894,6 @@ body.mode-convert .app { max-width: none; }
 }
 .status-sell:hover { border-bottom-color: var(--accent); }
 .status-sell[hidden] { display: none; }
-
-/* ── SETTINGS ── */
-/* Each row is a switch plus an explanation: these flip real things in the
-   operating system, so the wording carries as much weight as the control. */
-.setting {
-  display: grid;
-  grid-template-columns: 42px 1fr;
-  gap: 14px;
-  align-items: start;
-  padding: 13px 14px;
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-.setting-name {
-  font-size: .82rem;
-  font-weight: 600;
-  line-height: 1.4;
-}
-.setting-name em { font-style: normal; color: var(--accent); }
-.setting-desc {
-  margin-top: 5px;
-  font-size: .74rem;
-  color: var(--muted);
-  line-height: 1.55;
-}
-.setting-desc b { color: var(--text); font-weight: 600; }
-.setting-status {
-  margin-top: 6px;
-  font-size: .7rem;
-  color: var(--faint);
-  line-height: 1.5;
-}
-.setting-status:empty { display: none; }
-
-/* Switch */
-.switch { display: block; margin-top: 2px; cursor: pointer; }
-.switch input {
-  position: absolute;
-  opacity: 0;
-  width: 0; height: 0;
-}
-.switch .track {
-  display: block;
-  width: 40px; height: 22px;
-  background: var(--bg);
-  border: 1px solid var(--border2);
-  border-radius: 999px;
-  position: relative;
-  transition: background .15s, border-color .15s;
-}
-.switch .track::after {
-  content: "";
-  position: absolute;
-  top: 3px; left: 3px;
-  width: 14px; height: 14px;
-  border-radius: 50%;
-  background: var(--faint);
-  transition: transform .15s, background .15s;
-}
-.switch input:checked + .track {
-  background: rgba(232,255,71,.16);
-  border-color: var(--accent);
-}
-.switch input:checked + .track::after {
-  transform: translateX(18px);
-  background: var(--accent);
-}
-.switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
-.switch input:disabled + .track { opacity: .4; }
-.switch input:disabled { cursor: not-allowed; }
-.setting:has(input:disabled) { opacity: .75; }
-
-.setting-foot {
-  display: flex; flex-direction: column; gap: 4px;
-  padding: 0 2px;
-}
-.link-btn.danger { color: var(--danger); align-self: flex-start; }
-.link-btn.danger:hover { color: #ff8a8a; }
-
-/* The honest limitations, kept where the switches are rather than hidden */
-.fine-print {
-  font-size: .71rem;
-  color: var(--faint);
-  line-height: 1.6;
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
-}
-.fine-print b { color: var(--muted); }
-.fine-print em { font-style: normal; color: var(--muted); }
-
-/* ── THE CONVERTER ──
-   The view the app opens in: a batch of files, three settings, two
-   buttons. Sized like a tool, not like a web page — on a wide screen the
-   whole thing stays a narrow column instead of stretching out. */
-/* The converter fills its window — capping the width inside a window that
-   is already the right size left black bars down both sides.
-   (The window sizes itself to the batch: js/ui/window-size.js.) */
-body.mode-convert .app { max-width: none; }
 
 body.mode-convert .workspace,
 body.mode-convert .edit-only { display: none !important; }
@@ -1310,4 +1215,48 @@ body.mode-edit .convert-only { display: none !important; }
 @media (max-width: 1180px) {
   .workspace { grid-template-columns: 180px 1fr 220px; }
   .title-file { display: none; }
+}
+
+/* The editor in a narrow window.
+   Three fixed-ish columns need about 830px. Below that the right-hand panel
+   and the title bar's Copy / Replace / Download simply sat off the edge of
+   the screen — and since html,body are overflow:hidden there was no scrollbar
+   to reach them. The editor became a dead end: no way to export, no way to
+   change anything, only the Converter button to escape by.
+
+   This is a real place to be. The desktop window is 452px wide in the
+   converter, and once the window has been resized by hand window-size.js
+   stops growing it, so pressing Editor lands you here. The web page in a
+   narrow window lands here too.
+
+   One column, and the page is allowed to scroll — a scrollbar is a far
+   smaller price than an unreachable Download button. */
+@media (max-width: 900px) {
+  /* The title-bar row is a fixed 48px in the main grid. Once the bar is
+     allowed to wrap it grows taller than that, and the workspace was drawn
+     straight over the top of it — the buttons were visible but unclickable. */
+  body.mode-edit .app { grid-template-rows: auto 1fr 24px; }
+  body.mode-edit .workspace {
+    grid-template-columns: 1fr;
+    grid-auto-rows: max-content;
+    overflow-y: auto;
+  }
+  body.mode-edit .panel { overflow: visible; }
+  body.mode-edit .panel-left, body.mode-edit .panel-right { border: 0; }
+  /* The stage still wants to be the biggest thing on the page. */
+  body.mode-edit .stage { min-height: 46vh; }
+  /* The title bar wraps rather than pushing its buttons off the edge. */
+  body.mode-edit .titlebar { flex-wrap: wrap; height: auto; padding: 6px 8px; }
+  /* The button group is one flex item, so letting the BAR wrap only moved the
+     whole group down a line — still 690px wide in a 452px window. It has to
+     take the full width and wrap its own children. */
+  body.mode-edit .title-actions {
+    flex-wrap: wrap;
+    width: 100%;
+    flex-shrink: 1;
+    justify-content: flex-start;
+  }
+  body.mode-edit .title-actions .sep { display: none; }
+  /* Tools read better as a row when they are not in a narrow column. */
+  body.mode-edit .tool-grid { display: flex; flex-wrap: wrap; }
 }

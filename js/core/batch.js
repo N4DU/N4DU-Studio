@@ -26,6 +26,7 @@
     const skipped = files.length - incoming.length;
     const failed = [];
     let duplicates = 0;
+    let lastPaint = 0;
 
     for (const file of incoming) {
       // The same file can arrive twice — the explorer handing it over while
@@ -48,14 +49,23 @@
         error: null,
       };
       try {
-        await measure(item);
+        // Only meaningful for a single file: one bitmap cannot stand in for
+        // several different pictures.
+        await measure(item, incoming.length === 1 ? meta.decoded : null);
         items.push(item);
         if (selectedId === null) selectedId = item.id;
       } catch {
         failed.push(item.name);
       }
-      onChange();
+      // Repainting the whole list once per file is quadratic: the grid is
+      // torn down and rebuilt from scratch each time, so 200 files spent
+      // about 19 seconds building tiles that were immediately thrown away.
+      // Show progress a few times a second instead; the final state is
+      // always painted by the onChange() after the loop.
+      const now = (globalThis.performance || Date).now();
+      if (now - lastPaint > 120) { lastPaint = now; onChange(); }
     }
+    onChange();
     // A file dropped for being already in the list was still being counted as
     // added, so re-opening the same picture said "Added 1 file" and added
     // nothing. Report it separately instead.
@@ -65,12 +75,16 @@
 
   // Reads the dimensions and builds the preview, then lets the full-size
   // bitmap go.
-  async function measure(item) {
-    const bmp = await loadImage(item.file);
+  //
+  // `decoded` is a bitmap the caller already has. It belongs to the caller,
+  // so it is measured and never closed here — passing it just avoids decoding
+  // the same file a second time when it is being opened in the editor.
+  async function measure(item, decoded) {
+    const bmp = decoded || await loadImage(item.file);
     item.w = bmp.width;
     item.h = bmp.height;
     item.thumb = await shrink(bmp, THUMB);
-    if (bmp !== item.thumb && typeof bmp.close === 'function') bmp.close();
+    if (!decoded && bmp !== item.thumb && typeof bmp.close === 'function') bmp.close();
   }
 
   async function shrink(bmp, side) {

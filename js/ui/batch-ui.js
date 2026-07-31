@@ -410,7 +410,10 @@
 
     const produced = [];
     let done = 0, failed = 0, replaced = 0, overCap = 0;
-    const targets = replace ? batch.items.filter(it => it.token) : batch.items;
+    // A snapshot, not the live array. Files dropped while a run was going
+    // were swept into it halfway through, and the progress denominator grew
+    // underneath the text that was already counting up to it.
+    const targets = (replace ? batch.items.filter(it => it.token) : batch.items).slice();
 
     for (const [index, item] of targets.entries()) {
       progress(index, targets.length, item.name);

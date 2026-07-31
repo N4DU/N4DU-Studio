@@ -29,10 +29,20 @@
     return Math.min(b.w, b.h);
   }
 
+  // Is the editor the mode on screen? These handlers live on `window`, so
+  // without asking they also fire while the converter is showing.
+  function inEditor() {
+    return document.body.classList.contains('mode-edit');
+  }
+
   // Is a modal dialog open? (canvas shortcuts must not act)
+  // All three of them: with only the replace dialog checked, arrow keys went
+  // on nudging the crop framing underneath the settings and help sheets.
   function modalOpen() {
-    const m = document.getElementById('replaceModal');
-    return !!m && !m.hidden;
+    return ['replaceModal', 'settingsModal', 'helpModal'].some(id => {
+      const m = document.getElementById(id);
+      return !!m && !m.hidden;
+    });
   }
 
   // Converts a pointer event to image (surface) coordinates. The vertical
@@ -100,7 +110,13 @@
       // The view follows the OUTPUT aspect ratio: unlock the ratio and
       // distort the size, and it looks distorted here too, exactly like the
       // exported file.
-      const outW = Math.max(1, state.outW), outH = Math.max(1, state.outH);
+      // While the crop tool is up the stage is showing the PICTURE, so it has
+      // to take the picture's shape. Taking the output shape stretched a
+      // 400x200 photo into a 400x400 square to crop it — you framed a face
+      // against a lie, even though the numbers that came out were right.
+      const framingPicture = state.tool === 'crop';
+      const outW = Math.max(1, framingPicture ? state.origW : state.outW);
+      const outH = Math.max(1, framingPicture ? state.origH : state.outH);
       const scale = Math.min((CW - 4) / outW, (CH - 4) / outH);
       dw = outW * scale; dh = outH * scale;
       dx = (CW - dw) / 2; dy = (CH - dh) / 2;
@@ -254,6 +270,7 @@
   function initEditorCanvas(onChange) {
     const c = canvas();
     let dragging = false;
+    let panned = false;      // a pan happened; catch the rest up on release
     let last = { x: 0, y: 0 };
 
     // Track the pointer for the brush ring
@@ -267,17 +284,25 @@
       updateBrushCursor();
     });
 
+    // Capturing can throw when the pointer is already gone, and the throw
+    // escaped mid-handler leaving the canvas stuck half-dragging.
+    const capture = id => { try { c.setPointerCapture(id); } catch { /* gone */ } };
+
     c.addEventListener('pointerdown', e => {
+      // Left button only. A right-drag painted a red stroke across the photo
+      // AND opened the browser's context menu at the same time; a middle-drag
+      // painted silently.
+      if (e.button !== 0 || !e.isPrimary) return;
       if (!N4DU.render.source(state)) return;
       // Tools take precedence over panning.
       if (toolHandler && toolHandler.down(e, toImage(e))) {
-        c.setPointerCapture(e.pointerId);
+        capture(e.pointerId);
         return;
       }
       if (state.mode !== 'crop' || state.tool !== 'move') return;
       dragging = true;
       last = { x: e.clientX, y: e.clientY };
-      c.setPointerCapture(e.pointerId);
+      capture(e.pointerId);
       c.classList.add('dragging');
     });
 
@@ -291,7 +316,13 @@
       state.cy -= (e.clientY - last.y) * perPixel;
       last = { x: e.clientX, y: e.clientY };
       clampCenter(state);
-      onChange();
+      // The stage only, while the pointer is down. A full refresh re-renders
+      // the thumbnail and re-runs the size estimate on every single move
+      // event — on a 4000x3000 photo that was 80ms a move, about 12fps.
+      // Everything else catches up when the drag ends, which is the same
+      // pattern the brush strokes already use.
+      panned = true;
+      drawEditor();
     });
 
     const endPointer = e => {
@@ -299,12 +330,14 @@
       dragging = false;
       c.classList.remove('dragging');
       if (c.hasPointerCapture?.(e.pointerId)) c.releasePointerCapture(e.pointerId);
+      if (panned) { panned = false; onChange(); }
     };
     c.addEventListener('pointerup', endPointer);
     c.addEventListener('pointercancel', endPointer);
 
     // Mouse wheel = zoom (avatar crop mode only)
     c.addEventListener('wheel', e => {
+      if (!inEditor()) return;
       if (state.mode !== 'crop' || !N4DU.render.source(state)) return;
       e.preventDefault();
       setZoom(state.zoom + (e.deltaY > 0 ? -0.08 : 0.08), onChange);
@@ -312,6 +345,11 @@
 
     // Arrow keys nudge the crop framing (Shift = larger steps)
     window.addEventListener('keydown', e => {
+      // These belong to the editor. The editing session is never torn down on
+      // the way out, so without this one visit to the editor with the square
+      // framing on left the arrow keys captured for the rest of the session —
+      // the file list could never be scrolled with the keyboard again.
+      if (!inEditor()) return;
       if (state.mode !== 'crop' || !N4DU.render.source(state)) return;
       if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
       if (modalOpen()) return;   // do not move the crop under the dialog
