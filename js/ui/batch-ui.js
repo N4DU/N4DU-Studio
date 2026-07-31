@@ -26,6 +26,17 @@
   let working = false;
   let onEditRequest = () => {};
 
+  // How many more images sit in the folder of the file that is open, and
+  // what that folder is called. Filled in by main.js after asking the bridge.
+  let folderCount = 0;
+  let folderName = '';
+
+  function setFolderOffer(count, name) {
+    folderCount = count;
+    folderName = name;
+    syncBatch();
+  }
+
   // ── Setup ─────────────────────────────────────────────────────────
   function initBatchUI(hooks = {}) {
     onEditRequest = hooks.onEdit || (() => {});
@@ -34,6 +45,7 @@
     buildResizeModes();
 
     $('btnAddFiles').addEventListener('click', () => hooks.onAdd());
+    $('btnAddFolder').addEventListener('click', () => hooks.onAddFolder());
     $('btnClearFiles').addEventListener('click', () => {
       batch.clear();
       toast('List cleared', '');
@@ -199,6 +211,16 @@
       ? `${sizeLabel(totals.bytes)} total${totals.replaceable ? `, ${totals.replaceable} on disk` : ''}`
       : 'nothing loaded';
     $('btnClearFiles').disabled = !totals.count || working;
+
+    // "Add the rest of this folder" appears as soon as one file arrives from
+    // disk. How many files a right-click hands over is Windows's decision,
+    // not ours — this makes the whole folder one click away either way.
+    const folderBtn = $('btnAddFolder');
+    folderBtn.hidden = !(bridge.active && folderCount > 0 && !working);
+    folderBtn.textContent = `+ ${folderCount} more in this folder`;
+    folderBtn.title = folderName
+      ? `Add the other images in ${folderName}`
+      : 'Add the other images from the same folder';
     $('convertDrop').hidden = totals.count > 0;
     $('convertDropHint').textContent = bridge.active
       ? 'Or right-click images in your file explorer and choose N4DU Studio.'
@@ -474,6 +496,6 @@
     return kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(kb < 10 ? 1 : 0) + ' KB';
   }
 
-  N4DU.batchUI = { initBatchUI, syncBatch, opts };
+  N4DU.batchUI = { initBatchUI, syncBatch, setFolderOffer, opts };
 
 })(window.N4DU ??= {});

@@ -865,12 +865,49 @@ body.mode-convert .toast.show { transform: translateX(-50%) translateY(0); }
    The view the app opens in: a batch of files, three settings, two
    buttons. Sized like a tool, not like a web page — on a wide screen the
    whole thing stays a narrow column instead of stretching out. */
-/* The converter fills its window. Capping the width here left black bars
-   down both sides; the window itself is what should be small, and it sizes
-   itself to the batch (see js/ui/window-size.js). */
+/* The converter fills its window — capping the width inside a window that
+   is already the right size left black bars down both sides.
+   (The window sizes itself to the batch: js/ui/window-size.js.) */
 body.mode-convert .app { max-width: none; }
+
+/* ── THE SAME TOOL IN A BROWSER TAB ──
+   Opened from a link, or by double-clicking index.html, there is no window
+   to resize: the page gets whatever the browser gives it, usually the whole
+   screen. So the tool draws its own window instead — the same 640px column,
+   the same height that follows the batch, centred on the page. What you see
+   from GitHub is what you get after downloading it.
+   Below 720px the viewport IS the window (that is the compact window, or a
+   small screen), so the frame comes off and it fills the space. */
+@media (min-width: 720px) {
+  body.mode-convert {
+    /* Some breathing room around the card, and something to sit it on. */
+    padding: 22px 0;
+    background:
+      radial-gradient(120% 90% at 50% 0%, #131313 0%, var(--bg) 60%);
+  }
+  body.mode-convert .app {
+    width: 640px;
+    max-width: calc(100vw - 32px);
+    margin: 0 auto;
+    /* Only as tall as the work needs, exactly like the desktop window. */
+    height: auto;
+    max-height: calc(100vh - 44px);
+    grid-template-rows: 48px auto 24px;
+    border: 1px solid var(--border2);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 22px 60px rgba(0, 0, 0, .55);
+  }
+  /* With the card sized to its contents, the list is what gives way when
+     the screen is short. */
+  body.mode-convert .convert { min-height: 0; }
+  body.mode-convert .file-grid { max-height: calc(100vh - 420px); }
+}
 body.mode-convert .workspace,
 body.mode-convert .edit-only { display: none !important; }
+/* The converter has a list, not one open file, so the editor's filename
+   slot has nothing to say here. */
+body.mode-convert .title-file { display: none; }
 body.mode-edit .convert,
 body.mode-edit .convert-only { display: none !important; }
 
@@ -903,6 +940,11 @@ body.mode-edit .convert-only { display: none !important; }
 }
 .conv-sub { font-size: .72rem; color: var(--muted); flex: 1; }
 .btn-ghost.tiny { padding: 3px 9px; font-size: .7rem; }
+/* The folder offer: present enough to notice the moment one file arrives
+   from the file explorer, without shouting. */
+.btn-ghost.tiny.accent { border-color: var(--accent); color: var(--accent); }
+.btn-ghost.tiny.accent:hover { background: rgba(232,255,71,.1); }
+.btn-ghost.tiny[hidden] { display: none; }
 
 /* The file list is the one thing here allowed to scroll: fifty files have
    to go somewhere, and shrinking them further would make the previews

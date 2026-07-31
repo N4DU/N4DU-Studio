@@ -145,6 +145,16 @@
   // the sizing can be checked in a normal page, where resizeTo does nothing.
   const measure = () => ({ w: WIDTH, h: Math.max(MIN_H, convertHeight()) });
 
+  // Immediately, before anything is painted: start at the smallest useful
+  // size and grow from there.
+  //
+  // Chrome remembers an app window's last bounds and restores them whatever
+  // the launcher asked for, so a window that was once large opens large and
+  // then jumps smaller a moment later. Shrinking first turns that into
+  // growing into place, which reads as the window settling rather than as a
+  // glitch. In a normal tab resizeTo does nothing and this costs nothing.
+  apply(WIDTH, MIN_H);
+
   N4DU.windowSize = { init, fit, measure };
 
 })(window.N4DU ??= {});
