@@ -204,7 +204,9 @@ def _remove_ext(reg, ext):
 # Chrome and Edge can open a page as its own small window with no tabs or
 # address bar (--app). That is the closest thing to a desktop window without
 # shipping a browser, and it is what the "compact window" setting uses.
-_APP_FLAGS = ("--app={url}", "--window-size=1380,900")
+# Sized for the converter, which is a narrow column. Big enough for the
+# editor to be usable if you switch, and you can always maximise.
+_APP_FLAGS = ("--app={url}", "--window-size=840,900")
 
 _WINDOWS_CANDIDATES = (
     r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe",
