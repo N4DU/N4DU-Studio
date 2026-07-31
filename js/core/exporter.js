@@ -186,17 +186,23 @@
   async function exportBlob(state) {
     const maxKb = state.maxKb;
     const limitBytes = maxKb ? maxKb * 1024 : null;
+    let { W, H } = outputDims(state);
     let blob = await renderAndEncode(state);
     let limit = null;
 
+    if (limitBytes && blob.size > limitBytes) {
+      // The size that comes back is the size that was DELIVERED. Reading the
+      // dimensions from the state afterwards named the file for the size
+      // that was asked for: a 91x60 image saved as photo_600x400.png, with a
+      // green tick. The name has to describe the bytes.
+      ({ blob, W, H } = await fitToLimit(state, limitBytes, blob, W, H));
+    }
     if (limitBytes) {
-      if (blob.size > limitBytes) blob = await fitToLimit(state, limitBytes);
       limit = blob.size <= limitBytes ? { ok: true } : { ok: false, maxKb };
     }
 
-    const { W, H } = outputDims(state);
     const filename = `${state.fileName}_${W}x${H}.${FORMATS[state.fmt].ext}`;
-    return { blob, filename, limit };
+    return { blob, filename, limit, W, H };
   }
 
   // Compresses until it fits: first a binary search over quality (lossy
@@ -204,21 +210,27 @@
   // the image is never degraded twice.
   // If it cannot fit, returns the SMALLEST result achieved; the caller
   // compares against the limit and reports.
-  async function fitToLimit(state, limit) {
-    const { W, H } = outputDims(state);
+  //
+  // Takes the full-size attempt as the starting point and always returns
+  // { blob, W, H } — a real blob, never null. When the output is 8 px or
+  // less on its smaller side the downscale loop below never runs at all,
+  // and returning null there crashed the caller on `blob.size`: any thin
+  // export (a 1px-wide strip, a 200x8 banner) with a weight limit set died
+  // with "Cannot read properties of null".
+  async function fitToLimit(state, limit, firstBlob, W, H) {
     const f = FORMATS[state.fmt];
     const bg = f.alpha ? null : '#ffffff';
+    let best = { blob: firstBlob, W, H };
 
     if (f.lossy) {
       const canvas = renderOutput(state, W, H, bg);
       const found = await binarySearchQuality(canvas, state.fmt, state.quality, limit);
-      if (found) return found;
+      if (found) return { blob: found, W, H };
     }
 
     // Step the resolution down (with minimum quality for lossy formats).
     // Keep the smallest result seen, not the last one: for lossless formats
     // a smaller scale does not always mean a smaller file.
-    let best = null;
     let scale = 0.9;
     for (let i = 0; i < 16 && Math.min(W, H) * scale >= 8; i++, scale *= 0.82) {
       const w = Math.max(1, Math.round(W * scale));
@@ -228,8 +240,8 @@
         ? (await binarySearchQuality(canvas, state.fmt, state.quality, limit)) ??
           (await encodeCanvas(canvas, state.fmt, 0.05))
         : await encodeCanvas(canvas, state.fmt, state.quality);
-      if (!best || blob.size < best.size) best = blob;
-      if (blob.size <= limit) return blob;
+      if (blob.size < best.blob.size) best = { blob, W: w, H: h };
+      if (blob.size <= limit) return { blob, W: w, H: h };
     }
     return best;
   }

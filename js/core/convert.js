@@ -10,6 +10,10 @@
   const { FORMATS, encodeCanvas, binarySearchQuality } = N4DU.exporter;
 
   const MAX_SIDE = 20000;   // beyond this a canvas allocation fails outright
+  // A side limit is not enough: 20000x20000 is 400 megapixels, 1.6 GB of
+  // canvas, and the browser hands back a zero-sized canvas that then throws
+  // on encode. Cap the AREA too — 80 MP is far beyond any real photograph.
+  const MAX_PIXELS = 80e6;
   const ICO_MAX = 256;
 
   // How the output size is decided.
@@ -49,6 +53,11 @@
     }
     W = Math.max(1, Math.min(MAX_SIDE, W));
     H = Math.max(1, Math.min(MAX_SIDE, H));
+    if (W * H > MAX_PIXELS) {
+      const s = Math.sqrt(MAX_PIXELS / (W * H));
+      W = Math.max(1, Math.floor(W * s));
+      H = Math.max(1, Math.floor(H * s));
+    }
     return { W, H };
   }
 
@@ -72,14 +81,19 @@
   async function convert(bmp, opts) {
     const f = FORMATS[opts.fmt];
     const bg = f.alpha ? null : '#ffffff';
-    const { W, H } = targetSize(bmp.width, bmp.height, opts.resize, opts.fmt);
+    let { W, H } = targetSize(bmp.width, bmp.height, opts.resize, opts.fmt);
 
     let blob = await encodeCanvas(paint(bmp, W, H, bg), opts.fmt, opts.quality);
     let limit = null;
 
     if (opts.maxKb) {
       const cap = opts.maxKb * 1024;
-      if (blob.size > cap) blob = await squeeze(bmp, opts, W, H, bg, cap);
+      if (blob.size > cap) {
+        // W and H must follow the squeeze. Returning the requested size while
+        // handing back a downscaled file made the list report 600x400 next to
+        // a picture that was actually 91x60.
+        ({ blob, W, H } = await squeeze(bmp, opts, W, H, bg, cap, blob));
+      }
       limit = blob.size <= cap ? { ok: true } : { ok: false, maxKb: opts.maxKb };
     }
     return { blob, W, H, limit };
@@ -88,17 +102,23 @@
   // Gets under the cap: quality first (lossy formats), then resolution.
   // Always re-renders from the source bitmap so the picture is never
   // degraded twice over.
-  async function squeeze(bmp, opts, W, H, bg, cap) {
+  //
+  // Takes the full-size attempt as the starting point and always returns
+  // { blob, W, H } — a real blob, never null. When the output is 8 px or
+  // less on its smaller side the loop below never runs at all, and the null
+  // that used to come back crashed the caller on `blob.size`.
+  async function squeeze(bmp, opts, W, H, bg, cap, firstBlob) {
     const f = FORMATS[opts.fmt];
+    let best = { blob: firstBlob, W, H };
+
     if (f.lossy) {
       const found = await binarySearchQuality(
         paint(bmp, W, H, bg), opts.fmt, opts.quality, cap);
-      if (found) return found;
+      if (found) return { blob: found, W, H };
     }
 
     // Keep the smallest result seen rather than the last: for lossless
     // formats a smaller canvas does not always mean a smaller file.
-    let best = null;
     let scale = 0.9;
     for (let i = 0; i < 16 && Math.min(W, H) * scale >= 8; i++, scale *= 0.82) {
       const w = Math.max(1, Math.round(W * scale));
@@ -108,8 +128,8 @@
         ? (await binarySearchQuality(canvas, opts.fmt, opts.quality, cap)) ??
           (await encodeCanvas(canvas, opts.fmt, 0.05))
         : await encodeCanvas(canvas, opts.fmt, opts.quality);
-      if (!best || blob.size < best.size) best = blob;
-      if (blob.size <= cap) return blob;
+      if (blob.size < best.blob.size) best = { blob, W: w, H: h };
+      if (blob.size <= cap) return { blob, W: w, H: h };
     }
     return best;
   }
