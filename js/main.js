@@ -501,11 +501,28 @@
     }
 
     if (tried && reason === 'blocked') {
-      text.innerHTML = '<b>This is the full-page version.</b> N4DU Studio is '
-        + 'built for a small window of its own, and your browser blocked it '
-        + 'from opening one — that is what the pop-up blocker is for. Allow '
-        + 'pop-ups for this page and it will open in its own window from now '
-        + 'on, or press Window to do it once.';
+      // The browser has just shown its own "Pop-ups blocked" bubble, and that
+      // bubble closes on its own within seconds — most people never see it.
+      // So this says where the control it left behind actually is, rather
+      // than assuming the bubble did the explaining.
+      const local = location.protocol === 'file:';
+      box.classList.add('loud');
+      text.innerHTML =
+        '<b>This is the full-page version.</b> N4DU Studio is built for a '
+        + 'small window of its own, and your browser stopped it from opening '
+        + 'one.<br>'
+        + '<span class="how">To fix it for good: click the '
+        + '<b>blocked pop-up icon</b> at the right-hand end of the address '
+        + 'bar (a small window with a red cross), then choose <b>Always '
+        + 'allow</b>'
+        + (local
+            ? ' — Chrome asks for this file by name, so allowing it once '
+              + 'covers every launch from here.<br>Opening <b>main.pyw</b> '
+              + 'instead skips all of this: it gets a real window, with no '
+              + 'address bar and no console.'
+            : ' and reload. From then on the link opens straight into its own '
+              + 'window.')
+        + '</span>';
       action.hidden = false;
       action.textContent = 'Open the window now';
       action.addEventListener('click', () => openInOwnWindow());
