@@ -148,15 +148,27 @@
     if (selection) drawSelection(ctx);
   }
 
+  // The pattern that means "nothing here".
+  //
+  // It used to be #1a1a1a against #222 — eight levels apart out of 255, which
+  // on a dark screen is not a checkerboard at all, it is black. A picture
+  // with a transparent background looked like a picture with a BLACK
+  // background, and the squares only became noticeable once enough had been
+  // erased to make the faint pattern add up. Same two colours everywhere now
+  // (see --check-a / --check-b in the stylesheet), far enough apart to read
+  // at a glance.
+  const CHECK_A = '#1b1b1b';
+  const CHECK_B = '#333';
+
   function drawCheckerboard(ctx, x, y, w, h) {
     const size = 10;
     ctx.save();
     ctx.beginPath();
     ctx.rect(x, y, w, h);
     ctx.clip();
-    ctx.fillStyle = '#1a1a1a';
+    ctx.fillStyle = CHECK_A;
     ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = '#222';
+    ctx.fillStyle = CHECK_B;
     for (let iy = 0; iy * size < h; iy++) {
       for (let ix = 0; ix * size < w; ix++) {
         if ((ix + iy) % 2) ctx.fillRect(x + ix * size, y + iy * size, size, size);

@@ -24,6 +24,7 @@ import time
 import atexit
 import secrets
 import mimetypes
+import subprocess
 import threading
 import webbrowser
 import urllib.error
@@ -106,20 +107,70 @@ def hide_own_console():
     --console keeps it on screen.
     """
     if os.name != "nt":
-        return False
+        return "not-windows"
     try:
         import ctypes
-        kernel32 = ctypes.windll.kernel32
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+        # Every signature declared, none assumed.
+        #
+        # A window handle is pointer-sized. ctypes returns a plain C int
+        # unless told otherwise, so on 64-bit Windows the top half of the
+        # handle was quietly chopped off — and ShowWindow was then handed a
+        # number belonging to no window at all. It returned without
+        # complaint and the console stayed exactly where it was. This is the
+        # whole reason the window kept appearing.
+        kernel32.GetConsoleWindow.restype = wintypes.HWND
+        kernel32.GetConsoleWindow.argtypes = []
+        kernel32.GetConsoleProcessList.restype = wintypes.DWORD
+        kernel32.GetConsoleProcessList.argtypes = [
+            ctypes.POINTER(wintypes.DWORD), wintypes.DWORD]
+        user32.ShowWindow.restype = wintypes.BOOL
+        user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+        user32.IsWindowVisible.restype = wintypes.BOOL
+        user32.IsWindowVisible.argtypes = [wintypes.HWND]
+
         window = kernel32.GetConsoleWindow()
         if not window:
-            return False           # already windowless (pythonw.exe)
-        pids = (ctypes.c_uint * 8)()
-        if kernel32.GetConsoleProcessList(pids, 8) != 1:
-            return False           # someone else's console: not ours to touch
-        ctypes.windll.user32.ShowWindow(window, 0)   # SW_HIDE
-        return True
+            return "no-console"    # already windowless (pythonw.exe)
+        buf = (wintypes.DWORD * 8)()
+        if kernel32.GetConsoleProcessList(buf, 8) != 1:
+            return "shared"        # someone else's console: not ours to touch
+
+        user32.ShowWindow(window, 0)              # SW_HIDE
+        # Checked, not hoped for. The caller has a second way to get rid of
+        # the window and needs to know whether it is required.
+        return "hidden" if not user32.IsWindowVisible(window) else "failed"
     except Exception:
-        return False               # any doubt at all: leave the window alone
+        return "failed"
+
+
+def relaunch_windowless():
+    """Starts again under pythonw.exe and lets this copy go.
+
+    Only used when hiding the console did not work. The new process has no
+    console at all, and this one exiting takes the window with it. Guarded
+    against ever doing it twice.
+    """
+    if os.name != "nt" or os.environ.get("N4DU_RELAUNCHED") == "1":
+        return False
+    quiet = shell_integration.shell_python()
+    # Split on both separators rather than asking os.path, which only knows
+    # about backslashes when it is actually running on Windows.
+    leaf = quiet.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if not leaf.startswith("pythonw"):
+        return False               # no windowless build to relaunch under
+    try:
+        subprocess.Popen(
+            [quiet, os.path.abspath(__file__)] + sys.argv[1:],
+            cwd=ROOT, close_fds=True,
+            env=dict(os.environ, N4DU_RELAUNCHED="1"),
+            creationflags=0x00000008)              # DETACHED_PROCESS
+        return True
+    except OSError:
+        return False
 
 
 def _has_console():
@@ -867,7 +918,11 @@ def main():
     # double-clicked can go. The support commands above are deliberately
     # ahead of this: --check has nothing but its output to give.
     if not args["console"]:
-        hide_own_console()
+        # And if the window will not go quietly, leave it behind: start again
+        # under pythonw.exe, which has no console to begin with, and let this
+        # copy exit so the window closes with it.
+        if hide_own_console() == "failed" and relaunch_windowless():
+            return
 
     # An entry left over from an older version is rewritten now, quietly.
     # Waiting for someone to toggle a setting is how a fix never arrives.

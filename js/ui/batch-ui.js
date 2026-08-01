@@ -266,7 +266,14 @@
     // not ours — this makes the whole folder one click away either way.
     const folderBtn = $('btnAddFolder');
     folderBtn.hidden = !(bridge.active && folderCount > 0 && !working);
-    folderBtn.textContent = `+ ${folderCount} more in this folder`;
+    // The long wording is the widest thing in this row by some way, and in
+    // the launcher's small window it is what pushed everything else off the
+    // edge. There it says just "+ 5 more"; the folder's name was always in
+    // the tooltip anyway.
+    const roomy = !document.body.classList.contains('app-window');
+    folderBtn.textContent = roomy
+      ? `+ ${folderCount} more in this folder`
+      : `+ ${folderCount} more`;
     folderBtn.title = folderName
       ? `Add the other images in ${folderName}`
       : 'Add the other images from the same folder';
