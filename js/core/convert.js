@@ -62,8 +62,15 @@
       W = Math.round(W * s);
       H = Math.round(H * s);
     }
-    W = Math.max(1, Math.min(MAX_SIDE, W));
-    H = Math.max(1, Math.min(MAX_SIDE, H));
+    // One factor for both sides. Clamping each side on its own squashed the
+    // picture: a 1200x30000 screenshot came out 1200x20000 and every circle
+    // in it was a 1.5:1 ellipse, under a setting that says "Keep original".
+    // Asking for 50000 wide on a 2:1 photo produced a perfect square.
+    if (Math.max(W, H) > MAX_SIDE) {
+      const s = MAX_SIDE / Math.max(W, H);
+      W = Math.max(1, Math.round(W * s));
+      H = Math.max(1, Math.round(H * s));
+    }
     if (W * H > MAX_PIXELS) {
       const s = Math.sqrt(MAX_PIXELS / (W * H));
       W = Math.max(1, Math.floor(W * s));

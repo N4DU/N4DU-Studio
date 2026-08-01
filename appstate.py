@@ -150,11 +150,15 @@ def purge_state():
 def write_session(port):
     data = {"port": port, "secret": SECRET, "pid": os.getpid()}
     try:
-        with open(_state_file("session.json", create=True), "w", encoding="utf-8") as fh:
+        path = _state_file("session.json", create=True)
+        # Created 0600 rather than created-then-chmodded. This file holds the
+        # secret that authorises opening arbitrary paths, and the old order
+        # left it world-readable for the width of the write — a real window
+        # on a shared machine. On Windows the mode is ignored, which is fine:
+        # LOCALAPPDATA is already per-user.
+        fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(data, fh)
-        # Readable by this user only where the platform supports it.
-        if os.name != "nt":
-            os.chmod(_state_file("session.json"), 0o600)
     except OSError:
         pass
 

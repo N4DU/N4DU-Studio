@@ -345,9 +345,16 @@
     });
 
     $('optionsTitle').textContent = OPTION_TITLES[state.tool] || 'Options';
-    const guide = state.tool === 'move' && state.mode !== 'crop'
-      ? INSTRUCTIONS.moveKeep : INSTRUCTIONS[state.tool];
+    const keeping = state.tool === 'move' && state.mode !== 'crop';
+    const guide = keeping ? INSTRUCTIONS.moveKeep : INSTRUCTIONS[state.tool];
     $('instruction').innerHTML = guide || '';
+    // The options panel said the opposite of the banner above the picture:
+    // "drag to reposition it, Ctrl+scroll to zoom" next to "the whole picture
+    // is kept as it is". Neither drag nor zoom does anything in Keep mode.
+    $('moveHint').textContent = keeping
+      ? 'Nothing to set. The whole picture is kept — pick a shape under '
+        + 'Result to frame part of it instead.'
+      : 'Nothing to set. Drag the picture to reposition it, Ctrl+scroll to zoom.';
 
     $('brushColor').value = state.brushColor;
     $('brushColorHex').textContent = state.brushColor;

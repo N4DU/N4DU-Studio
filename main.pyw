@@ -206,9 +206,16 @@ def page_is_there():
     now = time.time()
     if now < _page["expected_until"]:
         return True
+    # Five seconds was far too strict. Browsers throttle timers in background
+    # tabs to roughly one a minute — the whole reason STALL_SECONDS exists —
+    # so any window that was not the foreground tab looked dead. Right-click
+    # an image while the app sits behind another tab and it opened a SECOND,
+    # empty window, while the file went into the queue the first one then
+    # collected. The page announces its own exit, and the watchdog handles
+    # one that dies without saying so; the same patience applies here.
     return (_page["connected"]
             and _page["closing_since"] is None
-            and now - _page["last_ping"] < 5)
+            and now - _page["last_ping"] < STALL_SECONDS)
 
 
 def expect_page(seconds=20):
@@ -273,8 +280,29 @@ def watchdog(started_at=None):
 
 
 # ── HTTP server ─────────────────────────────────────────────────────
+class UploadError(ValueError):
+    """A request body that never arrived, or one too big to accept.
+
+    A subclass of ValueError so the existing handlers still catch it, but
+    carrying the right status: an upload cut off halfway is the client's
+    problem (400), an absurd Content-Length is 413, and neither is the 500
+    they were both reported as. It also has to be told apart from a genuinely
+    malformed body, which used to swallow it and say "Malformed request."
+    """
+
+    def __init__(self, message, status=400):
+        super().__init__(message)
+        self.status = status
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+
+    # One thread per connection, and without this they never end. Forty
+    # connections that send half a request line and then nothing took the
+    # process from 3 threads to 43, all still parked minutes later. Any
+    # program on this machine could have kept going until nothing was left.
+    timeout = 30
 
     def log_message(self, *_):
         pass  # keep the console clean: only our own events
@@ -338,13 +366,13 @@ class Handler(BaseHTTPRequestHandler):
         """
         declared = int(self.headers.get("Content-Length", 0) or 0)
         if declared < 0 or declared > MAX_UPLOAD:
-            raise ValueError("That file is too large to write.")
+            raise UploadError("That file is too large to write.", 413)
         buf = bytearray()
         while len(buf) < declared:
             chunk = self.rfile.read(min(1 << 20, declared - len(buf)))
             self._read_bytes = getattr(self, "_read_bytes", 0) + len(chunk)
             if not chunk:
-                raise ValueError(
+                raise UploadError(
                     "The upload ended early, so nothing was written. Try again.")
             buf += chunk
         return bytes(buf)
@@ -378,6 +406,14 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     left = int(self.headers.get("Content-Length") or 0) \
                         - getattr(self, "_read_bytes", 0)
+                    # Draining is a courtesy to the next request on the same
+                    # connection, not an obligation. A client that announces
+                    # 100 KB and sends none of it held the thread until it
+                    # felt like closing — thirteen seconds a request, twenty
+                    # at once. Past a megabyte the connection is simply not
+                    # worth reusing.
+                    if left > 1 << 20:
+                        raise OSError("too much left to drain")
                     while left > 0:
                         chunk = self.rfile.read(min(left, 65536))
                         if not chunk:
@@ -547,6 +583,11 @@ class Handler(BaseHTTPRequestHandler):
     def _settings(self):
         try:
             body = json.loads(self._body().decode("utf-8") or "{}")
+        except UploadError as exc:
+            # Not a malformed body: a body that never finished arriving, or
+            # one too big to accept. Reporting both as "Malformed request."
+            # hid the only fact worth knowing.
+            return self._json({"error": str(exc)}, exc.status)
         except ValueError:
             return self._json({"error": "Malformed request."}, 400)
         if not isinstance(body, dict):
@@ -595,6 +636,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "Not authorised"}, 403)
         try:
             body = json.loads(self._body().decode("utf-8") or "{}")
+        except UploadError as exc:
+            # Not a malformed body: a body that never finished arriving, or
+            # one too big to accept. Reporting both as "Malformed request."
+            # hid the only fact worth knowing.
+            return self._json({"error": str(exc)}, exc.status)
         except ValueError:
             return self._json({"error": "Malformed request."}, 400)
         # One path or many: Send To hands over a whole selection at once.
@@ -680,7 +726,10 @@ class Handler(BaseHTTPRequestHandler):
         if not os.path.isfile(original):
             return self._json(
                 {"error": f"{os.path.basename(original)} is no longer in its folder."}, 410)
-        data = self._body()
+        try:
+            data = self._body()
+        except UploadError as exc:
+            return self._json({"error": str(exc)}, exc.status)
         if not data:
             return self._json({"error": "No data received."}, 400)
 
@@ -979,12 +1028,34 @@ def main():
                 # before it could write its marker. Take the lock rather
                 # than adding a second server to the pile.
                 holds_lock = acquire_start_lock()
+                if not holds_lock:
+                    # Still not ours: the winner is alive and refreshing the
+                    # lock, only slower than we waited. Falling through from
+                    # here bound a second port and overwrote the winner's
+                    # marker, which is the exact accident this lock exists to
+                    # prevent. Give it one more full wait, then give up
+                    # rather than start a rival.
+                    existing = wait_for_hand_off(args["open"])
+                    if not existing:
+                        fatal("Another copy is starting. Try again in a moment.")
     if existing:
         # Another copy is running. Only open a window if there is not one
         # already: twenty right-clicked images must land in one list, not
         # twenty windows.
         url, page_live = existing
         _write("  " + url)
+        # Somebody who opened the console launcher wants to WATCH the bridge.
+        # Handing the launch to a copy already running is right — but then
+        # this window printed one URL, "The bridge has stopped." and closed,
+        # which is the opposite of the truth: the bridge is running fine, in
+        # the other process, and its log is not ours to show.
+        if args["console"]:
+            console.event(SYM["warn"],
+                          "Already running in another process. Its log belongs "
+                          "to that window, not this one.", "33")
+            console.event(SYM["arrow"],
+                          "To watch the log here, close the running copy "
+                          "first, then start this launcher again.")
         if args["browser"] and not page_live:
             open_interface(url)
         if holds_lock:
@@ -1036,7 +1107,13 @@ def main():
         # From here on, a file arriving joins this window instead of opening
         # one of its own.
         expect_page()
-        threading.Timer(0.5, lambda: open_interface(url)).start()
+        # A daemon: Ctrl+C in the first half-second used to stop the server,
+        # return from main(), and then have the interpreter sit waiting for
+        # this timer — which duly opened a browser window pointing at a
+        # server that had just gone.
+        opener = threading.Timer(0.5, lambda: open_interface(url))
+        opener.daemon = True
+        opener.start()
 
     try:
         # Polled instead of a plain wait(): on Windows a blocking wait with no
@@ -1050,6 +1127,7 @@ def main():
         _write("")
         event(SYM["ok"], "Stopped with Ctrl+C. Goodbye.", "92")
     server.shutdown()
+    server.server_close()   # release the port now, not at interpreter exit
 
 
 if __name__ == "__main__":

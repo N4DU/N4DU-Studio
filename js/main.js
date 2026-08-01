@@ -20,8 +20,29 @@
 
   // Repaints everything that depends on state. The single callback the UI
   // modules need to know about.
+  // The picture currently open in the editor, as it arrived from disk.
+  let openFile = null;
+
+  // The name and size of what is being edited. Written once when the picture
+  // opened and never again, so cropping a 300x200 photo to 180x120 left the
+  // Result box saying "300 x 200 px" on one line and "120x180 px" on the
+  // next, with the ORIGINAL file's weight underneath — three numbers, two of
+  // them wrong, in the same sixty pixels.
+  function syncFileInfo() {
+    if (!openFile) return;
+    const w = edit.ready() ? edit.width() : state.origW;
+    const h = edit.ready() ? edit.height() : state.origH;
+    document.getElementById('fileInfo').innerHTML =
+      `<strong>${escapeHtml(openFile.name)}</strong><br>` +
+      `${w} × ${h} px<br>` +
+      `${(openFile.size / 1024).toFixed(0)} KB on disk`;
+    document.getElementById('titleFile').textContent =
+      `${openFile.name} — ${w}×${h} px`;
+  }
+
   function refresh() {
     if (!state.img) return;
+    syncFileInfo();
     syncControls();
     syncTools();
     syncCanvasUI();
@@ -278,12 +299,8 @@
     // replacement target is cleared (it is chosen inside the dialog).
     if (!fromBridge) bridge.clearFile();
 
-    document.getElementById('fileInfo').innerHTML =
-      `<strong>${escapeHtml(meta.name)}</strong><br>` +
-      `${state.origW} × ${state.origH} px<br>` +
-      `${(meta.size / 1024).toFixed(0)} KB`;
-    document.getElementById('titleFile').textContent =
-      `${meta.name} — ${state.origW}×${state.origH} px`;
+    openFile = meta;
+    syncFileInfo();
 
     document.body.classList.add('has-image');
     document.getElementById('zoomSlider').value = 1;

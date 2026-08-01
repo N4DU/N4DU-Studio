@@ -171,7 +171,11 @@
     const y0 = Math.max(0, Math.min(surface.height - 1, y));
     const x1 = Math.max(x0 + 1, Math.min(surface.width, x + w));
     const y1 = Math.max(y0 + 1, Math.min(surface.height, y + h));
-    if (x1 - x0 < 2 || y1 - y0 < 2) return false;
+    // One pixel is a real answer. The floor used to be two, so dragging a
+    // one-pixel strip did nothing and said nothing, and a 1x1 or 1xN source
+    // could not be cropped at all — the clamps above already guarantee at
+    // least one pixel, so there was never anything left for this to protect.
+    if (x1 - x0 < 1 || y1 - y0 < 1) return false;
 
     pushHistory();
     const out = new OffscreenCanvas(x1 - x0, y1 - y0);
@@ -383,6 +387,10 @@
   // mode: 'paint' | 'erase'
   function paintStroke(points, { color, width, mode = 'paint' }) {
     if (!surface || !points.length) return;
+    // Every UI path pairs this with beginStroke(), which is what puts the
+    // undo step on the stack. Anything else calling in directly — a script,
+    // a future tool — would paint pixels that could never be taken back.
+    if (!strokeBase) beginStroke();
     const ctx = surfaceCtx();
     ctx.save();
     ctx.lineWidth = width;
@@ -406,6 +414,10 @@
   // surface on every pointer move made large images unusable.
   function blurStroke(points, { width, radius = 8 }) {
     if (!surface || !points.length) return;
+    // Every UI path pairs this with beginStroke(), which is what puts the
+    // undo step on the stack. Anything else calling in directly — a script,
+    // a future tool — would paint pixels that could never be taken back.
+    if (!strokeBase) beginStroke();
 
     // Padding must exceed the blur reach, otherwise the mask would expose
     // pixels contaminated by the region's own edges.

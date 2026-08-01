@@ -152,13 +152,23 @@
     }
     const seq = ++decodeSeq;
     const bmp = await loadImage(item.file);
-    if (seq !== decodeSeq) {
+    // Removed while we were decoding. dropHot(id) could not help: at that
+    // moment hot.id was still null, so it matched nothing, and this decode
+    // would then cache itself under an id no select() or remove() can ever
+    // name again — pinned until the list is cleared.
+    if (seq !== decodeSeq || !items.includes(item)) {
       // Another decode started while this one was in flight and owns the slot
       // now. Two overlapping calls both used to install themselves, orphaning
       // the first bitmap with nothing left holding a reference to close it —
       // one leaked full-size decode per race. Hand this one out uncached.
       return { bmp, release() { if (typeof bmp.close === 'function') bmp.close(); } };
     }
+    // Whatever is in the slot now is not ours: dropHot() ran before the
+    // await, and another decode may have installed itself since. Overwriting
+    // it left that entry unreachable with doomed still false, so its
+    // release() closed nothing — one leaked full-size decode per race, about
+    // 48 MB on a folder of scans.
+    dropHot();
     hot = { id: item.id, bmp, refs: 1, doomed: false };
     const entry = hot;
     return { bmp, release: () => releaseHot(entry) };

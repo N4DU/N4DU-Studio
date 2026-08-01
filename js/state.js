@@ -81,11 +81,16 @@
     const sameSize = state.origW === w && state.origH === h;
     state.origW = w;
     state.origH = h;
+
+    // The framing survives an operation that changed nothing about the size.
+    // These three lines used to run first, so lining up an avatar crop and
+    // then flipping horizontally — or undoing anything — threw the framing
+    // back to dead centre at 1x, with no way to get it back but by eye.
+    if (sameSize) return;
     state.cx = w / 2;
     state.cy = h / 2;
     state.zoom = 1;
 
-    if (sameSize) return;
     if (state.mode === 'crop') {
       // Square output: leave the requested size alone.
       return;
