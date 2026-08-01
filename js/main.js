@@ -62,6 +62,18 @@
     const inConvert = currentMode() === 'convert';
     const head = document.querySelector('.conv-head');
     const actions = document.querySelector('.title-actions');
+    // They travel as one. Dropped into the row loose, they are three separate
+    // flex items, and when the row runs out of width it breaks BETWEEN them —
+    // Help left on the first line with Settings and Editor stranded at the
+    // start of the second. Inside a box of their own the row can only break
+    // before all three.
+    let group = head.querySelector('.head-chrome');
+    if (!group) {
+      group = document.createElement('span');
+      group.className = 'head-chrome';
+      head.appendChild(group);
+    }
+    group.hidden = currentMode() !== 'convert';
     // Back to front on the way in. Each one's marker is the button that
     // followed it, which is itself still down in the Files row — putting
     // them back in reading order asks to insert before something that is
@@ -70,7 +82,7 @@
     for (const id of order) {
       const el = document.getElementById(id);
       if (!el) continue;
-      if (inConvert) { head.appendChild(el); continue; }
+      if (inConvert) { group.appendChild(el); continue; }
       const marker = chromeHome.get(id);
       // A null reference appends, which is right for whatever was last.
       actions.insertBefore(el, marker && marker.parentNode === actions ? marker : null);
