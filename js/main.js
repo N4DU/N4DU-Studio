@@ -44,6 +44,39 @@
     return document.body.classList.contains('mode-edit') ? 'edit' : 'convert';
   }
 
+  // Help, Settings and the mode button, and where they live.
+  //
+  // In a window of its own the operating system draws its own grey strip
+  // directly above ours, so the app's title bar is a second identical band
+  // holding almost nothing. The converter does without it: these three move
+  // down into the Files row, next to Add files and Clear, and the bar goes.
+  //
+  // The editor keeps its bar — Undo, Open, Copy, Replace and Download live
+  // there and have nowhere else to go — so the three come back on the way in
+  // and go down again on the way out.
+  const CHROME_IDS = ['btnHelp', 'btnSettings', 'btnMode'];
+  const chromeHome = new Map();      // where each one sat in the title bar
+
+  function placeChrome() {
+    if (!document.body.classList.contains('app-window')) return;
+    const inConvert = currentMode() === 'convert';
+    const head = document.querySelector('.conv-head');
+    const actions = document.querySelector('.title-actions');
+    // Back to front on the way in. Each one's marker is the button that
+    // followed it, which is itself still down in the Files row — putting
+    // them back in reading order asks to insert before something that is
+    // not there yet, and insertBefore throws rather than guessing.
+    const order = inConvert ? CHROME_IDS : [...CHROME_IDS].reverse();
+    for (const id of order) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      if (inConvert) { head.appendChild(el); continue; }
+      const marker = chromeHome.get(id);
+      // A null reference appends, which is right for whatever was last.
+      actions.insertBefore(el, marker && marker.parentNode === actions ? marker : null);
+    }
+  }
+
   function setMode(mode) {
     const edit_ = mode === 'edit';
     document.body.classList.toggle('mode-edit', edit_);
@@ -52,6 +85,7 @@
     document.getElementById('btnMode').title = edit_
       ? 'Back to the converter'
       : 'Open the editor for the selected picture';
+    placeChrome();
     if (edit_) refresh();
     else N4DU.batchUI.syncBatch();
     N4DU.windowSize.fit();
@@ -457,6 +491,12 @@
   // in the title bar above us, so the interface says it once instead of
   // twice — and the height that frees up goes to the work area.
   if (new URLSearchParams(location.search).get('app') === '1') {
+    // Noted before anything moves, so the editor can put them back exactly
+    // where they were rather than in whatever order they came out.
+    for (const id of CHROME_IDS) {
+      const el = document.getElementById(id);
+      if (el) chromeHome.set(id, el.nextElementSibling);
+    }
     document.body.classList.add('app-window');
   }
 

@@ -57,12 +57,32 @@
     let total = 0;
     for (const child of block.children) {
       if (child.hidden) continue;
-      total += child.id === 'fileGrid' ? gridHeight(child) : child.offsetHeight;
+      if (child.id === 'fileGrid') total += gridHeight(child);
+      else if (child.id === 'convertDrop') total += naturalDropHeight(child);
+      else total += child.offsetHeight;
     }
     const style = getComputedStyle(block);
     const gap = parseFloat(style.rowGap || style.gap) || 0;
     const visible = [...block.children].filter(c => !c.hidden).length;
     return total + gap * Math.max(0, visible - 1);
+  }
+
+  // The height the drop zone WANTS.
+  //
+  // Same trap as the grid, and worse: the drop zone is told to take whatever
+  // room is going, so its offsetHeight is simply the height of the window it
+  // is already in. Measuring that and then sizing the window to it means the
+  // window can only ever grow. Add the lines up instead, and respect the
+  // floor the stylesheet sets — that floor is the whole point of the box.
+  function naturalDropHeight(drop) {
+    const style = getComputedStyle(drop);
+    const gap = parseFloat(style.rowGap || style.gap) || 0;
+    const box = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) +
+                parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    const lines = [...drop.children].filter(c => !c.hidden && c.offsetHeight > 0);
+    let content = box + gap * Math.max(0, lines.length - 1);
+    for (const line of lines) content += line.offsetHeight;
+    return Math.max(content, parseFloat(style.minHeight) || 0);
   }
 
   // The height the file grid WANTS, counted in rows.
