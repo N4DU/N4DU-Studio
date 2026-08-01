@@ -67,6 +67,7 @@ if ROOT not in sys.path:
 import shell_integration  # noqa: E402  (needs the path fixed up first)
 import appstate          # noqa: E402  settings, session marker, file tokens
 import diskio            # noqa: E402  the file dialog and replacing on disk
+import console          # noqa: E402  everything printed, and nothing decided
 
 # Re-exported so the rest of this file — and anything importing main — can
 # keep saying replace_file() rather than diskio.replace_file(). The split is
@@ -94,6 +95,13 @@ STALL_SECONDS = 150
 MAX_SIBLINGS = 400                 # matches the converter's list limit
 MAX_UPLOAD = 512 * 1024 * 1024     # a replacement bigger than this is a mistake
 
+# What the interface is made of. Everything else in this folder — the code,
+# the git history, whatever a user has parked here — is not the browser's
+# business, and staying inside ROOT was never the same as being servable.
+SERVABLE_EXT = {"html", "js", "css", "svg", "png", "ico", "webmanifest", "woff2"}
+
+REAL_ROOT = os.path.realpath(ROOT)
+
 # Page state (drives the auto-shutdown).
 # expected_until: a window has just been launched but has not reported in
 # yet. Without it, twenty images right-clicked at once would each decide
@@ -109,169 +117,62 @@ _picking = threading.Semaphore(1)  # only one native dialog at a time
 _shutdown = {"event": threading.Event(), "reason": ""}
 
 # ── Console ─────────────────────────────────────────────────────────
-# There may be no console at all. The right-click entry launches the program
-# with pythonw.exe, where sys.stdout is None: printing anything would raise
-# AttributeError and take the app down before it ever opened a window.
-
-def _has_console():
-    return getattr(sys, "stdout", None) is not None
-
-
-def _supports_color():
-    if not _has_console():
-        return False
-    if os.name == "nt":
-        os.system("")  # enables ANSI sequences on the Windows console
-    try:
-        return sys.stdout.isatty()
-    except Exception:
-        return False
-
-
-def _supports_unicode():
-    """Can the console display the nicer symbols? On Windows with a legacy
-    code page (cp1252) printing them raises UnicodeEncodeError and takes the
-    program down, so ASCII stand-ins are used instead."""
-    if not _has_console():
-        return False
-    try:
-        "─✓⚠⟳⬈".encode(getattr(sys.stdout, "encoding", None) or "ascii")
-        return True
-    except (UnicodeEncodeError, LookupError, TypeError, AttributeError):
-        return False
-
-
-_COLOR = _supports_color()
-_UNICODE = _supports_unicode()
-
-# Event symbols, with ASCII fallbacks when the console cannot do better.
-SYM = {
-    "ok": "✓" if _UNICODE else "*",
-    "warn": "⚠" if _UNICODE else "!",
-    "swap": "⟳" if _UNICODE else "~",
-    "open": "⬈" if _UNICODE else ">",
-    "line": "─" if _UNICODE else "-",
-    "arrow": "→" if _UNICODE else "->",
-}
-
-
-def _c(code, text):
-    return f"\033[{code}m{text}\033[0m" if _COLOR else text
-
-
-_print_lock = threading.Lock()
-
-
-def _write(text):
-    """Prints without ever failing — on the console encoding, or on there
-    being no console (launched from the right-click entry)."""
-    if not _has_console():
-        return
-    try:
-        print(text)
-    except UnicodeEncodeError:
-        enc = getattr(sys.stdout, "encoding", None) or "ascii"
-        try:
-            print(text.encode(enc, "replace").decode(enc, "replace"))
-        except OSError:
-            pass
-    except (OSError, AttributeError):
-        pass
-
-
-def event(symbol, text, color="0"):
-    stamp = _c("2", time.strftime("%H:%M:%S"))
-    with _print_lock:
-        _write(f"  {stamp}  {_c(color, symbol + ' ' + text)}")
-
-
-def banner(url):
-    line = SYM["line"] * 46
-    dot = "·" if _UNICODE else "-"
-    with _print_lock:
-        _write("")
-        _write(_c("2", "  " + line))
-        _write("  " + _c("1;93", "N4DU Studio") + _c("2", f"  {dot}  disk bridge"))
-        _write(_c("2", "  " + line))
-        _write(f"  Interface  {_c('96', url)}")
-        _write(f"  Quit       Ctrl+C  {_c('2', '(or close the page)')}")
-        _write(_c("2", "  " + line))
-
-
-# ── The technical view (start.bat, or --console) ────────────────────
-# Someone who opened a console did it to see what is going on behind the
-# interface, so this shows the whole picture rather than a headline: what is
-# running, where it is reading and writing, what the browser is asking for,
-# and what is being done to files on disk.
-VERBOSE = False
-
-
-def _pair(label, value, note=""):
-    _write("  {}  {}{}".format(
-        _c("2", label.ljust(13)), value, _c("2", "  " + note) if note else ""))
+# Presentation lives in console.py. Deciding what is true is this file's
+# job; laying it out is not, and the two were tangled together.
+_write = console.write
+event = console.event
+trace = console.trace
+banner = console.banner
+SYM = console.SYM
 
 
 def report(url, port):
-    """The full picture, printed once at startup."""
-    line = SYM["line"] * 62
-    dot = "·" if _UNICODE else "-"
+    """The technical view's opening picture.
+
+    Gathered here, printed there. Everything a person who deliberately
+    opened a console would otherwise have to go looking for.
+    """
     settings = load_settings()
     integration = shell_integration.status()
     browser = shell_integration.find_app_browser()
     exe = sys.executable or "?"
     leaf = exe.replace("\\", "/").rsplit("/", 1)[-1]
+    installed = integration.get("installed") or []
+    folder = state_dir()
 
-    with _print_lock:
-        _write("")
-        _write(_c("2", "  " + line))
-        _write("  " + _c("1;93", "N4DU Studio") + _c("2", f"  {dot}  disk bridge")
-               + _c("2", f"  {dot}  technical view"))
-        _write(_c("2", "  " + line))
-        _write("")
-        _write(_c("1", "  SERVING"))
-        _pair("interface", _c("96", url))
-        _pair("bound to", f"{HOST}:{port}", "loopback only — never reachable from the network")
-        _pair("process", str(os.getpid()))
-        _write("")
-        _write(_c("1", "  RUNNING ON"))
-        _pair("python", "{}.{}.{}".format(*sys.version_info[:3]),
-              leaf + (" — no console build" if leaf.lower().startswith("pythonw") else ""))
-        _pair("platform", "{} {}".format(os.name, sys.platform))
-        _pair("program", ROOT)
-        _pair("settings", state_dir(),
-              "" if os.path.isdir(state_dir()) else "(not created yet)")
-        _write("")
-        _write(_c("1", "  SET UP"))
-        installed = integration.get("installed") or []
-        _pair("right-click",
-              "on for {} of {} types".format(len(installed),
-                                             len(integration.get("extensions") or []))
-              if installed else "off",
-              "" if integration.get("supported") else "not available on this system")
-        _pair("send to", "yes" if shell_integration.sendto_installed() else "no")
-        _pair("own window", "on" if settings["appWindow"] else "off",
-              os.path.basename(browser) if browser else "no suitable browser found")
-        _write("")
-        _write(_c("1", "  LIMITS"))
-        _pair("files", str(MAX_SIBLINGS), "per batch")
-        _pair("upload", "{} MB".format(MAX_UPLOAD // (1024 * 1024)), "per replacement")
-        _pair("tokens", str(MAX_SESSIONS), "open files remembered at once")
-        _pair("idle", "{}s".format(STALL_SECONDS), "no heartbeat for this long = page gone")
-        _write("")
-        _write(_c("2", "  " + line))
-        _write("  " + _c("2", "Ctrl+C to stop. The window closing does not stop it — "
-                              "this console is the point."))
-        _write(_c("2", "  " + line))
-        _write("")
-
-
-def trace(category, text, color="0"):
-    """One line of the running log. Only in the technical view."""
-    if not VERBOSE:
-        return
-    stamp = _c("2", time.strftime("%H:%M:%S"))
-    with _print_lock:
-        _write("  {}  {}  {}".format(stamp, _c("2", category.ljust(8)), _c(color, text)))
+    console.report([
+        ("SERVING", [
+            ("interface", console.accent(url)),
+            ("bound to", f"{HOST}:{port}",
+             "loopback only — never reachable from the network"),
+            ("process", str(os.getpid())),
+        ]),
+        ("RUNNING ON", [
+            ("python", "{}.{}.{}".format(*sys.version_info[:3]),
+             leaf + (" — no console build" if leaf.lower().startswith("pythonw") else "")),
+            ("platform", "{} {}".format(os.name, sys.platform)),
+            ("program", ROOT),
+            ("settings", folder, "" if os.path.isdir(folder) else "(not created yet)"),
+        ]),
+        ("SET UP", [
+            ("right-click",
+             "on for {} of {} types".format(len(installed),
+                                            len(integration.get("extensions") or []))
+             if installed else "off",
+             "" if integration.get("supported") else "not available on this system"),
+            ("send to", "yes" if shell_integration.sendto_installed() else "no"),
+            ("own window", "on" if settings["appWindow"] else "off",
+             os.path.basename(browser) if browser else "no suitable browser found"),
+        ]),
+        ("LIMITS", [
+            ("files", str(MAX_SIBLINGS), "per batch"),
+            ("upload", "{} MB".format(MAX_UPLOAD // (1024 * 1024)), "per replacement"),
+            ("tokens", str(MAX_SESSIONS), "open files remembered at once"),
+            ("idle", "{}s".format(STALL_SECONDS),
+             "no heartbeat for this long = page gone"),
+        ]),
+    ], footer="Ctrl+C to stop. The window closing does not stop it — "
+              "this console is the point.")
 
 
 # ── Settings shown in the interface ─────────────────────────────────
@@ -305,9 +206,16 @@ def page_is_there():
     now = time.time()
     if now < _page["expected_until"]:
         return True
+    # Five seconds was far too strict. Browsers throttle timers in background
+    # tabs to roughly one a minute — the whole reason STALL_SECONDS exists —
+    # so any window that was not the foreground tab looked dead. Right-click
+    # an image while the app sits behind another tab and it opened a SECOND,
+    # empty window, while the file went into the queue the first one then
+    # collected. The page announces its own exit, and the watchdog handles
+    # one that dies without saying so; the same patience applies here.
     return (_page["connected"]
             and _page["closing_since"] is None
-            and now - _page["last_ping"] < 5)
+            and now - _page["last_ping"] < STALL_SECONDS)
 
 
 def expect_page(seconds=20):
@@ -338,10 +246,20 @@ def request_shutdown(reason):
         _shutdown["event"].set()
 
 
-def watchdog():
+def watchdog(started_at=None):
+    started_at = started_at or time.time()
     while not _shutdown["event"].is_set():
         time.sleep(0.25)
         now = time.time()
+        # A window that never arrived at all. Without this the stall check
+        # below never armed — it only watches pages that HAVE connected — so
+        # a launch whose browser failed to open ran for ever, holding a port,
+        # with no console and no window to notice it by.
+        if (not _page["connected"] and not console.verbose()
+                and now - started_at > STALL_SECONDS
+                and now > _page["expected_until"]):
+            request_shutdown("No window ever appeared.")
+            return
         closing = _page["closing_since"]
         if closing is None:
             # Vanished without notice? (browser killed outright). Only counts
@@ -350,7 +268,7 @@ def watchdog():
                 _page["closing_since"] = now
                 event(SYM["warn"], f"Connection lost — waiting {GRACE_SECONDS}s…", "93")
         elif now - closing >= GRACE_SECONDS and _page["last_ping"] <= closing:
-            if VERBOSE:
+            if console.verbose():
                 # Someone is watching the log. Closing a window is not a
                 # reason to take that away from them — the console was opened
                 # on purpose and only Ctrl+C should end it.
@@ -362,22 +280,49 @@ def watchdog():
 
 
 # ── HTTP server ─────────────────────────────────────────────────────
+class UploadError(ValueError):
+    """A request body that never arrived, or one too big to accept.
+
+    A subclass of ValueError so the existing handlers still catch it, but
+    carrying the right status: an upload cut off halfway is the client's
+    problem (400), an absurd Content-Length is 413, and neither is the 500
+    they were both reported as. It also has to be told apart from a genuinely
+    malformed body, which used to swallow it and say "Malformed request."
+    """
+
+    def __init__(self, message, status=400):
+        super().__init__(message)
+        self.status = status
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+
+    # One thread per connection, and without this they never end. Forty
+    # connections that send half a request line and then nothing took the
+    # process from 3 threads to 43, all still parked minutes later. Any
+    # program on this machine could have kept going until nothing was left.
+    timeout = 30
 
     def log_message(self, *_):
         pass  # keep the console clean: only our own events
 
     # Every API request must carry the X-N4DU header. That forces a CORS
     # preflight this server never authorises, so no external site can call it.
-    def _guard(self):
-        # The address must be our own. Under DNS rebinding a page on another
-        # domain resolves to 127.0.0.1 and the browser then treats it as
-        # same-origin — sending no Origin header at all, so the check below
-        # would pass.
+    def _same_machine(self):
+        """Was this asked for by its own address?
+
+        Under DNS rebinding a page on another domain resolves to 127.0.0.1
+        and the browser then treats it as same-origin — sending no Origin
+        header at all, so an Origin check alone would pass. The Host header
+        still carries the name that was actually typed.
+        """
         host = self.headers.get("Host", "").strip()
         port = self.server.server_address[1]
-        if host not in (f"{HOST}:{port}", f"localhost:{port}"):
+        return host in (f"{HOST}:{port}", f"localhost:{port}")
+
+    def _guard(self):
+        if not self._same_machine():
             self._json({"error": "Wrong host"}, 403)
             return False
         origin = self.headers.get("Origin", "")
@@ -421,12 +366,13 @@ class Handler(BaseHTTPRequestHandler):
         """
         declared = int(self.headers.get("Content-Length", 0) or 0)
         if declared < 0 or declared > MAX_UPLOAD:
-            raise ValueError("That file is too large to write.")
+            raise UploadError("That file is too large to write.", 413)
         buf = bytearray()
         while len(buf) < declared:
             chunk = self.rfile.read(min(1 << 20, declared - len(buf)))
+            self._read_bytes = getattr(self, "_read_bytes", 0) + len(chunk)
             if not chunk:
-                raise ValueError(
+                raise UploadError(
                     "The upload ended early, so nothing was written. Try again.")
             buf += chunk
         return bytes(buf)
@@ -437,6 +383,7 @@ class Handler(BaseHTTPRequestHandler):
     def _safely(self, fn):
         self._started = False
         self._status = 200
+        self._read_bytes = 0
         started_at = time.perf_counter()
         try:
             fn()
@@ -450,11 +397,35 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception:
                     self.close_connection = True
         finally:
+            # Drain whatever is left of the request body. On a keep-alive
+            # connection the leftover bytes are read as the START of the next
+            # request — one connection, one request sent, two answers back.
+            # The refusal paths close the connection instead; these are the
+            # ones that answered and carried on.
+            if not self.close_connection:
+                try:
+                    left = int(self.headers.get("Content-Length") or 0) \
+                        - getattr(self, "_read_bytes", 0)
+                    # Draining is a courtesy to the next request on the same
+                    # connection, not an obligation. A client that announces
+                    # 100 KB and sends none of it held the thread until it
+                    # felt like closing — thirteen seconds a request, twenty
+                    # at once. Past a megabyte the connection is simply not
+                    # worth reusing.
+                    if left > 1 << 20:
+                        raise OSError("too much left to drain")
+                    while left > 0:
+                        chunk = self.rfile.read(min(left, 65536))
+                        if not chunk:
+                            break
+                        left -= len(chunk)
+                except (ValueError, OSError):
+                    self.close_connection = True
             # Every request, with what it cost. The heartbeat is left out on
             # purpose: it arrives every few seconds and would bury everything
             # that actually happened.
             path = urlparse(self.path).path
-            if VERBOSE and path != "/api/ping":
+            if console.verbose() and path != "/api/ping":
                 ms = (time.perf_counter() - started_at) * 1000
                 colour = "0" if self._status < 400 else "91"
                 trace("http", "{} {}  {}  {:.0f}ms".format(
@@ -503,7 +474,7 @@ class Handler(BaseHTTPRequestHandler):
         # process knows it.
         if path == "/api/bye":
             token = parse_qs(urlparse(self.path).query).get("k", [""])[0]
-            if not secrets.compare_digest(token, SECRET):
+            if not secrets.compare_digest(token.encode("utf-8", "ignore"), SECRET.encode()):
                 return self._json({"error": "Not authorised"}, 403)
             _page["closing_since"] = time.time()
             event(SYM["warn"], f"Page closed — waiting {GRACE_SECONDS}s in case it reloads…", "93")
@@ -612,6 +583,11 @@ class Handler(BaseHTTPRequestHandler):
     def _settings(self):
         try:
             body = json.loads(self._body().decode("utf-8") or "{}")
+        except UploadError as exc:
+            # Not a malformed body: a body that never finished arriving, or
+            # one too big to accept. Reporting both as "Malformed request."
+            # hid the only fact worth knowing.
+            return self._json({"error": str(exc)}, exc.status)
         except ValueError:
             return self._json({"error": "Malformed request."}, 400)
         if not isinstance(body, dict):
@@ -656,10 +632,15 @@ class Handler(BaseHTTPRequestHandler):
         server to open arbitrary paths from disk.
         """
         key = self.headers.get("X-N4DU-Key", "")
-        if not secrets.compare_digest(key, SECRET):
+        if not secrets.compare_digest(key.encode("utf-8", "ignore"), SECRET.encode()):
             return self._json({"error": "Not authorised"}, 403)
         try:
             body = json.loads(self._body().decode("utf-8") or "{}")
+        except UploadError as exc:
+            # Not a malformed body: a body that never finished arriving, or
+            # one too big to accept. Reporting both as "Malformed request."
+            # hid the only fact worth knowing.
+            return self._json({"error": str(exc)}, exc.status)
         except ValueError:
             return self._json({"error": "Malformed request."}, 400)
         # One path or many: Send To hands over a whole selection at once.
@@ -676,8 +657,17 @@ class Handler(BaseHTTPRequestHandler):
             full = os.path.abspath(path)
             entries.append({"token": remember_file(full), "path": full,
                             "name": os.path.basename(full)})
-        if not entries:
+        if not entries and paths:
+            # They handed something over and none of it was usable.
             return self._json({"error": refused[0] if refused else "Nothing to open."}, 400)
+        if not entries:
+            # Nothing handed over at all: this is a plain launch asking "is
+            # anybody already running?". Answering it is what stops a second
+            # server appearing every time the app is opened twice.
+            live = page_is_there()
+            if not live:
+                expect_page()
+            return self._json({"pageLive": live, "url": "/"})
 
         # Every file goes into the queue, always. Deciding between "queue it"
         # and "let the caller open a window for it" lost exactly one file
@@ -736,7 +726,10 @@ class Handler(BaseHTTPRequestHandler):
         if not os.path.isfile(original):
             return self._json(
                 {"error": f"{os.path.basename(original)} is no longer in its folder."}, 410)
-        data = self._body()
+        try:
+            data = self._body()
+        except UploadError as exc:
+            return self._json({"error": str(exc)}, exc.status)
         if not data:
             return self._json({"error": "No data received."}, 400)
 
@@ -748,6 +741,15 @@ class Handler(BaseHTTPRequestHandler):
             # The target is a different existing file: nothing is
             # overwritten without explicit confirmation.
             return self._json({"error": f"{exc} already exists.", "conflict": str(exc)}, 409)
+        except OSError as exc:
+            # Read-only file, no permission, disk full, a name the filesystem
+            # will not take, the target turning out to be a folder. All of
+            # them used to escape as a 500 carrying a raw errno and the full
+            # path — a wall of nothing, where the answer is one sentence.
+            return self._json({"error": "Could not write {}: {}.".format(
+                os.path.basename(target_path(original, ext, new_stem or None))
+                if new_stem else os.path.basename(original),
+                exc.strerror or "the system refused it")}, 400)
 
         retarget_file(token, target)   # later replacements follow the new file
         kb = len(data) / 1024
@@ -777,10 +779,29 @@ class Handler(BaseHTTPRequestHandler):
         if "\0" in wanted:
             self.send_error(404)
             return
-        safe = os.path.normpath(os.path.join(ROOT, wanted.lstrip("/\\")))
+        # Same Host rule the API uses. Without it the interface answers to
+        # any name that resolves here, which is what makes DNS rebinding
+        # worth trying.
+        if not self._same_machine():
+            self.send_error(404)
+            return
+        # An allow-list, not merely a containment check. Staying inside ROOT
+        # was never the whole question: ROOT also holds main.pyw, the other
+        # modules, and .git — remote URLs and, with a packed tree, the entire
+        # history. The interface needs eight kinds of file and nothing else.
+        parts = [p for p in wanted.split("/") if p not in ("", ".")]
+        if any(p.startswith(".") for p in parts):
+            self.send_error(404)          # .git, .env, anything hidden
+            return
+        if os.path.splitext(wanted)[1].lower().lstrip(".") not in SERVABLE_EXT:
+            self.send_error(404)
+            return
+        # realpath, so a symlink parked inside ROOT cannot lead out of it.
+        safe = os.path.realpath(os.path.join(ROOT, wanted.lstrip("/\\")))
         # Compare including the separator: without it a sibling folder that
         # merely starts the same (Avatar_Studio_other) would pass the check.
-        if not (safe == ROOT or safe.startswith(ROOT + os.sep)) or not os.path.isfile(safe):
+        if not (safe == REAL_ROOT or safe.startswith(REAL_ROOT + os.sep)) \
+                or not os.path.isfile(safe):
             self.send_error(404)
             return
         ctype = mimetypes.guess_type(safe)[0] or "application/octet-stream"
@@ -796,6 +817,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        # Not framable, by anyone. Embedded in an <iframe> the interface is
+        # same-origin JavaScript with the run secret and full file-replacing
+        # powers, and its buttons can be clickjacked into opening a native
+        # dialog and overwriting a file in place.
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
         self.end_headers()
         self.wfile.write(data)
 
@@ -876,11 +903,17 @@ def hand_off(paths):
             bool(answer.get("pageLive")))
 
 
-def wait_for_hand_off(paths, seconds=15):
+def wait_for_hand_off(paths, seconds=LOCK_STALE + 5):
     """Retries the hand-off while another launch is starting the server.
 
     The loser of the start lock lands here: it polls until the winner has
     written its marker, then gives its file to it.
+
+    The patience has to outlast the stale window. At fifteen seconds against
+    a twenty-five second window there was a gap where a loser could neither
+    hand over nor take the lock, so it started a server of its own — and
+    with twenty files right-clicked at once, twenty of them did. Measured:
+    six launches, six servers, five of them orphans nobody could reach.
     """
     deadline = time.time() + seconds
     while time.time() < deadline:
@@ -922,7 +955,7 @@ def fatal(message):
     on Windows the message goes to a dialog instead of vanishing.
     """
     _write("\n  " + message + "\n")
-    if os.name == "nt" and not _has_console():
+    if os.name == "nt" and not console.has_console():
         try:
             import ctypes
             ctypes.windll.user32.MessageBoxW(None, message, "N4DU Studio", 0x10)
@@ -932,12 +965,11 @@ def fatal(message):
 
 
 def main():
-    global VERBOSE
     args = parse_args(sys.argv[1:])
     # Asking for the technical view only makes sense where there is somewhere
     # to print it. Under pythonw.exe sys.stdout is None and every line would
     # go nowhere, so the flag is quietly ignored rather than half-honoured.
-    VERBOSE = args["console"] and _has_console()
+    console.set_verbose(args["console"])
 
     # Support commands: let people fix the right-click entry from a terminal
     # without opening the interface.
@@ -971,36 +1003,72 @@ def main():
     # Waiting for someone to toggle a setting is how a fix never arrives.
     repaired = shell_integration.repair_if_stale()
 
-    # A file was handed to us (right-click entry, or dropped on the launcher).
-    holds_lock = False
     if args["open"]:
         # Keep only what we can actually open; complain only if none survive.
         usable = [p for p in args["open"] if openable(p)[0]]
         if not usable:
             fatal(openable(args["open"][0])[1])
         args["open"] = usable
-        existing = hand_off(args["open"])
-        if not existing:
-            # Nobody is running yet — but twenty of these may have started at
-            # the same instant, so exactly one of us starts the server and
-            # the others queue up behind it.
-            holds_lock = acquire_start_lock()
-            if not holds_lock:
-                existing = wait_for_hand_off(args["open"])
-        if existing:
-            # Another copy holds the file now. Only open a window if there
-            # is not one already: twenty right-clicked images must land in
-            # one list, not twenty windows.
-            url, page_live = existing
-            _write("  " + url)
-            if args["browser"] and not page_live:
-                open_interface(url)
-            if holds_lock:
-                release_start_lock()
-            return
+
+    # Is somebody already running? Asked EVERY time, not only when files were
+    # passed: launching the app twice by hand used to produce two servers on
+    # two ports, with the second marker overwriting the first and every later
+    # right-click going to the newer one while the older sat there orphaned.
+    holds_lock = False
+    existing = hand_off(args["open"])
+    if not existing:
+        # Nobody yet — but twenty launches may have started at the same
+        # instant, so exactly one of us starts the server and the others
+        # queue up behind it.
+        holds_lock = acquire_start_lock()
+        if not holds_lock:
+            existing = wait_for_hand_off(args["open"])
+            if not existing:
+                # The winner never appeared: it crashed, or was killed
+                # before it could write its marker. Take the lock rather
+                # than adding a second server to the pile.
+                holds_lock = acquire_start_lock()
+                if not holds_lock:
+                    # Still not ours: the winner is alive and refreshing the
+                    # lock, only slower than we waited. Falling through from
+                    # here bound a second port and overwrote the winner's
+                    # marker, which is the exact accident this lock exists to
+                    # prevent. Give it one more full wait, then give up
+                    # rather than start a rival.
+                    existing = wait_for_hand_off(args["open"])
+                    if not existing:
+                        fatal("Another copy is starting. Try again in a moment.")
+    if existing:
+        # Another copy is running. Only open a window if there is not one
+        # already: twenty right-clicked images must land in one list, not
+        # twenty windows.
+        url, page_live = existing
+        _write("  " + url)
+        # Somebody who opened the console launcher wants to WATCH the bridge.
+        # Handing the launch to a copy already running is right — but then
+        # this window printed one URL, "The bridge has stopped." and closed,
+        # which is the opposite of the truth: the bridge is running fine, in
+        # the other process, and its log is not ours to show.
+        if args["console"]:
+            console.event(SYM["warn"],
+                          "Already running in another process. Its log belongs "
+                          "to that window, not this one.", "33")
+            console.event(SYM["arrow"],
+                          "To watch the log here, close the running copy "
+                          "first, then start this launcher again.")
+        if args["browser"] and not page_live:
+            open_interface(url)
+        if holds_lock:
+            release_start_lock()
+        return
 
     mimetypes.add_type("text/javascript", ".js")
     try:
+        # Starting can be slow on a cold machine with twenty interpreters
+        # contending. Without this the winner's own lock goes stale
+        # underneath it and everyone waiting gives up.
+        if holds_lock:
+            appstate.touch_start_lock()
         server, port = start_server()
         url = f"http://{HOST}:{port}/"
         if args["open"]:
@@ -1021,7 +1089,7 @@ def main():
 
     # The technical view, or the plain one. Both say where the interface is;
     # the difference is everything underneath.
-    if VERBOSE:
+    if console.verbose():
         report(url, port)
     else:
         banner(url)
@@ -1033,13 +1101,19 @@ def main():
                                          else f"{len(args['open'])} files"), "0")
         for waiting in _pending:
             trace("token", "{}  {}".format(waiting["token"][:8], waiting["path"]), "2")
-    threading.Thread(target=watchdog, daemon=True).start()
+    threading.Thread(target=watchdog, args=(time.time(),), daemon=True).start()
     threading.Thread(target=server.serve_forever, daemon=True).start()
     if args["browser"]:
         # From here on, a file arriving joins this window instead of opening
         # one of its own.
         expect_page()
-        threading.Timer(0.5, lambda: open_interface(url)).start()
+        # A daemon: Ctrl+C in the first half-second used to stop the server,
+        # return from main(), and then have the interpreter sit waiting for
+        # this timer — which duly opened a browser window pointing at a
+        # server that had just gone.
+        opener = threading.Timer(0.5, lambda: open_interface(url))
+        opener.daemon = True
+        opener.start()
 
     try:
         # Polled instead of a plain wait(): on Windows a blocking wait with no
@@ -1049,10 +1123,11 @@ def main():
             pass
         event(SYM["ok"], _shutdown["reason"] + " Server stopped. Goodbye.", "92")
     except KeyboardInterrupt:
-        with _print_lock:
-            _write("")
+        # A newline first: Ctrl+C leaves "^C" where the cursor was.
+        _write("")
         event(SYM["ok"], "Stopped with Ctrl+C. Goodbye.", "92")
     server.shutdown()
+    server.server_close()   # release the port now, not at interpreter exit
 
 
 if __name__ == "__main__":

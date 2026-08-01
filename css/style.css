@@ -10,7 +10,11 @@
   --border2:  #333;
   --text:     #ececec;
   --muted:    #7a7a7a;
-  --faint:    #4a4a4a;
+  /* Was #4a4a4a: 2.0:1 against the background, below the 3:1 floor and in
+     practice unreadable. It carries real information — the keyboard
+     shortcuts line, the reason a format pill is unavailable, the "each" that
+     says whether a limit is per file. #7a7a7a clears 4.6:1. */
+  --faint:    #7a7a7a;
   --accent:   #e8ff47;
   --accent2:  #c4d930;
   --danger:   #ff5f5f;
@@ -161,6 +165,7 @@ svg use, .sprite symbol { fill: none; stroke: currentColor; stroke-width: 1.7;
   text-align: right;
 }
 .inline-number:focus { outline: none; }
+.inline-number:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* Weight limit: number plus its unit */
 .unit-row { display: flex; gap: 5px; }
@@ -170,7 +175,12 @@ svg use, .sprite symbol { fill: none; stroke: currentColor; stroke-width: 1.7;
   border-radius: 7px; color: var(--text); font-family: var(--fb);
   font-size: .82rem; padding: 5px 8px;
 }
+/* A 1px border-colour change is not a focus indicator: every other
+   control on the page keeps the browser default, so losing the ring
+   here read as "focus went somewhere else". Mouse users still get the
+   quiet version; :focus-visible is keyboard only. */
 .unit-row input[type=number]:focus { outline: none; border-color: var(--accent); }
+.unit-row input[type=number]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .unit-row select {
   background: var(--bg);
   border: 1px solid var(--border2);
@@ -182,6 +192,7 @@ svg use, .sprite symbol { fill: none; stroke: currentColor; stroke-width: 1.7;
   cursor: pointer;
 }
 .unit-row select:focus { outline: none; border-color: var(--accent); }
+.unit-row select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .icon-btn {
   background: transparent;
@@ -219,10 +230,17 @@ svg use, .sprite symbol { fill: none; stroke: currentColor; stroke-width: 1.7;
   min-height: 0;
 }
 
-/* Panels are static: everything fits, nothing scrolls. */
+/* Panels are static: everything fits, nothing scrolls — until the window is
+   too short for that to be true. At 1400x500 the Weight section was sliced
+   through the middle: the "Never exceed" field cut in half, the KB/MB
+   dropdown and the size estimate simply gone, with nothing to scroll. The
+   one-column fallback only covers windows under 900px wide, so every wide
+   short window fell through the gap. A scrollbar is a far smaller price
+   than an unreachable control. */
 .panel {
   background: var(--surface);
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--pad);
   display: flex;
   flex-direction: column;
@@ -521,6 +539,7 @@ body.has-image .canvas-stack { display: flex; }
   transition: border-color .15s;
 }
 .field input[type=number]:focus { outline: none; border-color: var(--accent); }
+.field input[type=number]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .lock-btn {
   background: var(--bg);
@@ -610,9 +629,20 @@ body.has-image .canvas-stack { display: flex; }
   font-weight: 700;
   text-align: center;
 }
+/* Pinned to the bottom of the scrolling modal. At the desktop window's own
+   size the Replace and Cancel buttons were sliced through the middle of
+   their labels at the window edge, and Settings' Done button sat 400px
+   below the fold along with the sentence explaining why its two switches
+   were greyed out. */
 .modal-actions {
   display: flex; justify-content: flex-end; gap: 8px;
   margin-top: 2px;
+  position: sticky;
+  bottom: -20px;                 /* cancels the modal's own bottom padding */
+  padding: 10px 0 12px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  z-index: 1;
 }
 .modal-actions .btn-accent, .modal-actions .btn-ghost { padding: 8px 18px; }
 
@@ -748,6 +778,7 @@ body.has-image .canvas-stack { display: flex; }
   padding: 5px 8px;
 }
 .file-rename input:focus { outline: none; border-color: var(--accent); }
+.file-rename input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .file-rename input:disabled { opacity: .6; }
 .file-rename .file-ext {
   background: var(--surface2);
@@ -776,8 +807,12 @@ body.has-image .canvas-stack { display: flex; }
 body.mode-convert .toast { bottom: auto; top: 60px; transform: translateX(-50%) translateY(-16px); }
 body.mode-convert .toast.show { transform: translateX(-50%) translateY(0); }
 /* And in the editor it landed exactly on the Corners / Zoom bars under the
-   stage, covering the slider, its label and its reset button. */
-body.mode-edit .toast { bottom: auto; top: 60px; transform: translateX(-50%) translateY(-16px); }
+   stage, covering the slider, its label and its reset button. At the top it
+   then landed on the line that explains the current tool — which sits at
+   y68-98 — so every action covered the sentence telling you what the tool
+   you had just picked does. Below it instead, over the picture itself,
+   where it hides nothing that has to be read. */
+body.mode-edit .toast { bottom: auto; top: 104px; transform: translateX(-50%) translateY(-16px); }
 body.mode-edit .toast.show { transform: translateX(-50%) translateY(0); }
 .toast.ok  { border-color: var(--success); color: var(--success); }
 .toast.err { border-color: var(--danger);  color: var(--danger); }
@@ -1049,10 +1084,17 @@ body.app-window.no-files .conv-estimate { display: none; }
   font-size: .5rem; color: var(--accent);
   line-height: 1;
 }
+/* Was --faint on --surface: 2:1 contrast, invisible until hovered. With
+   forty files loaded the only control anybody could find was Clear, which
+   removes all of them. */
 .file-tile-x {
-  position: absolute; top: 2px; right: 5px;
-  font-size: .9rem; color: var(--faint);
+  position: absolute; top: 2px; right: 3px;
+  font-size: .9rem; color: var(--muted);
   line-height: 1; padding: 2px 4px;
+  background: none; border: 0; border-radius: 5px; cursor: pointer;
+}
+.file-tile-x:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px; color: var(--danger);
 }
 .file-tile-x:hover { color: var(--danger); }
 
@@ -1201,7 +1243,16 @@ body.app-window.mode-convert .conv-head .mode-btn .bi { width: 12px; height: 12p
 
 /* All that reclaimed height goes to one place: the box you drop files on,
    which was the only part of the window looking squashed. */
-body.app-window.mode-convert .conv-drop { min-height: 226px; }
+/* Only where there is room for it. flex: 1 1 auto already hands the drop
+   zone every pixel the settings rows do not want, so this floor never did
+   anything at the normal window height — but below about 432px it stopped
+   the box shrinking at all, and it overran its panel and painted itself
+   over the Format / Size / Weight rows. Up to 101px of overlap, and a click
+   anywhere in that band opened the file picker instead of the control that
+   was visibly underneath the pointer. */
+@media (min-height: 440px) {
+  body.app-window.mode-convert .conv-drop { min-height: 226px; }
+}
 body.app-window.mode-convert .conv-drop .drop-label { font-size: .88rem; }
 body.app-window.mode-convert .conv-drop .drop-sub { font-size: .72rem; }
 body.app-window.mode-convert .conv-drop .drop-icon.small { width: 26px; height: 26px; }
@@ -1215,6 +1266,7 @@ body.app-window.mode-convert .conv-drop { gap: 4px; }
 }
 .conv-fields input[type=number]:focus,
 .conv-fields select:focus { outline: none; border-color: var(--accent); }
+.conv-fields select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .conv-fields input[type=range] { flex: 1; max-width: 220px; }
 .conv-fields select {
   background: var(--bg); border: 1px solid var(--border2);
@@ -1367,4 +1419,7 @@ body.app-window.mode-convert .conv-drop { gap: 4px; }
   body.mode-edit .title-actions .sep { display: none; }
   /* Tools read better as a row when they are not in a narrow column. */
   body.mode-edit .tool-grid { display: flex; flex-wrap: wrap; }
+  /* One column puts the instruction hundreds of pixels down the page, so the
+     top of the window is clear again — and 104px would land on the tools. */
+  body.mode-edit .toast { top: 60px; }
 }

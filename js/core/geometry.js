@@ -28,9 +28,25 @@
   }
 
   // Square avatar crop region, in surface coordinates.
-  function cropRect(state) {
-    const side = Math.min(state.origW, state.origH) / state.zoom;
-    return { sx: state.cx - side / 2, sy: state.cy - side / 2, side };
+  //
+  // srcW/srcH are the dimensions of the pixels actually being read. They
+  // default to state's, which is right whenever the two are in step — but
+  // they are only kept in step by an external syncToSurface() call, and a
+  // rotate that had not been followed by one put the whole square outside
+  // the surface and exported a fully transparent picture. A caller holding
+  // the real source should say so rather than trust the bookkeeping.
+  function cropRect(state, srcW, srcH) {
+    const W = srcW || state.origW;
+    const H = srcH || state.origH;
+    const side = Math.min(W, H) / state.zoom;
+    // The centre is clamped against the same pixels, not against state's idea
+    // of them. Rotating without a syncToSurface() left cx/cy describing the
+    // old landscape surface while the pixels were portrait, and the square
+    // landed entirely off the edge: a fully transparent export.
+    const r = side / 2;
+    const cx = Math.max(r, Math.min(W - r, state.cx));
+    const cy = Math.max(r, Math.min(H - r, state.cy));
+    return { sx: cx - r, sy: cy - r, side };
   }
 
   // Keeps the crop centre inside the image for the current zoom.

@@ -150,11 +150,15 @@ def purge_state():
 def write_session(port):
     data = {"port": port, "secret": SECRET, "pid": os.getpid()}
     try:
-        with open(_state_file("session.json", create=True), "w", encoding="utf-8") as fh:
+        path = _state_file("session.json", create=True)
+        # Created 0600 rather than created-then-chmodded. This file holds the
+        # secret that authorises opening arbitrary paths, and the old order
+        # left it world-readable for the width of the write — a real window
+        # on a shared machine. On Windows the mode is ignored, which is fine:
+        # LOCALAPPDATA is already per-user.
+        fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(data, fh)
-        # Readable by this user only where the platform supports it.
-        if os.name != "nt":
-            os.chmod(_state_file("session.json"), 0o600)
     except OSError:
         pass
 
@@ -190,21 +194,75 @@ def acquire_start_lock():
         os.close(fd)
         return True
     except FileExistsError:
-        try:
-            # A crash could leave the lock behind for ever; ignore an old one.
-            if time.time() - os.path.getmtime(lock) > LOCK_STALE:
-                os.remove(lock)
-                return acquire_start_lock()
-        except OSError:
-            pass
-        return False
+        return _steal_stale_lock(lock)
     except OSError:
         return True      # cannot lock (odd filesystem): carrying on beats hanging
 
 
-def release_start_lock():
+def _steal_stale_lock(lock):
+    """Takes over a lock left behind by a launch that never finished.
+
+    Removing it and trying again is not enough: two launches can both read
+    the same old timestamp, and then the second one's remove() deletes the
+    lock the first has just legitimately created — leaving both convinced
+    they won, which is two servers on two ports.
+
+    A rename is the atomic part. Exactly one process can move a given file
+    to a given name; whoever loses that race finds nothing to move and
+    accepts that somebody else is starting.
+    """
     try:
-        os.remove(_state_file("start.lock"))
+        if time.time() - os.path.getmtime(lock) <= LOCK_STALE:
+            return False                       # someone is genuinely starting
+    except OSError:
+        return False                           # it went away by itself
+    mine = "{}.{}".format(lock, secrets.token_hex(4))
+    try:
+        os.replace(lock, mine)                 # only one process can win this
+    except OSError:
+        return False
+    try:
+        os.remove(mine)
+    except OSError:
+        pass
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+        return True
+    except OSError:
+        return False
+
+
+def release_start_lock():
+    """Only ever releases OUR lock.
+
+    A launch slow enough for its lock to go stale would otherwise delete the
+    lock a different process is legitimately holding, and the storm starts
+    all over again.
+    """
+    lock = _state_file("start.lock")
+    try:
+        with open(lock, "r", encoding="utf-8") as fh:
+            if fh.read().strip() != str(os.getpid()):
+                return
+    except OSError:
+        return
+    try:
+        os.remove(lock)
+    except OSError:
+        pass
+
+
+def touch_start_lock():
+    """Keeps the lock fresh while the server is still coming up.
+
+    Starting can take a while on a cold machine — twenty interpreters at
+    once, antivirus reading every file. Without this the winner's own lock
+    goes stale underneath it and the losers give up waiting.
+    """
+    try:
+        os.utime(_state_file("start.lock"), None)
     except OSError:
         pass
 
@@ -259,8 +317,12 @@ def retarget_file(token, path):
     the one that no longer exists.
     """
     with _lock:
+        if token not in _files:
+            return                      # evicted, or never ours: not a way back in
         _files[token] = os.path.abspath(path)
         _files.move_to_end(token)       # just used: not the next to be evicted
+        while len(_files) > MAX_SESSIONS:
+            _files.popitem(last=False)
 
 
 def forget_everything():

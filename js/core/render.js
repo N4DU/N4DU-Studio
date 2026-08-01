@@ -60,7 +60,7 @@
       ctx.clip();
     }
     if (state.mode === 'crop') {
-      const { sx, sy, side } = cropRect(state);
+      const { sx, sy, side } = cropRect(state, src.width, src.height);
       drawRegion(ctx, src, sx, sy, side, side, 0, 0, W, H);
     } else {
       drawRegion(ctx, src, 0, 0, src.width, src.height, 0, 0, W, H);

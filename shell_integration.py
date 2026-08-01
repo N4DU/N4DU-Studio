@@ -458,6 +458,10 @@ def _cli(argv):
     return 0
 
 
+# One Send To attempt per run — see repair_if_stale().
+_sendto_tried = False
+
+
 def repair_if_stale():
     """Brings an out-of-date registration up to date, without being asked.
 
@@ -473,9 +477,21 @@ def repair_if_stale():
         return None
     if not st["supported"] or not st["installed"]:
         return None
-    missing_sendto = sendto_supported() and not st.get("sendTo")
+    # The Send To shortcut can be impossible to create rather than merely
+    # missing: PowerShell blocked by policy, the COM object disabled, a
+    # roaming profile that discards it. sendto_supported() only says the
+    # FOLDER is there, so on such a machine this repaired on every single
+    # launch — twelve extensions rewritten into the registry and a PowerShell
+    # spawn with a thirty-second timeout, before the right-clicked image
+    # could open. One attempt per run is enough; a real repair still happens
+    # the moment the registry itself goes stale.
+    global _sendto_tried
+    missing_sendto = (sendto_supported() and not st.get("sendTo")
+                      and not _sendto_tried)
     if not st["stale"] and not missing_sendto:
         return None
+    if missing_sendto:
+        _sendto_tried = True
     try:
         return enable()
     except RuntimeError:

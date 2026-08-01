@@ -7,11 +7,12 @@
 <meta name="description" content="Desktop image editor: resize, convert formats, control file size, crop, retouch and replace files in place — entirely on your machine.">
 <!-- The same N as assets/n4du.ico: a black letter with a green border. -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M6.12 19.56V4.44L17.88 19.56V4.44' fill='none' stroke='%23e8ff47' stroke-width='7.92' stroke-linecap='round' stroke-linejoin='round'/><path d='M6.12 19.56V4.44L17.88 19.56V4.44' fill='none' stroke='%23141414' stroke-width='4.2' stroke-linecap='round' stroke-linejoin='round'/></svg>">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<!-- Non-blocking: if the CDN is slow or offline the app still starts,
-     falling back to the system font instead of waiting. -->
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&display=swap"
-      rel="stylesheet" media="print" onload="this.media='all'">
+<!-- No webfont, on purpose.
+     This is an offline tool that offers to remove every trace of itself from
+     your machine, and it was fetching a stylesheet from Google on every
+     single launch — carrying your address there, failing noisily with no
+     network, and flashing a different font when it arrived. The system
+     stack in css/style.css looks close enough to be worth none of that. -->
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="mode-convert">
@@ -65,6 +66,14 @@
         <svg><use href="#i-redo"/></svg>
       </button>
       <span class="sep edit-only"></span>
+      <!-- Web only. A page cannot put itself into a floating window on its
+           own — a browser will not resize a tab it did not open — but one
+           click can, and the window that opens then sizes itself to the
+           batch exactly like the downloaded version. -->
+      <button class="btn-ghost small" id="btnPopWindow" hidden
+              title="Open N4DU Studio in a window of its own">
+        <svg class="bi"><use href="#i-open"/></svg> Window
+      </button>
       <button class="icon-btn" id="btnHelp" title="How it works" aria-label="Help">
         <svg><use href="#i-help"/></svg>
       </button>
@@ -209,8 +218,8 @@
         <div class="section-title" id="optionsTitle">Move options</div>
 
         <div class="opt" data-for="move">
-          <div class="hint">Nothing to set. Drag the picture to reposition it,
-            scroll to zoom.</div>
+          <div class="hint" id="moveHint">Nothing to set. Drag the picture to
+            reposition it, Ctrl+scroll to zoom.</div>
         </div>
 
         <div class="opt" data-for="brush erase blur">

@@ -37,13 +37,37 @@
   }
 
   // Real output dimensions (ICO is capped at 256px).
+  // Beyond this a canvas allocation fails outright, and beyond the AREA the
+  // browser hands back a zero-sized canvas that then throws on encode. The
+  // batch converter has always capped both; the editor had neither, and a
+  // panorama with the aspect lock on could derive a side of 65536 from a
+  // perfectly ordinary typed number.
+  const MAX_SIDE = 20000;
+  const MAX_PIXELS = 80e6;
+
   function outputDims(state) {
-    let W = Math.max(1, Math.round(state.outW));
-    let H = Math.max(1, Math.round(state.outH));
+    // `|| 1` and not just Math.max: Math.round(NaN) is NaN, and NaN survives
+    // every comparison below to become a zero-sized canvas.
+    let W = Math.max(1, Math.round(state.outW) || 1);
+    let H = Math.max(1, Math.round(state.outH) || 1);
     if (state.fmt === 'ico' && (W > ICO_MAX || H > ICO_MAX)) {
       const s = ICO_MAX / Math.max(W, H);
       W = Math.max(1, Math.round(W * s));
       H = Math.max(1, Math.round(H * s));
+    }
+    // One factor for both sides. Clamping each side on its own squashed the
+    // picture: a 1200x30000 screenshot came out 1200x20000 and every circle
+    // in it was a 1.5:1 ellipse, under a setting that says "Keep original".
+    // Asking for 50000 wide on a 2:1 photo produced a perfect square.
+    if (Math.max(W, H) > MAX_SIDE) {
+      const s = MAX_SIDE / Math.max(W, H);
+      W = Math.max(1, Math.round(W * s));
+      H = Math.max(1, Math.round(H * s));
+    }
+    if (W * H > MAX_PIXELS) {
+      const s = Math.sqrt(MAX_PIXELS / (W * H));
+      W = Math.max(1, Math.floor(W * s));
+      H = Math.max(1, Math.floor(H * s));
     }
     return { W, H };
   }
@@ -55,8 +79,19 @@
     if (fmt === 'ico')  return encodeIco(canvas);
     if (fmt === 'bmp')  return encodeBmp(canvas);
     if (fmt === 'tiff') return encodeTiff(canvas);
-    if (f.lossy) return canvas.convertToBlob({ type: f.mime, quality });
-    return canvas.convertToBlob({ type: f.mime });
+    const blob = f.lossy
+      ? await canvas.convertToBlob({ type: f.mime, quality })
+      : await canvas.convertToBlob({ type: f.mime });
+    // convertToBlob does not throw on a format the browser cannot write —
+    // it quietly hands back a PNG. The file was then named .avif and was
+    // PNG bytes inside, which every uploader and build step rejects, and
+    // which nothing on screen admitted to. The interface already asks
+    // detectEncodeSupport(), but this function is public and must not
+    // depend on somebody else having checked.
+    if (blob.type !== f.mime) {
+      throw new Error(`This browser cannot write ${f.label}. Pick another format.`);
+    }
+    return blob;
   }
 
   // Modern ICO: an ICONDIR container holding a single PNG entry (valid
@@ -250,6 +285,13 @@
   // lowest quality is too big.
   async function binarySearchQuality(canvas, fmt, maxQ, limit) {
     let lo = 0.02, hi = maxQ, best = null;
+    // The bottom of the range was never actually tried: it only ever went in
+    // as a midpoint input. So when nothing above about 0.02 + range/256 fit,
+    // this returned null and the caller re-encoded at a hard-coded 0.05 that
+    // could itself be over the cap — and then shrank the picture for nothing.
+    const floor = await encodeCanvas(canvas, fmt, lo);
+    if (floor.size > limit) return null;
+    best = floor;
     for (let i = 0; i < 8; i++) {
       const q = (lo + hi) / 2;
       const blob = await encodeCanvas(canvas, fmt, q);
@@ -268,7 +310,10 @@
     document.body.appendChild(a);
     a.click();
     a.remove();
-    URL.revokeObjectURL(url);
+    // Not in this tick. The browser has only been ASKED to download; on a
+    // large blob, and under file:// in particular, revoking straight away
+    // pulls the bytes out from under a transfer that has not started yet.
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
 
   N4DU.exporter = {

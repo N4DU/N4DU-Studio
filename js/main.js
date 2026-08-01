@@ -20,8 +20,29 @@
 
   // Repaints everything that depends on state. The single callback the UI
   // modules need to know about.
+  // The picture currently open in the editor, as it arrived from disk.
+  let openFile = null;
+
+  // The name and size of what is being edited. Written once when the picture
+  // opened and never again, so cropping a 300x200 photo to 180x120 left the
+  // Result box saying "300 x 200 px" on one line and "120x180 px" on the
+  // next, with the ORIGINAL file's weight underneath — three numbers, two of
+  // them wrong, in the same sixty pixels.
+  function syncFileInfo() {
+    if (!openFile) return;
+    const w = edit.ready() ? edit.width() : state.origW;
+    const h = edit.ready() ? edit.height() : state.origH;
+    document.getElementById('fileInfo').innerHTML =
+      `<strong>${escapeHtml(openFile.name)}</strong><br>` +
+      `${w} × ${h} px<br>` +
+      `${(openFile.size / 1024).toFixed(0)} KB on disk`;
+    document.getElementById('titleFile').textContent =
+      `${openFile.name} — ${w}×${h} px`;
+  }
+
   function refresh() {
     if (!state.img) return;
+    syncFileInfo();
     syncControls();
     syncTools();
     syncCanvasUI();
@@ -278,12 +299,8 @@
     // replacement target is cleared (it is chosen inside the dialog).
     if (!fromBridge) bridge.clearFile();
 
-    document.getElementById('fileInfo').innerHTML =
-      `<strong>${escapeHtml(meta.name)}</strong><br>` +
-      `${state.origW} × ${state.origH} px<br>` +
-      `${(meta.size / 1024).toFixed(0)} KB`;
-    document.getElementById('titleFile').textContent =
-      `${meta.name} — ${state.origW}×${state.origH} px`;
+    openFile = meta;
+    syncFileInfo();
 
     document.body.classList.add('has-image');
     document.getElementById('zoomSlider').value = 1;
@@ -378,6 +395,12 @@
     const sell = document.getElementById('statusSell');
     if (sell) sell.hidden = bridge.active;
 
+    // And the offer to leave the tab behind. Only where it is both possible
+    // and useful: not with the bridge running (that window is already its
+    // own), and not inside the window this button opened.
+    const pop = document.getElementById('btnPopWindow');
+    if (pop) pop.hidden = bridge.active || inOwnWindow();
+
     const rep = document.getElementById('btnReplace');
     rep.hidden = false;
     rep.disabled = !hasImage;
@@ -428,6 +451,40 @@
     }
   });
 
+  // ── A window of its own, from the web ─────────────────────────────
+  // A page cannot resize the tab it is in: browsers refuse to resize a
+  // window that was not created by window.open, which is the whole point of
+  // the rule — otherwise any site could throw your tabs around. A window it
+  // opened ITSELF is a different matter, and that window can then size
+  // itself to the batch exactly like the downloaded version does.
+  //
+  // The one thing that cannot be avoided is the click. Opening a window
+  // without one is what a pop-up blocker exists to stop.
+  const WINDOW_NAME = 'n4du-studio';
+
+  function inOwnWindow() {
+    return !!window.opener || window.name === WINDOW_NAME;
+  }
+
+  function openInOwnWindow() {
+    // The size the interface says it needs, so the window arrives right
+    // rather than arriving wrong and correcting itself.
+    const want = N4DU.windowSize.measure();
+    const features = [
+      'popup=yes',
+      `width=${Math.round(want.w)}`,
+      `height=${Math.round(want.h)}`,
+      'resizable=yes',
+      'scrollbars=no',
+    ].join(',');
+    const opened = window.open(location.href, WINDOW_NAME, features);
+    if (!opened) {
+      toast('Your browser blocked the window — allow pop-ups for this page', 'err');
+      return;
+    }
+    opened.focus();
+  }
+
   // ── Help ──────────────────────────────────────────────────────────
   function initHelp() {
     const modal = document.getElementById('helpModal');
@@ -458,8 +515,32 @@
   initTools(refresh);
   initReplaceDialog(afterReplace);
   initHelp();
+  document.getElementById('btnPopWindow').addEventListener('click', openInOwnWindow);
   N4DU.settings.initSettings();
   N4DU.batchUI.initBatchUI({ onAdd: chooseFile, onAddFolder: addFolder, onEdit: editItem });
+
+  // The editor must not outlive the file it is showing.
+  //
+  // Removing that file from the list — or clearing the list — left the
+  // editor holding a picture that belonged to nothing: the title bar still
+  // named it, the stage still drew it, Download still saved it, and
+  // pressing Converter handed the edits back to an item that no longer
+  // existed, so they vanished without a word.
+  const paintBatch = N4DU.batchUI.syncBatch;
+  batch.setOnChange(() => {
+    paintBatch();
+    const gone = editing !== null && !batch.items.some(it => it.id === editing);
+    if (gone && currentMode() === 'edit') {
+      editing = null;                 // nothing to hand anything back to
+      returnToConverter();
+      toast('That picture is no longer in the list', '');
+    } else if (gone) {
+      editing = null;
+    }
+    // With an empty list nothing is open, whatever was open before.
+    if (!batch.items.length) document.body.classList.remove('has-image');
+  });
+
   N4DU.windowSize.init();
   edit.setOnChanged(() => { /* tools repaint explicitly to stay responsive */ });
 
@@ -490,6 +571,16 @@
 
   // More files arriving while the window is already open: every image
   // right-clicked in one go lands in this same list.
+  // The helper stopping is a change the interface has to show: what only it
+  // can do goes back to being locked, and the reason is said out loud
+  // rather than waiting to surface as "Failed to fetch".
+  bridge.setOnStateChange(() => {
+    if (!bridge.active) toast('The desktop helper stopped — replacing files is off', 'err');
+    else toast('The desktop helper is back', 'ok');
+    syncButtons();
+    N4DU.batchUI.syncBatch();
+  });
+
   bridge.setOnPending(async (metas) => {
     const picked = await bridge.collect(metas);
     for (const one of picked) {
