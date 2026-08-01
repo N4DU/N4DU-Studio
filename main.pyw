@@ -10,20 +10,35 @@ REPLACE files on disk, even when the format changes.
 No dependencies: the Python 3.8+ standard library only.
 Binds to 127.0.0.1 exclusively (your machine; never exposed to the network).
 
-    python3 main.py                 # or double-click start.pyw / start.command
-    python3 main.py --open PIC.PNG  # open that file (used by the right-click entry)
-    python3 main.py --console       # keep the console up while it runs
+TWO WAYS IN, AND THE EXTENSION IS WHY
+─────────────────────────────────────
+    double-click main.pyw       the app, and nothing else
+    double-click start.bat      the app, plus the technical log
 
-On Windows, double-click start.pyw rather than this file. Windows decides
-whether a program gets a console from the executable's subsystem field,
-before the program runs: python.exe is a console build and always gets one,
-pythonw.exe never does. .pyw is the extension that routes to pythonw.exe —
-which is also why the right-click entry has never shown a console. Opening
-main.py directly can only hide the window after the fact, and by then it has
-already been on screen for an instant.
+Windows decides whether a program gets a console before that program runs a
+single instruction: the loader reads the subsystem field out of the
+executable's header and acts on it. python.exe is marked WINDOWS_CUI and is
+always given a console; pythonw.exe is marked WINDOWS_GUI and never is.
+Which of the two runs a script is decided by its extension — .py belongs to
+python.exe, .pyw to pythonw.exe.
+
+That is the whole reason this file is called main.pyw. There is no window to
+hide, because none was ever created. It is also why the right-click entry
+has never shown a console: it names pythonw.exe outright.
+
+start.bat is the other side of the same coin. cmd.exe is a console program
+too, so Windows makes its window before the first line of the batch file is
+read — which is exactly what is wanted there.
+
+    python3 main.pyw                 # run it directly
+    python3 main.pyw --console       # the technical log, and stay up
+    python3 main.pyw --open PIC.PNG  # open that file (the right-click entry)
+    python3 main.pyw --check         # what is installed on this machine
 
 Stops with Ctrl+C, or on its own: when the page closes it waits a few
-seconds in case it was a reload, then shuts down if nobody returns.
+seconds in case it was a reload, then shuts down if nobody returns. In
+--console mode it stays up instead — someone watching the log is not done
+just because they closed a window.
 """
 
 import os
@@ -33,7 +48,6 @@ import time
 import atexit
 import secrets
 import mimetypes
-import subprocess
 import threading
 import webbrowser
 import urllib.error
@@ -44,7 +58,7 @@ from urllib.parse import urlparse, parse_qs, unquote, urlencode
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
 # Our own folder, ahead of the import: normally Python puts a script's
-# directory first anyway, but not when main.py is loaded from somewhere else
+# directory first anyway, but not when main.pyw is loaded from somewhere else
 # (a wrapper, an embedded interpreter, a test harness). Without this the
 # sibling module would go missing depending on how the app was started.
 if ROOT not in sys.path:
@@ -98,118 +112,6 @@ _shutdown = {"event": threading.Event(), "reason": ""}
 # There may be no console at all. The right-click entry launches the program
 # with pythonw.exe, where sys.stdout is None: printing anything would raise
 # AttributeError and take the app down before it ever opened a window.
-def hide_own_console():
-    """Windows: gets rid of the black window, but only when it is ours.
-
-    Double-clicking main.py runs it under python.exe, which creates a console
-    for it — a window nobody asked for, sitting behind the app for as long as
-    it runs. That one is hidden the moment we start.
-
-    A console that was already there is left completely alone. Running
-    `python main.py` from a terminal you opened yourself must still print
-    everything where you can read it, and hiding that window would take your
-    shell with it. The two cases are told apart by asking the console how
-    many programs are attached to it: exactly one means it was made for us
-    and nothing else is using it.
-
-    Nothing is turned off — the output still goes to that console, and
-    --console keeps it on screen.
-    """
-    if os.name != "nt":
-        return "not-windows"
-    try:
-        import ctypes
-        from ctypes import wintypes
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        user32 = ctypes.WinDLL("user32", use_last_error=True)
-
-        # Every signature declared, none assumed.
-        #
-        # A window handle is pointer-sized. ctypes returns a plain C int
-        # unless told otherwise, so on 64-bit Windows the top half of the
-        # handle was quietly chopped off — and ShowWindow was then handed a
-        # number belonging to no window at all. It returned without
-        # complaint and the console stayed exactly where it was. This is the
-        # whole reason the window kept appearing.
-        kernel32.GetConsoleWindow.restype = wintypes.HWND
-        kernel32.GetConsoleWindow.argtypes = []
-        kernel32.GetConsoleProcessList.restype = wintypes.DWORD
-        kernel32.GetConsoleProcessList.argtypes = [
-            ctypes.POINTER(wintypes.DWORD), wintypes.DWORD]
-        user32.ShowWindow.restype = wintypes.BOOL
-        user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
-        user32.IsWindowVisible.restype = wintypes.BOOL
-        user32.IsWindowVisible.argtypes = [wintypes.HWND]
-
-        window = kernel32.GetConsoleWindow()
-        if not window:
-            return "no-console"    # already windowless (pythonw.exe)
-        buf = (wintypes.DWORD * 8)()
-        if kernel32.GetConsoleProcessList(buf, 8) != 1:
-            return "shared"        # someone else's console: not ours to touch
-
-        user32.ShowWindow(window, 0)              # SW_HIDE
-        # Checked, not hoped for. The caller has a second way to get rid of
-        # the window and needs to know whether it is required.
-        return "hidden" if not user32.IsWindowVisible(window) else "failed"
-    except Exception:
-        return "failed"
-
-
-def console_report():
-    """What this machine will actually do about the console window.
-
-    Worth stating plainly, because the answer is decided by Windows before
-    any of our code runs and there is no way to tell from the outside which
-    interpreter a double-click will use.
-    """
-    lines = ["Console:"]
-    if os.name != "nt":
-        lines.append("  not Windows — nothing to report")
-        return lines
-
-    exe = sys.executable or "?"
-    leaf = exe.replace("\\", "/").rsplit("/", 1)[-1].lower()
-    gui = leaf.startswith("pythonw")
-    lines.append("  running under: {}  ({})".format(
-        exe, "GUI build — no console is ever created"
-        if gui else "console build — Windows creates a window for it"))
-
-    launcher = os.path.join(ROOT, "start.pyw")
-    lines.append("  start.pyw: {}".format(
-        "present — double-click this one, it never shows a console"
-        if os.path.isfile(launcher) else "MISSING from " + ROOT))
-    lines.append("  start.bat: always flashes briefly — cmd.exe is a console")
-    lines.append("             program, so Windows makes its window before the")
-    lines.append("             first line of the file is read. Use start.pyw.")
-    return lines
-
-
-def relaunch_windowless():
-    """Starts again under pythonw.exe and lets this copy go.
-
-    Only used when hiding the console did not work. The new process has no
-    console at all, and this one exiting takes the window with it. Guarded
-    against ever doing it twice.
-    """
-    if os.name != "nt" or os.environ.get("N4DU_RELAUNCHED") == "1":
-        return False
-    quiet = shell_integration.shell_python()
-    # Split on both separators rather than asking os.path, which only knows
-    # about backslashes when it is actually running on Windows.
-    leaf = quiet.replace("\\", "/").rsplit("/", 1)[-1].lower()
-    if not leaf.startswith("pythonw"):
-        return False               # no windowless build to relaunch under
-    try:
-        subprocess.Popen(
-            [quiet, os.path.abspath(__file__)] + sys.argv[1:],
-            cwd=ROOT, close_fds=True,
-            env=dict(os.environ, N4DU_RELAUNCHED="1"),
-            creationflags=0x00000008)              # DETACHED_PROCESS
-        return True
-    except OSError:
-        return False
-
 
 def _has_console():
     return getattr(sys, "stdout", None) is not None
@@ -296,6 +198,82 @@ def banner(url):
         _write(_c("2", "  " + line))
 
 
+# ── The technical view (start.bat, or --console) ────────────────────
+# Someone who opened a console did it to see what is going on behind the
+# interface, so this shows the whole picture rather than a headline: what is
+# running, where it is reading and writing, what the browser is asking for,
+# and what is being done to files on disk.
+VERBOSE = False
+
+
+def _pair(label, value, note=""):
+    _write("  {}  {}{}".format(
+        _c("2", label.ljust(13)), value, _c("2", "  " + note) if note else ""))
+
+
+def report(url, port):
+    """The full picture, printed once at startup."""
+    line = SYM["line"] * 62
+    dot = "·" if _UNICODE else "-"
+    settings = load_settings()
+    integration = shell_integration.status()
+    browser = shell_integration.find_app_browser()
+    exe = sys.executable or "?"
+    leaf = exe.replace("\\", "/").rsplit("/", 1)[-1]
+
+    with _print_lock:
+        _write("")
+        _write(_c("2", "  " + line))
+        _write("  " + _c("1;93", "N4DU Studio") + _c("2", f"  {dot}  disk bridge")
+               + _c("2", f"  {dot}  technical view"))
+        _write(_c("2", "  " + line))
+        _write("")
+        _write(_c("1", "  SERVING"))
+        _pair("interface", _c("96", url))
+        _pair("bound to", f"{HOST}:{port}", "loopback only — never reachable from the network")
+        _pair("process", str(os.getpid()))
+        _write("")
+        _write(_c("1", "  RUNNING ON"))
+        _pair("python", "{}.{}.{}".format(*sys.version_info[:3]),
+              leaf + (" — no console build" if leaf.lower().startswith("pythonw") else ""))
+        _pair("platform", "{} {}".format(os.name, sys.platform))
+        _pair("program", ROOT)
+        _pair("settings", state_dir(),
+              "" if os.path.isdir(state_dir()) else "(not created yet)")
+        _write("")
+        _write(_c("1", "  SET UP"))
+        installed = integration.get("installed") or []
+        _pair("right-click",
+              "on for {} of {} types".format(len(installed),
+                                             len(integration.get("extensions") or []))
+              if installed else "off",
+              "" if integration.get("supported") else "not available on this system")
+        _pair("send to", "yes" if shell_integration.sendto_installed() else "no")
+        _pair("own window", "on" if settings["appWindow"] else "off",
+              os.path.basename(browser) if browser else "no suitable browser found")
+        _write("")
+        _write(_c("1", "  LIMITS"))
+        _pair("files", str(MAX_SIBLINGS), "per batch")
+        _pair("upload", "{} MB".format(MAX_UPLOAD // (1024 * 1024)), "per replacement")
+        _pair("tokens", str(MAX_SESSIONS), "open files remembered at once")
+        _pair("idle", "{}s".format(STALL_SECONDS), "no heartbeat for this long = page gone")
+        _write("")
+        _write(_c("2", "  " + line))
+        _write("  " + _c("2", "Ctrl+C to stop. The window closing does not stop it — "
+                              "this console is the point."))
+        _write(_c("2", "  " + line))
+        _write("")
+
+
+def trace(category, text, color="0"):
+    """One line of the running log. Only in the technical view."""
+    if not VERBOSE:
+        return
+    stamp = _c("2", time.strftime("%H:%M:%S"))
+    with _print_lock:
+        _write("  {}  {}  {}".format(stamp, _c("2", category.ljust(8)), _c(color, text)))
+
+
 # ── Settings shown in the interface ─────────────────────────────────
 def settings_status():
     """Everything the settings screen needs, in one call."""
@@ -372,7 +350,15 @@ def watchdog():
                 _page["closing_since"] = now
                 event(SYM["warn"], f"Connection lost — waiting {GRACE_SECONDS}s…", "93")
         elif now - closing >= GRACE_SECONDS and _page["last_ping"] <= closing:
-            request_shutdown("Page closed.")
+            if VERBOSE:
+                # Someone is watching the log. Closing a window is not a
+                # reason to take that away from them — the console was opened
+                # on purpose and only Ctrl+C should end it.
+                _page["closing_since"] = None
+                _page["connected"] = False
+                trace("page", "window gone — still serving (Ctrl+C to stop)", "93")
+            else:
+                request_shutdown("Page closed.")
 
 
 # ── HTTP server ─────────────────────────────────────────────────────
@@ -407,6 +393,7 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, obj, status=200):
         body = json.dumps(obj).encode()
         self._started = True
+        self._status = status
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -449,9 +436,12 @@ class Handler(BaseHTTPRequestHandler):
     # is closed instead of leaving the client waiting for promised bytes.
     def _safely(self, fn):
         self._started = False
+        self._status = 200
+        started_at = time.perf_counter()
         try:
             fn()
         except Exception as exc:
+            self._status = 500
             if getattr(self, "_started", False):
                 self.close_connection = True
             else:
@@ -459,6 +449,16 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"error": str(exc)}, 500)
                 except Exception:
                     self.close_connection = True
+        finally:
+            # Every request, with what it cost. The heartbeat is left out on
+            # purpose: it arrives every few seconds and would bury everything
+            # that actually happened.
+            path = urlparse(self.path).path
+            if VERBOSE and path != "/api/ping":
+                ms = (time.perf_counter() - started_at) * 1000
+                colour = "0" if self._status < 400 else "91"
+                trace("http", "{} {}  {}  {:.0f}ms".format(
+                    self.command, path, self._status, ms), colour)
 
     # ── GET ──
     def do_GET(self):
@@ -513,6 +513,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/hello":
             page_alive()
             event(SYM["ok"], "Page connected", "92")
+            trace("page", "{} — {}".format(
+                self.headers.get("User-Agent", "?")[:70],
+                self.client_address[0]), "2")
             return self._json({"ok": True, "key": SECRET})
         if path == "/api/pick":
             return self._pick()
@@ -540,12 +543,15 @@ class Handler(BaseHTTPRequestHandler):
         paths = [p for p in paths if os.path.isfile(p)]
         if not paths:
             self._started = True
+            self._status = 204
             self.send_response(204)  # cancelled, or nothing usable
             self.end_headers()       # 204 must not carry a Content-Length
             return
 
         files = [{"token": remember_file(p), "path": p,
                   "name": os.path.basename(p)} for p in paths]
+        for f in files:
+            trace("token", "{}  {}".format(f["token"][:8], f["path"]), "2")
         verb = "Target" if intent == "target" else "Opened"
         if len(files) == 1:
             event(SYM["open"], f"{verb}: {paths[0]}", "0")
@@ -690,6 +696,8 @@ class Handler(BaseHTTPRequestHandler):
         where = "Added to the open window: " if live else "Opened: "
         event(SYM["open"], where + (entries[0]["path"] if len(entries) == 1
                                     else f"{len(entries)} files"), "0")
+        for handed in entries:
+            trace("token", "{}  {}".format(handed["token"][:8], handed["path"]), "2")
         first = entries[0]
         return self._json({**first, "files": entries, "pageLive": live,
                            "url": "/?" + urlencode({"open": first["token"]})})
@@ -710,6 +718,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": f"Could not read the file: {exc.strerror}"}, 500)
         ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
         self._started = True
+        self._status = 200
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
@@ -747,6 +756,7 @@ class Handler(BaseHTTPRequestHandler):
         new = os.path.basename(target)
         detail = new if old == new else f'{old} {SYM["arrow"]} {new}'
         event(SYM["swap"], f"Replaced: {detail} ({size})", "96")
+        trace("disk", "wrote {} bytes to {}".format(len(data), target), "96")
         if warning:
             event(SYM["warn"], warning, "93")
         return self._json({"path": target, "name": new, "warning": warning})
@@ -781,6 +791,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         self._started = True
+        self._status = 200
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
@@ -921,7 +932,12 @@ def fatal(message):
 
 
 def main():
+    global VERBOSE
     args = parse_args(sys.argv[1:])
+    # Asking for the technical view only makes sense where there is somewhere
+    # to print it. Under pythonw.exe sys.stdout is None and every line would
+    # go nowhere, so the flag is quietly ignored rather than half-honoured.
+    VERBOSE = args["console"] and _has_console()
 
     # Support commands: let people fix the right-click entry from a terminal
     # without opening the interface.
@@ -932,9 +948,6 @@ def main():
                 _write(shell_integration.dump())
                 _write("")
                 _write("  " + shell_integration.describe(shell_integration.status()))
-                _write("")
-                for line in console_report():
-                    _write("  " + line)
                 return
             if args["settings"] == "--forget":
                 if shell_integration.status()["supported"]:
@@ -953,17 +966,6 @@ def main():
             return
         except RuntimeError as exc:
             fatal(str(exc))
-
-    # From here on the program is going to run the app rather than print an
-    # answer and stop, so a console that exists only because main.py was
-    # double-clicked can go. The support commands above are deliberately
-    # ahead of this: --check has nothing but its output to give.
-    if not args["console"]:
-        # And if the window will not go quietly, leave it behind: start again
-        # under pythonw.exe, which has no console to begin with, and let this
-        # copy exit so the window closes with it.
-        if hide_own_console() == "failed" and relaunch_windowless():
-            return
 
     # An entry left over from an older version is rewritten now, quietly.
     # Waiting for someone to toggle a setting is how a fix never arrives.
@@ -1017,13 +1019,20 @@ def main():
             release_start_lock()
     atexit.register(clear_session)
 
-    banner(url)
+    # The technical view, or the plain one. Both say where the interface is;
+    # the difference is everything underneath.
+    if VERBOSE:
+        report(url, port)
+    else:
+        banner(url)
     if repaired:
         event(SYM["ok"], "Right-click entry brought up to date", "92")
     if args["open"]:
         event(SYM["open"], "Opened: " + (os.path.abspath(args["open"][0])
                                          if len(args["open"]) == 1
                                          else f"{len(args['open'])} files"), "0")
+        for waiting in _pending:
+            trace("token", "{}  {}".format(waiting["token"][:8], waiting["path"]), "2")
     threading.Thread(target=watchdog, daemon=True).start()
     threading.Thread(target=server.serve_forever, daemon=True).start()
     if args["browser"]:
