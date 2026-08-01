@@ -401,7 +401,15 @@
       return `${item.result.W}×${item.result.H} · ${sizeLabel(item.result.blob.size)}` +
              (over ? ' · over cap' : '');
     }
-    return `${item.w}×${item.h} · ${sizeLabel(item.size)}`;
+    // Before anything is converted the card can only report what came in.
+    // That is fine until a size is set, at which point every card still said
+    // 4000×3000 and nothing on screen said what would actually come out —
+    // the one number the estimate below the list cannot give per file.
+    const source = `${item.w}×${item.h} · ${sizeLabel(item.size)}`;
+    if (opts.resize.mode === 'keep' || !item.w || !item.h) return source;
+    const t = targetSize(item.w, item.h, opts.resize, fmtFor(item));
+    if (t.W === item.w && t.H === item.h) return source;
+    return `${item.w}×${item.h} → ${t.W}×${t.H} · ${sizeLabel(item.size)}`;
   }
 
   function drawThumbInto(canvas, thumb) {
