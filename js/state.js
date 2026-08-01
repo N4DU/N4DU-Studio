@@ -69,17 +69,28 @@
 
   // Keeps state in step with the edit surface after an operation that
   // changes the pixel dimensions (rotate, flip, crop).
-  // keepOutput = true preserves the chosen output size (e.g. after a flip,
-  // where dimensions are unchanged).
-  function syncToSurface(w, h, keepOutput = false) {
+  //
+  // There used to be a keepOutput flag to hold the chosen output size across
+  // an operation that did not change the picture — but "did not change the
+  // picture" is already known here, from the dimensions themselves, and undo
+  // was passing the flag while the dimensions DID change. Rotating a 400x200
+  // photo and pressing undo left the output at 200x400: the surface was
+  // landscape again, the export was portrait, and the file came out squashed
+  // fourfold with a filename that agreed with the wrong bytes.
+  function syncToSurface(w, h) {
     const sameSize = state.origW === w && state.origH === h;
     state.origW = w;
     state.origH = h;
+
+    // The framing survives an operation that changed nothing about the size.
+    // These three lines used to run first, so lining up an avatar crop and
+    // then flipping horizontally — or undoing anything — threw the framing
+    // back to dead centre at 1x, with no way to get it back but by eye.
+    if (sameSize) return;
     state.cx = w / 2;
     state.cy = h / 2;
     state.zoom = 1;
 
-    if (keepOutput || sameSize) return;
     if (state.mode === 'crop') {
       // Square output: leave the requested size alone.
       return;

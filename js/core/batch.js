@@ -19,9 +19,25 @@
   function setOnChange(fn) { onChange = fn || (() => {}); }
 
   // ── Adding ────────────────────────────────────────────────────────
+  // How many add() calls are still running. A batch of two hundred takes a
+  // few seconds to read, and starting a conversion partway through quietly
+  // converts only what had arrived.
+  let loadingCount = 0;
+  const loading = () => loadingCount > 0;
+
+  async function add(files, meta = {}) {
+    loadingCount++;
+    try {
+      return await addFiles(files, meta);
+    } finally {
+      loadingCount--;
+      onChange();
+    }
+  }
+
   // meta: { token, path } when the file came from the disk bridge, which is
   // what makes replacing it in place possible later.
-  async function add(files, meta = {}) {
+  async function addFiles(files, meta = {}) {
     const incoming = [...files].slice(0, Math.max(0, MAX_ITEMS - items.length));
     const skipped = files.length - incoming.length;
     const failed = [];
@@ -136,13 +152,23 @@
     }
     const seq = ++decodeSeq;
     const bmp = await loadImage(item.file);
-    if (seq !== decodeSeq) {
+    // Removed while we were decoding. dropHot(id) could not help: at that
+    // moment hot.id was still null, so it matched nothing, and this decode
+    // would then cache itself under an id no select() or remove() can ever
+    // name again — pinned until the list is cleared.
+    if (seq !== decodeSeq || !items.includes(item)) {
       // Another decode started while this one was in flight and owns the slot
       // now. Two overlapping calls both used to install themselves, orphaning
       // the first bitmap with nothing left holding a reference to close it —
       // one leaked full-size decode per race. Hand this one out uncached.
       return { bmp, release() { if (typeof bmp.close === 'function') bmp.close(); } };
     }
+    // Whatever is in the slot now is not ours: dropHot() ran before the
+    // await, and another decode may have installed itself since. Overwriting
+    // it left that entry unreachable with doomed still false, so its
+    // release() closed nothing — one leaked full-size decode per race, about
+    // 48 MB on a folder of scans.
+    dropHot();
     hot = { id: item.id, bmp, refs: 1, doomed: false };
     const entry = hot;
     return { bmp, release: () => releaseHot(entry) };
@@ -258,7 +284,7 @@
 
   N4DU.batch = {
     items, add, remove, clear, select, selected, decode, decodeCached, setEdited,
-    resetResults, totals, setOnChange, MAX_ITEMS,
+    resetResults, totals, setOnChange, loading, MAX_ITEMS,
     get selectedId() { return selectedId; },
   };
 

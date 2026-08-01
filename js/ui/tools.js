@@ -17,7 +17,13 @@
   // What each tool does, shown above the picture at all times. This line is
   // the main reason the app can be used without reading anything else.
   const INSTRUCTIONS = {
-    move:   'Drag the picture to reposition it · scroll to zoom',
+    // Repositioning and zooming only mean anything when the picture is being
+    // framed into a shape. In Keep mode the whole picture is the output, so
+    // there is nothing to drag and nothing to zoom — promising both was the
+    // single most confusing line in the editor.
+    move:   'Drag the picture to reposition it · Ctrl+scroll to zoom',
+    moveKeep: 'The whole picture is kept as it is. Pick a shape under '
+            + '<b>Result</b> to frame part of it instead',
     crop:   'Pull the <b>corners or edges</b> inwards, then press <b>Apply</b>',
     brush:  'Drag to paint · change the colour and size on the left',
     blur:   'Drag over anything you want to blur out',
@@ -78,8 +84,8 @@
 
     $('rotL').addEventListener('click', () => geometryOp(() => edit.rotate(-90)));
     $('rotR').addEventListener('click', () => geometryOp(() => edit.rotate(90)));
-    $('flipH').addEventListener('click', () => geometryOp(() => edit.flip('h'), true));
-    $('flipV').addEventListener('click', () => geometryOp(() => edit.flip('v'), true));
+    $('flipH').addEventListener('click', () => geometryOp(() => edit.flip('h')));
+    $('flipV').addEventListener('click', () => geometryOp(() => edit.flip('v')));
 
     // Blurring a whole picture can take a moment on a large file, so the
     // canvas shows that work is happening instead of appearing frozen.
@@ -164,8 +170,18 @@
         const handle = N4DU.cropBox.hitTest(local.x, local.y, box);
         // Clicking well outside the box starts a brand new one.
         if (handle === 'outside') {
-          setSelection({ x: pt.x, y: pt.y, w: N4DU.cropBox.MIN_SIZE, h: N4DU.cropBox.MIN_SIZE });
-          cropDrag = { handle: 'se', start: pt, rect: getSelection() };
+          // The picture rarely fills the stage, so a click that begins in the
+          // grey letterbox band lands OUTSIDE the picture — a negative x, or
+          // one past the last column. resize() clamps every later edge but
+          // never that first corner, so the box kept a corner off the picture:
+          // the readout said 668×603 and the file that came out was 668×512.
+          const M = N4DU.cropBox.MIN_SIZE;
+          const inside = {
+            x: Math.max(0, Math.min(pt.x, edit.width() - M)),
+            y: Math.max(0, Math.min(pt.y, edit.height() - M)),
+          };
+          setSelection({ x: inside.x, y: inside.y, w: M, h: M });
+          cropDrag = { handle: 'se', start: inside, rect: getSelection() };
         } else {
           cropDrag = { handle, start: pt, rect: { ...getSelection() } };
         }
@@ -231,6 +247,8 @@
   function onUp() {
     if (stroke) {
       stroke = null;
+      // Lets go of the copy the blur brush reads from.
+      edit.endStroke();
       refresh();          // update the preview and estimated size once
       return true;
     }
@@ -274,8 +292,16 @@
   // ── Actions ───────────────────────────────────────────────────────
 
   function applyCrop() {
-    const sel = getSelection();
-    if (!sel || sel.w < 2 || sel.h < 2) return;
+    const raw = getSelection();
+    if (!raw || raw.w < 2 || raw.h < 2) return;
+    // Belt and braces: whatever the box says, only pixels that exist can be
+    // cropped, and the toast must report what was actually taken.
+    const x = Math.max(0, Math.min(raw.x, edit.width() - 1));
+    const y = Math.max(0, Math.min(raw.y, edit.height() - 1));
+    const sel = { x, y,
+                  w: Math.min(raw.w, edit.width() - x),
+                  h: Math.min(raw.h, edit.height() - y) };
+    if (sel.w < 2 || sel.h < 2) return;
     if (!edit.crop(sel.x, sel.y, sel.w, sel.h)) {
       toast('That box is too small', 'err');
       return;
@@ -290,15 +316,15 @@
   // or rotation), so the output size is re-synced without being reset.
   function stepHistory(step) {
     if (!step()) return;
-    N4DU.syncToSurface(edit.width(), edit.height(), true);
+    N4DU.syncToSurface(edit.width(), edit.height());
     setSelection(null);
     refresh();
   }
 
   // Runs an operation that may change the pixel dimensions.
-  function geometryOp(fn, keepOutput = false) {
+  function geometryOp(fn) {
     fn();
-    N4DU.syncToSurface(edit.width(), edit.height(), keepOutput);
+    N4DU.syncToSurface(edit.width(), edit.height());
     setSelection(null);
     refresh();
   }
@@ -319,7 +345,16 @@
     });
 
     $('optionsTitle').textContent = OPTION_TITLES[state.tool] || 'Options';
-    $('instruction').innerHTML = INSTRUCTIONS[state.tool] || '';
+    const keeping = state.tool === 'move' && state.mode !== 'crop';
+    const guide = keeping ? INSTRUCTIONS.moveKeep : INSTRUCTIONS[state.tool];
+    $('instruction').innerHTML = guide || '';
+    // The options panel said the opposite of the banner above the picture:
+    // "drag to reposition it, Ctrl+scroll to zoom" next to "the whole picture
+    // is kept as it is". Neither drag nor zoom does anything in Keep mode.
+    $('moveHint').textContent = keeping
+      ? 'Nothing to set. The whole picture is kept — pick a shape under '
+        + 'Result to frame part of it instead.'
+      : 'Nothing to set. Drag the picture to reposition it, Ctrl+scroll to zoom.';
 
     $('brushColor').value = state.brushColor;
     $('brushColorHex').textContent = state.brushColor;

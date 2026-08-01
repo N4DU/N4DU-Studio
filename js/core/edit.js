@@ -9,8 +9,27 @@
 (function (N4DU) {
 
   const MAX_HISTORY = 20;   // snapshots kept in each direction
+  // ...but counting snapshots is not the same as counting memory. Each one
+  // is the whole surface: on a 12 megapixel photo that is 48 MB, and twenty
+  // in each direction came to nearly two gigabytes for a picture somebody
+  // just wanted to crop. Whichever limit is reached first wins, so small
+  // pictures keep the full twenty steps and large ones keep as many as fit.
+  const MAX_HISTORY_BYTES = 256 * 1024 * 1024;
 
-  let surface = null;       // OffscreenCanvas with the current pixels
+  const snapBytes = (c) => (c ? c.width * c.height * 4 : 0);
+
+  function trimHistory(stack) {
+    while (stack.length > MAX_HISTORY) stack.shift();
+    let total = 0;
+    for (const snap of stack) total += snapBytes(snap);
+    // Never below one step: undo has to do something.
+    while (stack.length > 1 && total > MAX_HISTORY_BYTES) {
+      total -= snapBytes(stack.shift());
+    }
+  }
+
+  let surface = null;         // OffscreenCanvas with the current pixels
+  let strokeBase = null;      // the picture as the current stroke found it
   let undoStack = [];
   let redoStack = [];
   let onChanged = null;     // notified after every change (UI refresh)
@@ -56,14 +75,14 @@
     const snap = snapshot();
     if (!snap) return;
     undoStack.push(snap);
-    if (undoStack.length > MAX_HISTORY) undoStack.shift();
+    trimHistory(undoStack);
     redoStack = [];   // a new edit invalidates the redo trail
   }
 
   function undo() {
     if (!undoStack.length) return false;
     redoStack.push(snapshot());
-    if (redoStack.length > MAX_HISTORY) redoStack.shift();
+    trimHistory(redoStack);
     surface = undoStack.pop();
     changed();
     return true;
@@ -72,6 +91,7 @@
   function redo() {
     if (!redoStack.length) return false;
     undoStack.push(snapshot());
+    trimHistory(undoStack);
     surface = redoStack.pop();
     changed();
     return true;
@@ -151,7 +171,11 @@
     const y0 = Math.max(0, Math.min(surface.height - 1, y));
     const x1 = Math.max(x0 + 1, Math.min(surface.width, x + w));
     const y1 = Math.max(y0 + 1, Math.min(surface.height, y + h));
-    if (x1 - x0 < 2 || y1 - y0 < 2) return false;
+    // One pixel is a real answer. The floor used to be two, so dragging a
+    // one-pixel strip did nothing and said nothing, and a 1x1 or 1xN source
+    // could not be cropped at all — the clamps above already guarantee at
+    // least one pixel, so there was never anything left for this to protect.
+    if (x1 - x0 < 1 || y1 - y0 < 1) return false;
 
     pushHistory();
     const out = new OffscreenCanvas(x1 - x0, y1 - y0);
@@ -265,6 +289,11 @@
 
     const at = (x, y) => (y * w + x) * 4;
     const start = at(px, py);
+    // A transparent pixel has no colour to cut. PNG stores RGB (0,0,0)
+    // behind full transparency, so clicking the empty space around a cut-out
+    // subject — the most natural place to click — adopted BLACK as the
+    // target and erased every dark part of the picture instead.
+    if (d[start + 3] === 0) return false;
     const tr = d[start], tg = d[start + 1], tb = d[start + 2];
 
     // Squared distance threshold in RGB space. Tolerance is scaled so the
@@ -283,13 +312,18 @@
     const softness = maxDist * 0.35;   // band where the edge fades out
 
     const evaluate = (i, p) => {
+      // Already transparent: nothing there to take away, and counting it
+      // made a click that changed nothing report success and spend one of
+      // the twenty undo slots on an identical snapshot.
+      if (d[i + 3] === 0) return false;
       const dd = dist2(i);
       if (dd <= maxDist) {
         // Inside the range: fade near the outer border for a soft edge.
         const over = dd - (maxDist - softness);
-        alpha[p] = over > 0 ? Math.round(255 * (over / softness)) : 0;
-        removed++;
-        return true;
+        const want = over > 0 ? Math.round(255 * (over / softness)) : 0;
+        alpha[p] = want;
+        if (want < d[i + 3]) removed++;    // only what actually changes
+        return true;                       // but the fill still spreads
       }
       return false;
     };
@@ -337,11 +371,26 @@
   function beginStroke() {
     if (!surface) return;
     pushHistory();
+    // The picture as it was when the stroke began. The blur brush reads from
+    // this rather than from the live surface: reading the live surface meant
+    // each segment blurred pixels the previous segment had already blurred,
+    // so the same stroke came out three times stronger when drawn slowly
+    // than when flicked. Measured on one stroke at radius 6: 18px of
+    // softening in one segment, 59px in two-pixel steps.
+    strokeBase = canvasFrom(surface);
+  }
+
+  function endStroke() {
+    strokeBase = null;
   }
 
   // mode: 'paint' | 'erase'
   function paintStroke(points, { color, width, mode = 'paint' }) {
     if (!surface || !points.length) return;
+    // Every UI path pairs this with beginStroke(), which is what puts the
+    // undo step on the stack. Anything else calling in directly — a script,
+    // a future tool — would paint pixels that could never be taken back.
+    if (!strokeBase) beginStroke();
     const ctx = surfaceCtx();
     ctx.save();
     ctx.lineWidth = width;
@@ -365,6 +414,10 @@
   // surface on every pointer move made large images unusable.
   function blurStroke(points, { width, radius = 8 }) {
     if (!surface || !points.length) return;
+    // Every UI path pairs this with beginStroke(), which is what puts the
+    // undo step on the stack. Anything else calling in directly — a script,
+    // a future tool — would paint pixels that could never be taken back.
+    if (!strokeBase) beginStroke();
 
     // Padding must exceed the blur reach, otherwise the mask would expose
     // pixels contaminated by the region's own edges.
@@ -373,10 +426,13 @@
     if (!box) return;
     const { x, y, w, h } = box;
 
-    // Blurred copy of just that region.
+    // Blurred copy of just that region, taken from the picture as it was
+    // when the stroke started, so the result depends on the stroke and not
+    // on how fast it was drawn.
+    const from = strokeBase || surface;
     const blurred = new OffscreenCanvas(w, h);
     const bctx = blurred.getContext('2d');
-    blurInto(bctx, surface, x, y, w, h, radius);
+    blurInto(bctx, from, x, y, w, h, radius);
 
     // Mask shaped like the stroke, in region-local coordinates.
     const mask = new OffscreenCanvas(w, h);
@@ -392,7 +448,20 @@
     // Keep the blurred pixels only where the mask is, then stamp them back.
     mctx.globalCompositeOperation = 'source-in';
     mctx.drawImage(blurred, 0, 0);
-    surfaceCtx().drawImage(mask, x, y);
+    // Cleared first. Drawing the mask straight on top composites with
+    // source-over, which can only ever ADD opacity: a soft edge against
+    // transparency never softened, and colour bled outwards into empty
+    // space instead. Replacing the region is what "blur" actually means.
+    const sctx = surfaceCtx();
+    sctx.save();
+    sctx.beginPath();
+    sctx.rect(x, y, w, h);
+    sctx.clip();
+    sctx.globalCompositeOperation = 'destination-out';
+    sctx.drawImage(mask, x, y);
+    sctx.globalCompositeOperation = 'source-over';
+    sctx.drawImage(mask, x, y);
+    sctx.restore();
     changed();
   }
 
@@ -452,7 +521,7 @@
     load, setOnChanged, source, width, height, ready, toBitmap,
     canUndo, canRedo, undo, redo, revert,
     rotate, flip, crop, blurAll, removeColor,
-    beginStroke, paintStroke, blurStroke, pickColor,
+    beginStroke, endStroke, paintStroke, blurStroke, pickColor,
   };
 
 })(window.N4DU ??= {});

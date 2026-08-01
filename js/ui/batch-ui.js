@@ -78,13 +78,29 @@
     });
 
     $('resizeMode').addEventListener('change', e => {
+      const was = RESIZE_MODES[opts.resize.mode];
       opts.resize.mode = e.target.value;
+      const now = RESIZE_MODES[opts.resize.mode];
+      // The number means something different in each mode. Switching from
+      // "longest side 1920 px" to Scale kept the 1920 and read it as 1920 %:
+      // one click on a dropdown turned a 1200x900 photo into a 9622x8313,
+      // 16 MB one. When the unit changes, so does the number.
+      if (now.unit && was.unit !== now.unit) {
+        opts.resize.value = now.unit === '%' ? 100 : 1920;
+        $('resizeValue').value = opts.resize.value;
+      }
       changed();
     });
     $('resizeValue').addEventListener('input', e => {
       const n = parseInt(e.target.value, 10);
       if (Number.isFinite(n)) opts.resize.value = Math.max(1, Math.min(20000, n));
       changed();
+    });
+    // Typing -5 left -5 in the box while the app quietly used 1, and 999999
+    // stayed on screen while the app used 20000. Clamping without ever
+    // saying so means the number you can read is not the number in force.
+    $('resizeValue').addEventListener('blur', () => {
+      $('resizeValue').value = opts.resize.value;
     });
     $('batchQuality').addEventListener('input', e => {
       opts.quality = Math.max(1, Math.min(100, parseInt(e.target.value, 10) || 92)) / 100;
@@ -230,11 +246,25 @@
     document.querySelectorAll('#batchFmt .pill').forEach(p =>
       p.classList.toggle('active', p.dataset.fmt === opts.fmt));
 
-    $('fmtWarning').hidden = usable;
+    // "Keep" cannot always keep. A GIF loses its animation, an SVG stops
+    // being a drawing that scales, and an unknown extension has no writer at
+    // all — every one of them quietly came out as a PNG. Saying so is the
+    // difference between a sensible fallback and a file you did not ask for.
+    const recoded = keeping
+      ? [...new Set(batch.items
+          .filter(it => fmtFor(it) === 'png' && !/\.png$/i.test(it.name || ''))
+          .map(it => (String(it.name || '').split('.').pop() || '?').toUpperCase()))]
+      : [];
+    $('fmtWarning').hidden = usable && !recoded.length;
     if (!usable) {
       $('fmtWarning').textContent =
         `This browser cannot write ${f.label}. Nothing would be converted, ` +
         'so pick another format (Chrome and Edge write the most).';
+    } else if (recoded.length) {
+      const list = recoded.slice(0, 3).join(', ');
+      $('fmtWarning').textContent =
+        `${list} cannot be written back, so ${recoded.length > 1 ? 'those files' : 'that file'}`
+        + ' will come out as PNG. Animation and vector drawings are not kept.';
     }
 
     // Keeping formats can mean a mix, so ask the files rather than the
@@ -287,7 +317,11 @@
 
     renderGrid();
 
-    const ready = totals.count > 0 && usable && !working;
+    // Nothing may start while files are still arriving. Pressing Convert
+    // with 147 of 200 cards built produced a zip of 147 and then said
+    // "Converted 158 of 158 files" — a true-sounding sentence about a job
+    // it had silently made smaller.
+    const ready = totals.count > 0 && usable && !working && !batch.loading();
     $('btnConvertAll').disabled = !ready;
     $('btnConvertAll').innerHTML = buttonLabel(totals);
 
@@ -352,7 +386,7 @@
       const kill = document.createElement('span');
       kill.className = 'file-tile-x';
       kill.textContent = '×';
-      kill.title = 'Remove from the list';
+      kill.title = 'Remove from the list (or press Delete)';
       kill.addEventListener('click', e => {
         e.stopPropagation();
         if (!working) batch.remove(item.id);
@@ -360,6 +394,15 @@
       tile.appendChild(kill);
 
       tile.addEventListener('click', () => batch.select(item.id));
+      // The x cannot be a button: it lives inside one, and a button inside a
+      // button is not valid HTML. So the tile itself answers Delete, which
+      // is the only route a keyboard user had to remove ONE file — the
+      // alternative on screen was Clear, which removes all of them.
+      tile.addEventListener('keydown', e => {
+        if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+        e.preventDefault();
+        if (!working) batch.remove(item.id);
+      });
       tile.addEventListener('dblclick', () => onEditRequest(item.id));
       grid.appendChild(tile);
     }
@@ -373,7 +416,15 @@
       return `${item.result.W}×${item.result.H} · ${sizeLabel(item.result.blob.size)}` +
              (over ? ' · over cap' : '');
     }
-    return `${item.w}×${item.h} · ${sizeLabel(item.size)}`;
+    // Before anything is converted the card can only report what came in.
+    // That is fine until a size is set, at which point every card still said
+    // 4000×3000 and nothing on screen said what would actually come out —
+    // the one number the estimate below the list cannot give per file.
+    const source = `${item.w}×${item.h} · ${sizeLabel(item.size)}`;
+    if (opts.resize.mode === 'keep' || !item.w || !item.h) return source;
+    const t = targetSize(item.w, item.h, opts.resize, fmtFor(item));
+    if (t.W === item.w && t.H === item.h) return source;
+    return `${item.w}×${item.h} → ${t.W}×${t.H} · ${sizeLabel(item.size)}`;
   }
 
   function drawThumbInto(canvas, thumb) {
@@ -424,8 +475,16 @@
         const out = await convert(handle.bmp, itemOpts);
         if (seq !== estimateSeq) return;    // a newer estimate is running
         const each = sizeLabel(out.blob.size);
+        // Scaled by BYTES, not by count. Multiplying the selected file's
+        // output by the number of files made the total swing forty-fold
+        // depending on which tile happened to be selected — the same five
+        // files read "about 17 KB" or "about 0.4 KB" with nothing on screen
+        // admitting the figure was anchored to one of them. The ratio this
+        // file achieved, applied to what the whole list weighs, is at least
+        // an honest guess.
+        const ratio = item.size > 0 ? out.blob.size / item.size : 1;
         const all = totals.count > 1
-          ? ` · about ${sizeLabel(out.blob.size * totals.count)} for ${totals.count} files`
+          ? ` · about ${sizeLabel(Math.round(totals.bytes * ratio))} for ${totals.count} files`
           : '';
         if (out.limit && !out.limit.ok) {
           el.textContent = `${out.W}×${out.H} · ${each} — cannot get under ${limitLabel()}`;
@@ -515,7 +574,13 @@
     if (produced.length) await deliver(produced);
 
     syncBatch();
-    report({ replace, done, failed, replaced, overCap, total: targets.length });
+    // A run works from the list as it stood when it started. Files can still
+    // arrive while it is going — that is deliberate, you should not have to
+    // wait to queue the next lot — but they were then counted nowhere:
+    // "Added 1 file", then "Converted 40 of 40 files", with 41 in the list
+    // and 40 in the zip, and nothing saying which one had been left out.
+    const late = batch.items.filter(it => !targets.includes(it)).length;
+    report({ replace, done, failed, replaced, overCap, total: targets.length, late });
   }
 
   // Sends the results out: one archive by default, separate downloads when
@@ -536,13 +601,14 @@
     download(archive, `n4du-${tag}-${stamp}.zip`);
   }
 
-  function report({ replace, done, failed, replaced, overCap, total }) {
+  function report({ replace, done, failed, replaced, overCap, total, late = 0 }) {
     if (!total) { toast('Nothing to do', ''); return; }
     const bits = [];
     if (replace) bits.push(`Overwrote ${replaced} of ${total} file${total > 1 ? 's' : ''}`);
     else bits.push(`Converted ${done} of ${total} file${total > 1 ? 's' : ''}`);
     if (overCap) bits.push(`${overCap} could not get under ${limitLabel()}`);
     if (failed) bits.push(`${failed} failed`);
+    if (late) bits.push(`${late} arrived after this run started — press again for ${late > 1 ? 'them' : 'it'}`);
     toast(bits.join(' · '), failed || overCap ? 'err' : 'ok');
   }
 
