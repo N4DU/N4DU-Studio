@@ -78,7 +78,17 @@
     });
 
     $('resizeMode').addEventListener('change', e => {
+      const was = RESIZE_MODES[opts.resize.mode];
       opts.resize.mode = e.target.value;
+      const now = RESIZE_MODES[opts.resize.mode];
+      // The number means something different in each mode. Switching from
+      // "longest side 1920 px" to Scale kept the 1920 and read it as 1920 %:
+      // one click on a dropdown turned a 1200x900 photo into a 9622x8313,
+      // 16 MB one. When the unit changes, so does the number.
+      if (now.unit && was.unit !== now.unit) {
+        opts.resize.value = now.unit === '%' ? 100 : 1920;
+        $('resizeValue').value = opts.resize.value;
+      }
       changed();
     });
     $('resizeValue').addEventListener('input', e => {
@@ -230,11 +240,25 @@
     document.querySelectorAll('#batchFmt .pill').forEach(p =>
       p.classList.toggle('active', p.dataset.fmt === opts.fmt));
 
-    $('fmtWarning').hidden = usable;
+    // "Keep" cannot always keep. A GIF loses its animation, an SVG stops
+    // being a drawing that scales, and an unknown extension has no writer at
+    // all — every one of them quietly came out as a PNG. Saying so is the
+    // difference between a sensible fallback and a file you did not ask for.
+    const recoded = keeping
+      ? [...new Set(batch.items
+          .filter(it => fmtFor(it) === 'png' && !/\.png$/i.test(it.name || ''))
+          .map(it => (String(it.name || '').split('.').pop() || '?').toUpperCase()))]
+      : [];
+    $('fmtWarning').hidden = usable && !recoded.length;
     if (!usable) {
       $('fmtWarning').textContent =
         `This browser cannot write ${f.label}. Nothing would be converted, ` +
         'so pick another format (Chrome and Edge write the most).';
+    } else if (recoded.length) {
+      const list = recoded.slice(0, 3).join(', ');
+      $('fmtWarning').textContent =
+        `${list} cannot be written back, so ${recoded.length > 1 ? 'those files' : 'that file'}`
+        + ' will come out as PNG. Animation and vector drawings are not kept.';
     }
 
     // Keeping formats can mean a mix, so ask the files rather than the
@@ -287,7 +311,11 @@
 
     renderGrid();
 
-    const ready = totals.count > 0 && usable && !working;
+    // Nothing may start while files are still arriving. Pressing Convert
+    // with 147 of 200 cards built produced a zip of 147 and then said
+    // "Converted 158 of 158 files" — a true-sounding sentence about a job
+    // it had silently made smaller.
+    const ready = totals.count > 0 && usable && !working && !batch.loading();
     $('btnConvertAll').disabled = !ready;
     $('btnConvertAll').innerHTML = buttonLabel(totals);
 

@@ -23,6 +23,7 @@ import os
 import sys
 import secrets
 import subprocess
+import unicodedata
 
 PICK_TIMEOUT = 600                 # a dialog left open this long is abandoned
 
@@ -119,12 +120,22 @@ def _safe_stem(name):
         name = stem
     for ch in '\\/:*?"<>|':
         name = name.replace(ch, "")
-    name = "".join(c for c in name if ord(c) >= 32)   # no control characters
+    # No control characters, and no format characters either: U+202E and its
+    # relatives exist to make a name display as something it is not, which is
+    # the one thing a sanitiser for untrusted names must not let through.
+    name = "".join(c for c in name
+                   if ord(c) >= 32 and unicodedata.category(c) != "Cf")
     # Windows does not allow trailing dots or spaces in a name.
     name = name.strip().strip(".").strip()
     if name.lower() in _WINDOWS_RESERVED:
         name += "_"
-    return name[:180]      # every filesystem has a limit; 255 bytes is common
+    # Filesystems limit a name in BYTES, not characters — 255 is the common
+    # figure. 180 CJK characters is 540 bytes, and the write failed outright.
+    # Leave room for the hidden ".<stem>.xxxxxxxx.tmp" the write goes through.
+    name = name[:180]
+    while len(name.encode("utf-8", "ignore")) > 200:
+        name = name[:-1]
+    return name
 
 
 def target_path(original, ext, new_stem=None):
@@ -158,7 +169,19 @@ def replace_file(original, data, ext, new_stem=None, overwrite=False):
     # case-insensitive, so IMG.PNG and IMG.png are ONE file while comparing
     # unequal — the code then wrote the new bytes and deleted "the original",
     # which was the same file. samefile() asks the filesystem instead.
-    same_file = os.path.exists(target) and os.path.samefile(target, original)
+    # Two questions that look like one. samefile() answers "same inode",
+    # which is what tells IMG.PNG from IMG.png on a case-insensitive disk —
+    # but it says yes to a HARDLINK too. Renaming a.png to b.png where b is a
+    # hardlink of a then skipped both the overwrite prompt and the delete, so
+    # a.png survived holding the old picture while the app reported success.
+    # Only a single-linked file can honestly be called the same file.
+    same_file = False
+    if os.path.exists(target):
+        try:
+            same_file = (os.path.samefile(target, original)
+                         and os.stat(target).st_nlink == 1)
+        except OSError:
+            same_file = False
 
     if not same_file and os.path.exists(target) and not overwrite:
         raise FileExistsError(os.path.basename(target))

@@ -37,13 +37,30 @@
   }
 
   // Real output dimensions (ICO is capped at 256px).
+  // Beyond this a canvas allocation fails outright, and beyond the AREA the
+  // browser hands back a zero-sized canvas that then throws on encode. The
+  // batch converter has always capped both; the editor had neither, and a
+  // panorama with the aspect lock on could derive a side of 65536 from a
+  // perfectly ordinary typed number.
+  const MAX_SIDE = 20000;
+  const MAX_PIXELS = 80e6;
+
   function outputDims(state) {
-    let W = Math.max(1, Math.round(state.outW));
-    let H = Math.max(1, Math.round(state.outH));
+    // `|| 1` and not just Math.max: Math.round(NaN) is NaN, and NaN survives
+    // every comparison below to become a zero-sized canvas.
+    let W = Math.max(1, Math.round(state.outW) || 1);
+    let H = Math.max(1, Math.round(state.outH) || 1);
     if (state.fmt === 'ico' && (W > ICO_MAX || H > ICO_MAX)) {
       const s = ICO_MAX / Math.max(W, H);
       W = Math.max(1, Math.round(W * s));
       H = Math.max(1, Math.round(H * s));
+    }
+    W = Math.min(MAX_SIDE, W);
+    H = Math.min(MAX_SIDE, H);
+    if (W * H > MAX_PIXELS) {
+      const s = Math.sqrt(MAX_PIXELS / (W * H));
+      W = Math.max(1, Math.floor(W * s));
+      H = Math.max(1, Math.floor(H * s));
     }
     return { W, H };
   }

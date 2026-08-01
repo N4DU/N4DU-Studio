@@ -16,6 +16,8 @@
 
   let byeKey = null;   // secret authorising the shutdown notice
   let onPending = () => {};   // files handed over while the page was open
+  let onStateChange = () => {};   // the helper appeared, or went away
+  let heartbeat = null;
 
   async function init() {
     if (location.protocol !== 'http:' && location.protocol !== 'https:') return false;
@@ -45,13 +47,35 @@
     // right-clicked images land in ONE window instead of twenty.
     // take=1: this is the heartbeat, and it is ready to receive files.
     // The probe in init() deliberately does not ask for them.
+    // A run of failures means the helper is gone — it was stopped with
+    // Ctrl+C, its console was closed, it crashed. Swallowing that left
+    // "Replace on disk" lit up for ever, and the only sign was a raw
+    // "Failed to fetch" the moment somebody used it. One miss is normal
+    // (a busy moment, a reload); three in a row is not.
+    let misses = 0;
     const ping = () => fetch('/api/ping?take=1', { headers: HDR })
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error('bridge ' + res.status);
+        return res.json();
+      })
       .then(info => {
+        misses = 0;
+        if (!bridge.active) {
+          // It came back — a restart, or a moment of trouble that passed.
+          bridge.active = true;
+          onStateChange();
+        }
         if (info && info.pending && info.pending.length) onPending(info.pending);
       })
-      .catch(() => {});
-    setInterval(ping, 1000);
+      .catch(() => {
+        if (++misses >= 3 && bridge.active) {
+          bridge.active = false;
+          onStateChange();
+        }
+      });
+    // Kept in one place, so calling init() twice cannot leave two beating.
+    clearInterval(heartbeat);
+    heartbeat = setInterval(ping, 1000);
     // Coming back from a background tab (where browsers throttle timers),
     // report immediately that the page is alive.
     document.addEventListener('visibilitychange', () => {
@@ -234,6 +258,9 @@
   bridge.siblings = siblings;
   bridge.replaceByToken = replaceByToken;
   bridge.setOnPending = (fn) => { onPending = fn || (() => {}); };
+  // Told when the helper stops answering, or starts again — so the
+  // interface can lock and unlock what only the helper can do.
+  bridge.setOnStateChange = (fn) => { onStateChange = fn || (() => {}); };
   bridge.pickTarget = pickTarget;
   bridge.readCurrent = () => readCurrent(bridge.token);
   bridge.adopt = adopt;

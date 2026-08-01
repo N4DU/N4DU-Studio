@@ -351,6 +351,15 @@
     c.addEventListener('wheel', e => {
       if (!inEditor()) return;
       if (state.mode !== 'crop' || !N4DU.render.source(state)) return;
+      // In the one-column layout — the desktop window's own size, among others
+      // — the RESULT panel sits BELOW the picture and the wheel is the only
+      // way down to it. Swallowing the wheel to zoom left the export format,
+      // size and weight unreachable: you could paint and rotate a picture but
+      // never choose what came out of it. So when the workspace can scroll,
+      // the wheel scrolls and Ctrl+wheel zooms, which is what every browser
+      // has trained people to expect anyway.
+      const ws = document.querySelector('.workspace');
+      if (ws && ws.scrollHeight - ws.clientHeight > 4 && !e.ctrlKey) return;
       e.preventDefault();
       setZoom(state.zoom + (e.deltaY > 0 ? -0.08 : 0.08), onChange);
     }, { passive: false });
