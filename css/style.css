@@ -18,6 +18,13 @@
   --fh:       'Space Grotesk', 'Segoe UI', sans-serif;
   --fb:       'Inter', 'Segoe UI', system-ui, sans-serif;
 
+  /* The "nothing here" pattern, in one place so the stage, the file tiles
+     and the result preview cannot drift apart. Far enough apart to actually
+     read as a checkerboard: at eight levels of difference it just looked
+     like a black background, which is the opposite of what it means. */
+  --check-a:  #1b1b1b;
+  --check-b:  #333;
+
   /* Vertical rhythm. Tightened on short windows so the panels never scroll. */
   --gap:      18px;
   --pad:      14px;
@@ -545,7 +552,7 @@ body.has-image .canvas-stack { display: flex; }
 .preview-frame {
   width: 74px; height: 74px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  background: repeating-conic-gradient(#1d1d1d 0% 25%, #151515 0% 50%) 0 0 / 14px 14px;
+  background: repeating-conic-gradient(var(--check-b) 0% 25%, var(--check-a) 0% 50%) 0 0 / 14px 14px;
   border: 1px solid var(--border2);
   border-radius: 7px;
   overflow: hidden;
@@ -944,6 +951,14 @@ body.app-window.no-files .conv-estimate { display: none; }
   display: flex;
   align-items: baseline;
   gap: 9px;
+  /* Allowed to take a second line. This row holds a variable number of
+     things — the folder offer only turns up when the file came from disk,
+     and in the launcher's window Help, Settings and Editor live here too.
+     Without this it stayed one line whatever happened: at 452px wide the
+     Editor button ran to x=490, off the edge of the window, and the summary
+     was crushed into a column 79px tall reading one word per line. */
+  flex-wrap: wrap;
+  row-gap: 6px;
 }
 .conv-title {
   font-family: var(--fh);
@@ -952,7 +967,14 @@ body.app-window.no-files .conv-estimate { display: none; }
   letter-spacing: .09em;
   text-transform: uppercase;
 }
-.conv-sub { font-size: .72rem; color: var(--muted); flex: 1; }
+/* One line, shortened with an ellipsis when there is not room for it all.
+   min-width:0 is the part that matters: without it a flex item refuses to
+   shrink below its longest word, which is what turned "94 KB total, 1 on
+   disk" into a narrow vertical stack. */
+.conv-sub {
+  font-size: .72rem; color: var(--muted); flex: 1 1 auto;
+  min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .btn-ghost.tiny { padding: 3px 9px; font-size: .7rem; }
 /* The folder offer: present enough to notice the moment one file arrives
    from the file explorer, without shouting. */
@@ -1001,7 +1023,8 @@ body.app-window.no-files .conv-estimate { display: none; }
   height: 68px;
   object-fit: contain;
   background:
-    conic-gradient(#1c1c1c 25%, #141414 0 50%, #1c1c1c 0 75%, #141414 0) 0 0/12px 12px;
+    conic-gradient(var(--check-b) 25%, var(--check-a) 0 50%,
+                   var(--check-b) 0 75%, var(--check-a) 0) 0 0/12px 12px;
   border-radius: 5px;
 }
 .file-tile-name {
@@ -1161,7 +1184,12 @@ body.app-window.mode-edit .app { grid-template-rows: 40px 1fr 22px; }
 
 /* The three that came down from the bar sit at the end of the Files row,
    sized to belong beside Add files and Clear rather than tower over them. */
-body.app-window.mode-convert .conv-head #btnHelp { margin-left: auto; }
+/* One box, so the row breaks before the three rather than through them. */
+.head-chrome {
+  display: flex; align-items: center; gap: 6px;
+  margin-left: auto; flex-shrink: 0;
+}
+.head-chrome[hidden] { display: none; }
 body.app-window.mode-convert .conv-head .icon-btn {
   width: 24px; height: 24px; border-color: var(--border2);
 }
@@ -1243,7 +1271,10 @@ body.app-window.mode-convert .conv-drop { gap: 4px; }
   background: var(--accent); transition: width .18s;
 }
 .conv-progress-text { font-size: .7rem; color: var(--muted); white-space: nowrap; }
-.conv-buttons { display: flex; align-items: center; gap: 8px; }
+/* Wraps for the same reason the Files row does: below about 430px wide the
+   two buttons plus the Separate box no longer fit on one line, and Convert
+   ran off the right edge. A second line beats an unreachable button. */
+.conv-buttons { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .conv-buttons .btn-accent, .conv-buttons .btn-primary { padding: 8px 14px; }
 .check.inline { flex: 1; font-size: .72rem; }
 
