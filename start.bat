@@ -1,5 +1,14 @@
 @echo off
-rem N4DU Studio - launcher for Windows (double-click).
+rem N4DU Studio - launcher for Windows.
+rem
+rem PREFER start.pyw. This file cannot avoid flashing a console, and not
+rem because of anything it does: cmd.exe is itself a console program, so
+rem Windows creates a window for it before the first line here is read. The
+rem .pyw launcher is handed to pythonw.exe, which Windows never gives a
+rem console to at all - see the note at the top of start.pyw.
+rem
+rem Kept for the cases .pyw does not cover: a Python installed without file
+rem associations, or a machine where .pyw was taken over by something else.
 rem No dependencies: the Python standard library is enough.
 cd /d "%~dp0"
 
