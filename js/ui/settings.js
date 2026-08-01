@@ -2,7 +2,7 @@
 //
 // The switches do not merely remember a preference — flipping the first one
 // writes the right-click entry into the operating system and flipping it back
-// removes it. That work happens on the server (main.py), so this module reads
+// removes it. That work happens on the server (main.pyw), so this module reads
 // the real state every time it opens instead of trusting a local copy.
 (function (N4DU) {
 

@@ -1,5 +1,5 @@
 // N4DU Studio — entry point. Loads the image and coordinates the modules.
-// All processing runs in the browser; when main.py is running, the bridge
+// All processing runs in the browser; when main.pyw is running, the bridge
 // adds the native open dialog and replacing files on disk.
 (function (N4DU) {
 
@@ -472,7 +472,7 @@
   });
 
   // ── Launched from the right-click menu ────────────────────────────
-  // main.py puts ?open=TOKEN in the address when the app was started on a
+  // main.pyw puts ?open=TOKEN in the address when the app was started on a
   // specific file. The token stands for a path the server already holds, so
   // the picture arrives with its location attached and Replace works
   // immediately — no dialog, no Downloads folder.

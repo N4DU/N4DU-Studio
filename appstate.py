@@ -12,7 +12,7 @@ The whole folder is disposable. "Leave no trace" is a supported end state,
 not an afterthought: nothing here is created until something is actually
 about to be written, and purge_state() takes the folder away again.
 
-Imported by main.py; no dependency in the other direction.
+Imported by main.pyw; no dependency in the other direction.
 """
 
 import os
