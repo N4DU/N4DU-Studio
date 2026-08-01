@@ -14,6 +14,12 @@
      network, and flashing a different font when it arrived. The system
      stack in css/style.css looks close enough to be worth none of that. -->
 <link rel="stylesheet" href="css/style.css">
+<!-- In the HEAD on purpose, and this one is not moveable.
+     It decides whether this document should be running in a window of its
+     own, and it has to decide before the browser paints a full-width tab
+     holding an interface built for 452 pixels. Everything else loads at the
+     end of the body, where scripts belong. -->
+<script src="js/own-window.js"></script>
 </head>
 <body class="mode-convert">
 
@@ -106,6 +112,17 @@
        Deliberately small: a batch of files in, the same size, format and
        weight out. Nothing else on screen. -->
   <section class="convert" id="convertView">
+
+    <!-- Why you are looking at a tab and not at the window. Written by
+         js/main.js from what js/own-window.js actually tried, so it says what
+         happened rather than a guess. Hidden unless there is something to
+         say, and dismissible: nobody should be told twice. -->
+    <div class="conv-notice" id="windowNotice" hidden>
+      <span id="windowNoticeText"></span>
+      <button class="btn-ghost tiny" id="windowNoticeAction" hidden></button>
+      <button class="notice-x" id="windowNoticeClose" title="Dismiss"
+              aria-label="Dismiss">×</button>
+    </div>
 
     <div class="conv-block conv-files">
       <div class="conv-head">
