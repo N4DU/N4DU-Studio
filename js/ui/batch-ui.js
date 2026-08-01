@@ -96,6 +96,12 @@
       if (Number.isFinite(n)) opts.resize.value = Math.max(1, Math.min(20000, n));
       changed();
     });
+    // Typing -5 left -5 in the box while the app quietly used 1, and 999999
+    // stayed on screen while the app used 20000. Clamping without ever
+    // saying so means the number you can read is not the number in force.
+    $('resizeValue').addEventListener('blur', () => {
+      $('resizeValue').value = opts.resize.value;
+    });
     $('batchQuality').addEventListener('input', e => {
       opts.quality = Math.max(1, Math.min(100, parseInt(e.target.value, 10) || 92)) / 100;
       changed();
@@ -380,7 +386,7 @@
       const kill = document.createElement('span');
       kill.className = 'file-tile-x';
       kill.textContent = '×';
-      kill.title = 'Remove from the list';
+      kill.title = 'Remove from the list (or press Delete)';
       kill.addEventListener('click', e => {
         e.stopPropagation();
         if (!working) batch.remove(item.id);
@@ -388,6 +394,15 @@
       tile.appendChild(kill);
 
       tile.addEventListener('click', () => batch.select(item.id));
+      // The x cannot be a button: it lives inside one, and a button inside a
+      // button is not valid HTML. So the tile itself answers Delete, which
+      // is the only route a keyboard user had to remove ONE file — the
+      // alternative on screen was Clear, which removes all of them.
+      tile.addEventListener('keydown', e => {
+        if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+        e.preventDefault();
+        if (!working) batch.remove(item.id);
+      });
       tile.addEventListener('dblclick', () => onEditRequest(item.id));
       grid.appendChild(tile);
     }
@@ -460,8 +475,16 @@
         const out = await convert(handle.bmp, itemOpts);
         if (seq !== estimateSeq) return;    // a newer estimate is running
         const each = sizeLabel(out.blob.size);
+        // Scaled by BYTES, not by count. Multiplying the selected file's
+        // output by the number of files made the total swing forty-fold
+        // depending on which tile happened to be selected — the same five
+        // files read "about 17 KB" or "about 0.4 KB" with nothing on screen
+        // admitting the figure was anchored to one of them. The ratio this
+        // file achieved, applied to what the whole list weighs, is at least
+        // an honest guess.
+        const ratio = item.size > 0 ? out.blob.size / item.size : 1;
         const all = totals.count > 1
-          ? ` · about ${sizeLabel(out.blob.size * totals.count)} for ${totals.count} files`
+          ? ` · about ${sizeLabel(Math.round(totals.bytes * ratio))} for ${totals.count} files`
           : '';
         if (out.limit && !out.limit.ok) {
           el.textContent = `${out.W}×${out.H} · ${each} — cannot get under ${limitLabel()}`;
@@ -551,7 +574,13 @@
     if (produced.length) await deliver(produced);
 
     syncBatch();
-    report({ replace, done, failed, replaced, overCap, total: targets.length });
+    // A run works from the list as it stood when it started. Files can still
+    // arrive while it is going — that is deliberate, you should not have to
+    // wait to queue the next lot — but they were then counted nowhere:
+    // "Added 1 file", then "Converted 40 of 40 files", with 41 in the list
+    // and 40 in the zip, and nothing saying which one had been left out.
+    const late = batch.items.filter(it => !targets.includes(it)).length;
+    report({ replace, done, failed, replaced, overCap, total: targets.length, late });
   }
 
   // Sends the results out: one archive by default, separate downloads when
@@ -572,13 +601,14 @@
     download(archive, `n4du-${tag}-${stamp}.zip`);
   }
 
-  function report({ replace, done, failed, replaced, overCap, total }) {
+  function report({ replace, done, failed, replaced, overCap, total, late = 0 }) {
     if (!total) { toast('Nothing to do', ''); return; }
     const bits = [];
     if (replace) bits.push(`Overwrote ${replaced} of ${total} file${total > 1 ? 's' : ''}`);
     else bits.push(`Converted ${done} of ${total} file${total > 1 ? 's' : ''}`);
     if (overCap) bits.push(`${overCap} could not get under ${limitLabel()}`);
     if (failed) bits.push(`${failed} failed`);
+    if (late) bits.push(`${late} arrived after this run started — press again for ${late > 1 ? 'them' : 'it'}`);
     toast(bits.join(' · '), failed || overCap ? 'err' : 'ok');
   }
 

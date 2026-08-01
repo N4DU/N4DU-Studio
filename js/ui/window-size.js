@@ -12,7 +12,11 @@
 
   const WIDTH = 452;           // the compact window: half the area of the old one
   const EDITOR = { w: 1240, h: 880 };
-  const MIN_H = 330;   // the empty converter still has to be usable
+  // The empty converter still has to be usable. 330 was below the height at
+  // which the settings rows and the drop zone stop fitting one under the
+  // other, and apply(WIDTH, MIN_H) runs at every launch — so every launch
+  // flashed through a broken layout on its way to the right size.
+  const MIN_H = 440;
   const SLACK = 6;             // ignore differences this small
 
   // The last size we asked for. If the window no longer matches it, the

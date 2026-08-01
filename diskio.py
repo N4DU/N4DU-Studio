@@ -175,8 +175,18 @@ def replace_file(original, data, ext, new_stem=None, overwrite=False):
     # hardlink of a then skipped both the overwrite prompt and the delete, so
     # a.png survived holding the old picture while the app reported success.
     # Only a single-linked file can honestly be called the same file.
-    same_file = False
-    if os.path.exists(target):
+    #
+    # And these are still TWO questions, not one. "Is this the same path I am
+    # replacing?" decides whether the original gets deleted afterwards. "Is
+    # this a different file that happens to share an inode?" decides whether
+    # to ask before clobbering it. Answering both with one flag deleted the
+    # file it had just written: replacing pic.png with pic.png, where pic.png
+    # also has a backup hardlink, made st_nlink 2, so the code decided they
+    # were different files, wrote the new bytes to pic.png, and then removed
+    # "the original" — the same path. It reported success on an empty folder.
+    same_path = os.path.abspath(target) == os.path.abspath(original)
+    same_file = same_path
+    if not same_path and os.path.exists(target):
         try:
             same_file = (os.path.samefile(target, original)
                          and os.stat(target).st_nlink == 1)
@@ -207,7 +217,7 @@ def replace_file(original, data, ext, new_stem=None, overwrite=False):
     # The new file is already on disk: from here nothing can fail in a way
     # that loses work, so a failed delete is only reported as a warning.
     warning = None
-    if not same_file:
+    if not same_path and not same_file:
         try:
             os.remove(original)
         except FileNotFoundError:
