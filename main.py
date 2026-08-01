@@ -10,8 +10,17 @@ REPLACE files on disk, even when the format changes.
 No dependencies: the Python 3.8+ standard library only.
 Binds to 127.0.0.1 exclusively (your machine; never exposed to the network).
 
-    python3 main.py                 # or double-click start.bat / start.command
+    python3 main.py                 # or double-click start.pyw / start.command
     python3 main.py --open PIC.PNG  # open that file (used by the right-click entry)
+    python3 main.py --console       # keep the console up while it runs
+
+On Windows, double-click start.pyw rather than this file. Windows decides
+whether a program gets a console from the executable's subsystem field,
+before the program runs: python.exe is a console build and always gets one,
+pythonw.exe never does. .pyw is the extension that routes to pythonw.exe —
+which is also why the right-click entry has never shown a console. Opening
+main.py directly can only hide the window after the fact, and by then it has
+already been on screen for an instant.
 
 Stops with Ctrl+C, or on its own: when the page closes it waits a few
 seconds in case it was a reload, then shuts down if nobody returns.
@@ -145,6 +154,35 @@ def hide_own_console():
         return "hidden" if not user32.IsWindowVisible(window) else "failed"
     except Exception:
         return "failed"
+
+
+def console_report():
+    """What this machine will actually do about the console window.
+
+    Worth stating plainly, because the answer is decided by Windows before
+    any of our code runs and there is no way to tell from the outside which
+    interpreter a double-click will use.
+    """
+    lines = ["Console:"]
+    if os.name != "nt":
+        lines.append("  not Windows — nothing to report")
+        return lines
+
+    exe = sys.executable or "?"
+    leaf = exe.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    gui = leaf.startswith("pythonw")
+    lines.append("  running under: {}  ({})".format(
+        exe, "GUI build — no console is ever created"
+        if gui else "console build — Windows creates a window for it"))
+
+    launcher = os.path.join(ROOT, "start.pyw")
+    lines.append("  start.pyw: {}".format(
+        "present — double-click this one, it never shows a console"
+        if os.path.isfile(launcher) else "MISSING from " + ROOT))
+    lines.append("  start.bat: always flashes briefly — cmd.exe is a console")
+    lines.append("             program, so Windows makes its window before the")
+    lines.append("             first line of the file is read. Use start.pyw.")
+    return lines
 
 
 def relaunch_windowless():
@@ -894,6 +932,9 @@ def main():
                 _write(shell_integration.dump())
                 _write("")
                 _write("  " + shell_integration.describe(shell_integration.status()))
+                _write("")
+                for line in console_report():
+                    _write("  " + line)
                 return
             if args["settings"] == "--forget":
                 if shell_integration.status()["supported"]:
