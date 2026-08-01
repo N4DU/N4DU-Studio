@@ -1,4 +1,4 @@
-// Disk bridge (optional). When the page is served by main.py, this module
+// Disk bridge (optional). When the page is served by main.pyw, this module
 // talks to it to open files through the native dialog and REPLACE files on
 // disk. Without the bridge (GitHub Pages, or opening the HTML directly)
 // everything else still works and this module stays inactive.

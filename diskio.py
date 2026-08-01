@@ -16,7 +16,7 @@ The rules this module exists to enforce:
   * an existing, unrelated file at the target is never overwritten silently —
     FileExistsError goes back to the interface so it can ask.
 
-Imported by main.py; no dependency in the other direction.
+Imported by main.pyw; no dependency in the other direction.
 """
 
 import os
