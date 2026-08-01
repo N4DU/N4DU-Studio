@@ -378,6 +378,12 @@
     const sell = document.getElementById('statusSell');
     if (sell) sell.hidden = bridge.active;
 
+    // And the offer to leave the tab behind. Only where it is both possible
+    // and useful: not with the bridge running (that window is already its
+    // own), and not inside the window this button opened.
+    const pop = document.getElementById('btnPopWindow');
+    if (pop) pop.hidden = bridge.active || inOwnWindow();
+
     const rep = document.getElementById('btnReplace');
     rep.hidden = false;
     rep.disabled = !hasImage;
@@ -428,6 +434,40 @@
     }
   });
 
+  // ── A window of its own, from the web ─────────────────────────────
+  // A page cannot resize the tab it is in: browsers refuse to resize a
+  // window that was not created by window.open, which is the whole point of
+  // the rule — otherwise any site could throw your tabs around. A window it
+  // opened ITSELF is a different matter, and that window can then size
+  // itself to the batch exactly like the downloaded version does.
+  //
+  // The one thing that cannot be avoided is the click. Opening a window
+  // without one is what a pop-up blocker exists to stop.
+  const WINDOW_NAME = 'n4du-studio';
+
+  function inOwnWindow() {
+    return !!window.opener || window.name === WINDOW_NAME;
+  }
+
+  function openInOwnWindow() {
+    // The size the interface says it needs, so the window arrives right
+    // rather than arriving wrong and correcting itself.
+    const want = N4DU.windowSize.measure();
+    const features = [
+      'popup=yes',
+      `width=${Math.round(want.w)}`,
+      `height=${Math.round(want.h)}`,
+      'resizable=yes',
+      'scrollbars=no',
+    ].join(',');
+    const opened = window.open(location.href, WINDOW_NAME, features);
+    if (!opened) {
+      toast('Your browser blocked the window — allow pop-ups for this page', 'err');
+      return;
+    }
+    opened.focus();
+  }
+
   // ── Help ──────────────────────────────────────────────────────────
   function initHelp() {
     const modal = document.getElementById('helpModal');
@@ -458,8 +498,32 @@
   initTools(refresh);
   initReplaceDialog(afterReplace);
   initHelp();
+  document.getElementById('btnPopWindow').addEventListener('click', openInOwnWindow);
   N4DU.settings.initSettings();
   N4DU.batchUI.initBatchUI({ onAdd: chooseFile, onAddFolder: addFolder, onEdit: editItem });
+
+  // The editor must not outlive the file it is showing.
+  //
+  // Removing that file from the list — or clearing the list — left the
+  // editor holding a picture that belonged to nothing: the title bar still
+  // named it, the stage still drew it, Download still saved it, and
+  // pressing Converter handed the edits back to an item that no longer
+  // existed, so they vanished without a word.
+  const paintBatch = N4DU.batchUI.syncBatch;
+  batch.setOnChange(() => {
+    paintBatch();
+    const gone = editing !== null && !batch.items.some(it => it.id === editing);
+    if (gone && currentMode() === 'edit') {
+      editing = null;                 // nothing to hand anything back to
+      returnToConverter();
+      toast('That picture is no longer in the list', '');
+    } else if (gone) {
+      editing = null;
+    }
+    // With an empty list nothing is open, whatever was open before.
+    if (!batch.items.length) document.body.classList.remove('has-image');
+  });
+
   N4DU.windowSize.init();
   edit.setOnChanged(() => { /* tools repaint explicitly to stay responsive */ });
 
@@ -490,6 +554,16 @@
 
   // More files arriving while the window is already open: every image
   // right-clicked in one go lands in this same list.
+  // The helper stopping is a change the interface has to show: what only it
+  // can do goes back to being locked, and the reason is said out loud
+  // rather than waiting to surface as "Failed to fetch".
+  bridge.setOnStateChange(() => {
+    if (!bridge.active) toast('The desktop helper stopped — replacing files is off', 'err');
+    else toast('The desktop helper is back', 'ok');
+    syncButtons();
+    N4DU.batchUI.syncBatch();
+  });
+
   bridge.setOnPending(async (metas) => {
     const picked = await bridge.collect(metas);
     for (const one of picked) {

@@ -15,11 +15,19 @@ rem
 rem No dependencies: the Python standard library is enough.
 cd /d "%~dp0"
 
-rem The console build, deliberately. pythonw.exe would leave nothing to read.
+rem The console build, deliberately: pythonw.exe would leave nothing to read.
+rem
+rem "py" comes first. On a Windows 10/11 machine that has never installed
+rem Python, "where python" still finds it - an App Execution Alias stub in
+rem WindowsApps that opens the Microsoft Store and exits 0, so this file
+rem would print "The bridge has stopped." and explain nothing. The py
+rem launcher is only present when a real Python is.
 set "PY="
-where python >nul 2>&1 && set "PY=python"
+where py >nul 2>&1 && set "PY=py -3"
 if not defined PY (
-  where py >nul 2>&1 && set "PY=py"
+  for /f "delims=" %%I in ('where python 2^>nul') do (
+    echo %%I | find /i "WindowsApps" >nul || if not defined PY set "PY=%%I"
+  )
 )
 if not defined PY (
   echo.

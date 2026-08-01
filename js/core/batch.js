@@ -19,9 +19,25 @@
   function setOnChange(fn) { onChange = fn || (() => {}); }
 
   // ── Adding ────────────────────────────────────────────────────────
+  // How many add() calls are still running. A batch of two hundred takes a
+  // few seconds to read, and starting a conversion partway through quietly
+  // converts only what had arrived.
+  let loadingCount = 0;
+  const loading = () => loadingCount > 0;
+
+  async function add(files, meta = {}) {
+    loadingCount++;
+    try {
+      return await addFiles(files, meta);
+    } finally {
+      loadingCount--;
+      onChange();
+    }
+  }
+
   // meta: { token, path } when the file came from the disk bridge, which is
   // what makes replacing it in place possible later.
-  async function add(files, meta = {}) {
+  async function addFiles(files, meta = {}) {
     const incoming = [...files].slice(0, Math.max(0, MAX_ITEMS - items.length));
     const skipped = files.length - incoming.length;
     const failed = [];
@@ -258,7 +274,7 @@
 
   N4DU.batch = {
     items, add, remove, clear, select, selected, decode, decodeCached, setEdited,
-    resetResults, totals, setOnChange, MAX_ITEMS,
+    resetResults, totals, setOnChange, loading, MAX_ITEMS,
     get selectedId() { return selectedId; },
   };
 

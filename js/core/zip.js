@@ -36,14 +36,23 @@
   // Names inside the archive must be unique, or extracting silently loses
   // files. Collisions get a counter, the way a file manager would.
   function uniqueName(name, taken) {
-    if (!taken.has(name)) { taken.add(name); return name; }
+    // A slash would make a folder, and ".." a folder above it. Names come
+    // from File.name so this is defence in depth, not a live hole.
+    name = String(name).replace(/[\\/]/g, '_');
+    // Compared without case. Windows and macOS cannot tell Photo.png from
+    // photo.png, so writing both into one archive means the second silently
+    // replaces the first on extraction — a converted picture lost with no
+    // error anywhere. Reachable as soon as a batch draws the same stem from
+    // two different folders. The original spelling is what gets written.
+    const key = n => n.toLowerCase();
+    if (!taken.has(key(name))) { taken.add(key(name)); return name; }
     const dot = name.lastIndexOf('.');
     const stem = dot > 0 ? name.slice(0, dot) : name;
     const ext = dot > 0 ? name.slice(dot) : '';
     let n = 2;
     let candidate;
-    do { candidate = `${stem} (${n++})${ext}`; } while (taken.has(candidate));
-    taken.add(candidate);
+    do { candidate = `${stem} (${n++})${ext}`; } while (taken.has(key(candidate)));
+    taken.add(key(candidate));
     return candidate;
   }
 
