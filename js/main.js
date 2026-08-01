@@ -452,37 +452,73 @@
   });
 
   // ── A window of its own, from the web ─────────────────────────────
-  // A page cannot resize the tab it is in: browsers refuse to resize a
-  // window that was not created by window.open, which is the whole point of
-  // the rule — otherwise any site could throw your tabs around. A window it
-  // opened ITSELF is a different matter, and that window can then size
-  // itself to the batch exactly like the downloaded version does.
-  //
-  // The one thing that cannot be avoided is the click. Opening a window
-  // without one is what a pop-up blocker exists to stop.
-  const WINDOW_NAME = 'n4du-studio';
+  // The attempt itself happens in js/own-window.js, in the HEAD, before this
+  // file has even loaded — it has to, or the tab paints first. What is left
+  // here is the part that needs the interface: doing it on purpose from the
+  // button, and saying out loud why it did not happen on its own.
+  const ownWindow = N4DU.ownWindow;
 
   function inOwnWindow() {
-    return !!window.opener || window.name === WINDOW_NAME;
+    return ownWindow.isOwnWindow();
   }
 
   function openInOwnWindow() {
-    // The size the interface says it needs, so the window arrives right
-    // rather than arriving wrong and correcting itself.
-    const want = N4DU.windowSize.measure();
-    const features = [
-      'popup=yes',
-      `width=${Math.round(want.w)}`,
-      `height=${Math.round(want.h)}`,
-      'resizable=yes',
-      'scrollbars=no',
-    ].join(',');
-    const opened = window.open(location.href, WINDOW_NAME, features);
-    if (!opened) {
+    // Measured, not guessed: the window arrives at the size the interface
+    // says it needs rather than arriving wrong and correcting itself.
+    if (!ownWindow.open(N4DU.windowSize.measure())) {
       toast('Your browser blocked the window — allow pop-ups for this page', 'err');
       return;
     }
-    opened.focus();
+    hideWindowNotice();
+  }
+
+  // What happened before the page was painted, in words.
+  //
+  // Three outcomes worth a sentence, and one worth nothing. Being refused by
+  // the pop-up blocker is the DEFAULT on a first visit, not a fault — so it
+  // is explained calmly, with the fix, and it can be dismissed forever.
+  function showWindowNotice() {
+    const box = document.getElementById('windowNotice');
+    const text = document.getElementById('windowNoticeText');
+    const action = document.getElementById('windowNoticeAction');
+    const close = document.getElementById('windowNoticeClose');
+    if (!box) return;
+
+    close.addEventListener('click', () => { box.hidden = true; N4DU.windowSize.fit(); });
+
+    if (inOwnWindow() || bridge.active) return;   // this IS the window
+
+    const { tried, opened, reason } = ownWindow.outcome;
+    if (opened) {
+      // It is out there, but this tab had nowhere to go back to.
+      text.innerHTML = '<b>N4DU Studio opened in its own window.</b> '
+                     + 'You can close this tab.';
+      action.hidden = false;
+      action.textContent = 'Bring it to the front';
+      action.addEventListener('click', () => openInOwnWindow());
+      box.hidden = false;
+      return;
+    }
+
+    if (tried && reason === 'blocked') {
+      text.innerHTML = '<b>This is the full-page version.</b> N4DU Studio is '
+        + 'built for a small window of its own, and your browser blocked it '
+        + 'from opening one — that is what the pop-up blocker is for. Allow '
+        + 'pop-ups for this page and it will open in its own window from now '
+        + 'on, or press Window to do it once.';
+      action.hidden = false;
+      action.textContent = 'Open the window now';
+      action.addEventListener('click', () => openInOwnWindow());
+      box.hidden = false;
+      return;
+    }
+    // Anything else — a screen too small to bother, or turned off — is not
+    // worth a sentence.
+  }
+
+  function hideWindowNotice() {
+    const box = document.getElementById('windowNotice');
+    if (box) box.hidden = true;
   }
 
   // ── Help ──────────────────────────────────────────────────────────
@@ -542,6 +578,7 @@
   });
 
   N4DU.windowSize.init();
+  showWindowNotice();
   edit.setOnChanged(() => { /* tools repaint explicitly to stay responsive */ });
 
   document.getElementById('btnExport').addEventListener('click', onDownload);
