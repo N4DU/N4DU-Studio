@@ -21,7 +21,7 @@ import sys
 import subprocess
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-ENTRY = os.path.join(ROOT, "main.py")
+ENTRY = os.path.join(ROOT, "main.pyw")
 ICON = os.path.join(ROOT, "assets", "n4du.ico")
 
 VERB_KEY = "N4DUStudio"        # registry key name (never shown)
@@ -191,7 +191,7 @@ def enable():
     if reg is None:
         raise RuntimeError(_unsupported_reason() or "Not supported on this system.")
     if not os.path.isfile(ENTRY):
-        raise RuntimeError("main.py is not where it was expected: " + ENTRY)
+        raise RuntimeError("main.pyw is not where it was expected: " + ENTRY)
 
     command = command_line()
     icon = ICON if os.path.isfile(ICON) else None

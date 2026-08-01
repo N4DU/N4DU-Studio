@@ -1,30 +1,23 @@
 @echo off
-rem N4DU Studio - launcher for Windows.
+rem N4DU Studio - the technical way in.
 rem
-rem PREFER start.pyw. This file cannot avoid flashing a console, and not
-rem because of anything it does: cmd.exe is itself a console program, so
-rem Windows creates a window for it before the first line here is read. The
-rem .pyw launcher is handed to pythonw.exe, which Windows never gives a
-rem console to at all - see the note at the top of start.pyw.
+rem This is the console launcher. It exists BECAUSE it opens a console: it
+rem runs the bridge with the full log on screen, so you can watch what the
+rem server is doing behind the interface - every request, every token, every
+rem byte written to disk - and it stays up when the window is closed.
 rem
-rem Kept for the cases .pyw does not cover: a Python installed without file
-rem associations, or a machine where .pyw was taken over by something else.
+rem For the app on its own, double-click main.pyw instead. Nothing is hidden
+rem there and nothing flashes: .pyw is handed to pythonw.exe, which Windows
+rem never gives a console to. cmd.exe, on the other hand, is a console
+rem program, so Windows creates this window before the first line here is
+rem read - which is exactly the point of this file.
+rem
 rem No dependencies: the Python standard library is enough.
 cd /d "%~dp0"
 
-rem Find Python. pythonw.exe comes first on purpose: it is the build with no
-rem console attached, so double-clicking this file leaves no black window
-rem sitting behind the app. python.exe is only a fallback for an installation
-rem that somehow has no windowed build - and even then main.py hides the
-rem console itself when it turns out to be the only thing using it.
+rem The console build, deliberately. pythonw.exe would leave nothing to read.
 set "PY="
-where pythonw >nul 2>&1 && set "PY=pythonw"
-if not defined PY (
-  where pyw >nul 2>&1 && set "PY=pyw"
-)
-if not defined PY (
-  where python >nul 2>&1 && set "PY=python"
-)
+where python >nul 2>&1 && set "PY=python"
 if not defined PY (
   where py >nul 2>&1 && set "PY=py"
 )
@@ -38,16 +31,13 @@ if not defined PY (
   exit /b 1
 )
 
-rem "start" and not a plain call: the app becomes a process of its own, so
-rem this launcher exits immediately instead of sitting there for as long as
-rem the app runs - which is what kept a console on screen the whole time.
+rem Run it in this window and wait: closing the app is not the same as being
+rem finished reading. --console also stops the bridge shutting itself down
+rem when the page goes away.
 rem
-rem Deliberately no /b. With /b the app would share this window's console and
-rem be killed the moment the launcher's window closed. Under pythonw no
-rem window is created at all; under the python.exe fallback the new console
-rem belongs to the app alone, and main.py hides it on startup.
-rem
-rem To watch what the bridge is doing, run it yourself instead:
-rem     python main.py --console
-start "" %PY% main.py %*
-exit /b 0
+rem No "||": if the program exits with an error it must not relaunch itself.
+%PY% main.pyw --console %*
+
+echo.
+echo   The bridge has stopped.
+pause
