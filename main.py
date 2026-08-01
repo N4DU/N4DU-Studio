@@ -88,6 +88,40 @@ _shutdown = {"event": threading.Event(), "reason": ""}
 # There may be no console at all. The right-click entry launches the program
 # with pythonw.exe, where sys.stdout is None: printing anything would raise
 # AttributeError and take the app down before it ever opened a window.
+def hide_own_console():
+    """Windows: gets rid of the black window, but only when it is ours.
+
+    Double-clicking main.py runs it under python.exe, which creates a console
+    for it — a window nobody asked for, sitting behind the app for as long as
+    it runs. That one is hidden the moment we start.
+
+    A console that was already there is left completely alone. Running
+    `python main.py` from a terminal you opened yourself must still print
+    everything where you can read it, and hiding that window would take your
+    shell with it. The two cases are told apart by asking the console how
+    many programs are attached to it: exactly one means it was made for us
+    and nothing else is using it.
+
+    Nothing is turned off — the output still goes to that console, and
+    --console keeps it on screen.
+    """
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        window = kernel32.GetConsoleWindow()
+        if not window:
+            return False           # already windowless (pythonw.exe)
+        pids = (ctypes.c_uint * 8)()
+        if kernel32.GetConsoleProcessList(pids, 8) != 1:
+            return False           # someone else's console: not ours to touch
+        ctypes.windll.user32.ShowWindow(window, 0)   # SW_HIDE
+        return True
+    except Exception:
+        return False               # any doubt at all: leave the window alone
+
+
 def _has_console():
     return getattr(sys, "stdout", None) is not None
 
@@ -683,13 +717,13 @@ def start_server():
 
 # ── Launch helpers ──────────────────────────────────────────────────
 def parse_args(argv):
-    """--open PATH... (one or many), --no-browser, --settings.
+    """--open PATH... (one or many), --no-browser, --console, --settings.
 
     --open takes every path that follows it, not just one: Send To and a
     drop onto the launcher both hand over a whole selection in a single
     command line.
     """
-    args = {"open": [], "browser": True, "settings": None}
+    args = {"open": [], "browser": True, "settings": None, "console": False}
     rest = list(argv)
     while rest:
         arg = rest.pop(0)
@@ -700,6 +734,10 @@ def parse_args(argv):
             args["open"].append(arg[len("--open="):])
         elif arg == "--no-browser":
             args["browser"] = False
+        elif arg == "--console":
+            # Keeps the console on screen even when it is ours alone, for
+            # anyone who wants to watch what the bridge is doing.
+            args["console"] = True
         elif arg in ("--enable-context-menu", "--disable-context-menu",
                      "--forget", "--check"):
             args["settings"] = arg
@@ -823,6 +861,13 @@ def main():
             return
         except RuntimeError as exc:
             fatal(str(exc))
+
+    # From here on the program is going to run the app rather than print an
+    # answer and stop, so a console that exists only because main.py was
+    # double-clicked can go. The support commands above are deliberately
+    # ahead of this: --check has nothing but its output to give.
+    if not args["console"]:
+        hide_own_console()
 
     # An entry left over from an older version is rewritten now, quietly.
     # Waiting for someone to toggle a setting is how a fix never arrives.

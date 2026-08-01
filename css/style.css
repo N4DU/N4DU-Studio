@@ -933,13 +933,12 @@ body.mode-edit .convert-only { display: none !important; }
   gap: 9px;
 }
 .conv-files .file-grid { min-height: 0; }
-/* Nothing loaded: the panel takes only the room the drop zone needs, so the
-   settings sit right under it instead of being pushed to the bottom of a
-   tall empty box. On a full-size tab that leaves room over — split it above
-   and below, so the empty state reads as a centred card rather than a form
-   that ran out halfway down the page. */
-body.no-files .conv-files { flex: 0 0 auto; }
-body.no-files .convert { justify-content: center; }
+/* Nothing loaded, so there is nothing for the estimate line to estimate.
+   "Add some files to begin." only held the download buttons a whole line
+   away from the settings, and in a small window that line is worth more to
+   the drop zone. Only in the launcher's window: the page in a browser tab
+   has height to spare and is left exactly as it was. */
+body.app-window.no-files .conv-estimate { display: none; }
 
 .conv-head {
   display: flex;
@@ -1048,12 +1047,24 @@ body.no-files .convert { justify-content: center; }
   min-height: 0;
   justify-content: center;
   overflow: hidden;
-  /* And a ceiling. On a full browser tab there is nothing else competing for
-     the space, so an empty dashed rectangle grew to most of a 1080p screen —
-     a huge, stretched box holding two lines of text. It is a target to drop
-     things on, not the point of the page. */
-  max-height: 280px;
-  width: 100%;
+}
+
+/* On a full browser tab the drop zone had the whole page to itself and grew
+   into an enormous stretched rectangle — very wide, very tall, holding two
+   lines of text. It still takes the room going spare, but it stays SQUARE
+   while doing it: the height drives, the width follows, and it sits in the
+   middle of the panel.
+
+   Only in a browser tab. The window the launcher opens is small and wide,
+   and a square there would be a narrow box floating in a wide panel — and
+   it is gated above the compact width for the same reason. */
+@media (min-width: 561px) {
+  body:not(.app-window) .conv-drop {
+    aspect-ratio: 1 / 1;
+    width: auto;
+    max-width: 100%;
+    margin: 0 auto;
+  }
 }
 .conv-drop:hover, .conv-drop.over { border-color: var(--accent); background: rgba(232,255,71,.04); }
 .conv-drop[hidden] { display: none; }
@@ -1098,8 +1109,11 @@ body.no-files .convert { justify-content: center; }
   .conv-title { font-size: .66rem; letter-spacing: .07em; }
   .conv-sub { font-size: .66rem; }
   .btn-ghost.tiny { padding: 2px 7px; font-size: .65rem; }
-  .pill { font-size: .67rem; padding: 3px 8px; }
-  .pills.tight { gap: 4px; }
+  /* Eight formats have to fit on one line at 452px. They needed 368px of a
+     365px row, so TIFF fell to a second row on its own and cost a whole
+     line of window height for one word. */
+  .pill { font-size: .67rem; padding: 3px 7px; }
+  .pills.tight { gap: 3px; }
   /* Tiles: narrower, but the picture inside keeps its height. */
   .file-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
   .file-tile { padding: 6px 4px 5px; gap: 3px; }
@@ -1131,9 +1145,39 @@ body.no-files .convert { justify-content: center; }
    mark stays — it is the icon, not the name — and the row it sat in gets
    thinner, which is height the drop zone badly wants back. */
 body.app-window .brand span { display: none; }
-body.app-window .app { grid-template-rows: 40px 1fr 22px; }
 body.app-window .titlebar { padding: 0 10px; }
-body.app-window .status { font-size: .66rem; }
+
+/* The converter in a window of its own: no bar of our own at all.
+   The operating system draws one directly above, so ours was a second grey
+   strip saying the same thing. Help, Settings and Editor move into the Files
+   row (js/main.js: placeChrome), which already had space to the right, and
+   the status bar goes with it — at rest it only ever said "Ready".
+   The editor keeps both: its bar carries Undo, Open, Copy, Replace and
+   Download, and its status line carries the picture's dimensions. */
+body.app-window.mode-convert .titlebar,
+body.app-window.mode-convert .statusbar { display: none; }
+body.app-window.mode-convert .app { grid-template-rows: 1fr; }
+body.app-window.mode-edit .app { grid-template-rows: 40px 1fr 22px; }
+
+/* The three that came down from the bar sit at the end of the Files row,
+   sized to belong beside Add files and Clear rather than tower over them. */
+body.app-window.mode-convert .conv-head #btnHelp { margin-left: auto; }
+body.app-window.mode-convert .conv-head .icon-btn {
+  width: 24px; height: 24px; border-color: var(--border2);
+}
+body.app-window.mode-convert .conv-head .icon-btn svg { width: 14px; height: 14px; }
+body.app-window.mode-convert .conv-head .mode-btn {
+  padding: 3px 9px; font-size: .68rem;
+}
+body.app-window.mode-convert .conv-head .mode-btn .bi { width: 12px; height: 12px; }
+
+/* All that reclaimed height goes to one place: the box you drop files on,
+   which was the only part of the window looking squashed. */
+body.app-window.mode-convert .conv-drop { min-height: 226px; }
+body.app-window.mode-convert .conv-drop .drop-label { font-size: .88rem; }
+body.app-window.mode-convert .conv-drop .drop-sub { font-size: .72rem; }
+body.app-window.mode-convert .conv-drop .drop-icon.small { width: 26px; height: 26px; }
+body.app-window.mode-convert .conv-drop { gap: 4px; }
 .conv-label { font-size: .74rem; color: var(--muted); }
 .conv-fields { display: flex; align-items: center; gap: 7px; }
 .conv-fields input[type=number] {
@@ -1264,7 +1308,11 @@ body.app-window .status { font-size: .66rem; }
   /* The title-bar row is a fixed 48px in the main grid. Once the bar is
      allowed to wrap it grows taller than that, and the workspace was drawn
      straight over the top of it — the buttons were visible but unclickable. */
-  body.mode-edit .app { grid-template-rows: auto 1fr 24px; }
+  /* The app-window rule further down is more specific, so it has to be
+     named here too or it pins the row back to a fixed height and the
+     workspace covers the wrapped bar again. */
+  body.mode-edit .app,
+  body.app-window.mode-edit .app { grid-template-rows: auto 1fr 24px; }
   body.mode-edit .workspace {
     grid-template-columns: 1fr;
     grid-auto-rows: max-content;
