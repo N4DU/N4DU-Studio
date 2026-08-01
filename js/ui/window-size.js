@@ -161,7 +161,13 @@
       if (Date.now() - asked.at < 700) return;
       const off = Math.abs(window.outerWidth - asked.w) > 24 ||
                   Math.abs(window.outerHeight - asked.h) > 24;
-      if (off) manual = true;
+      if (!off) return;
+      manual = true;
+      // And remembered, so the next launch opens at the size you chose.
+      // Re-opening the link re-loads the window, and without this it would
+      // shrink back to 452 every time — undoing a deliberate resize is the
+      // kind of thing that makes a tool feel like it is arguing with you.
+      if (N4DU.ownWindow) N4DU.ownWindow.remember(window.outerWidth, window.outerHeight);
     });
   }
 
