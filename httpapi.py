@@ -29,6 +29,7 @@ from urllib.parse import urlparse, parse_qs, unquote, urlencode
 
 import console
 import shell_integration
+import watchdir
 import appstate
 import diskio
 import pagestate
@@ -310,7 +311,15 @@ class Handler(BaseHTTPRequestHandler):
             # ready to receive anything; draining the queue there threw the
             # files away silently.
             take = parse_qs(urlparse(self.path).query).get("take", [""])[0] == "1"
-            return self._json({"ok": True, "pending": take_pending() if take else []})
+            # The folder is watched by the operating system, not by anybody
+            # looking at it on a timer — see watchdir.py. This heartbeat runs
+            # every second whatever happens, so it is what the news rides
+            # home on: no new timer, no new connection, and the disk is never
+            # read to find out.
+            return self._json({"ok": True,
+                               "pending": take_pending() if take else [],
+                               "folderChanged": watchdir.taken(),
+                               "watching": watchdir.supported()})
         if path == "/api/read":
             return self._read()
         if path == "/api/file":
@@ -447,6 +456,11 @@ class Handler(BaseHTTPRequestHandler):
             found.append(full)
             if len(found) >= MAX_SIBLINGS:
                 break
+
+        # Watch whatever folder the open picture is in. Doing it here rather
+        # than at startup means it follows you: open a picture somewhere else
+        # and the watch moves with it.
+        watchdir.follow(folder)
 
         files = [{"token": remember_file(p), "path": p, "name": os.path.basename(p)}
                  for p in found]

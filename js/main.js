@@ -119,7 +119,13 @@
       : 'Open the editor for the selected picture';
     placeChrome();
     if (edit_) refresh();
-    else N4DU.batchUI.syncBatch();
+    else {
+      N4DU.batchUI.syncBatch();
+      // A picture may have appeared in the folder while the editor was open.
+      // The news was noted rather than acted on then; this is the moment it
+      // is worth anything.
+      if (folderMovedOn) { folderMovedOn = false; offerFolder(); }
+    }
     N4DU.windowSize.fit();
   }
 
@@ -299,39 +305,34 @@
     }
   }
 
-  // Keeping an eye on the folder, because the folder is not ours.
+  // Being told, rather than looking.
   //
-  // Pictures appear in it while the program is open — you save a screenshot
-  // there, you duplicate one, someone else drops a scan in — and nothing
-  // tells the browser. The offer was only recomputed when the app itself did
-  // something, so a file added from the file explorer stayed invisible until
-  // you happened to add another one THROUGH the program. It looked like the
-  // button had stopped working; it had simply never been asked again.
+  // Pictures appear next to the one you opened while the program is running,
+  // and nothing in a browser can see that. Asking every few seconds would
+  // catch it, and would also spend work for ever on something that almost
+  // never happens — and still be late by up to however long the gap is.
   //
-  // A folder listing is one cheap local call, so it is asked for on a timer.
-  // Not while the window is in the background, not during the editor, and
-  // not in the middle of a conversion — none of those are moments anybody is
-  // waiting to be told, and the last one is already using the disk.
-  const WATCH_EVERY = 4000;
-  let watching = null;
+  // So the operating system is asked to say something instead. watchdir.py
+  // parks a thread in the kernel where it costs nothing until there is news;
+  // the heartbeat that already runs every second carries the news home. No
+  // new timer, no new connection, and the disk is never read to find out.
+  let folderMovedOn = false;      // news that arrived while looking elsewhere
 
-  function watchFolder(on) {
-    clearInterval(watching);
-    watching = null;
-    if (!on) return;
-    watching = setInterval(() => {
-      if (document.hidden) return;
-      if (currentMode() !== 'convert') return;
-      if (N4DU.batchRun.busy()) return;
-      offerFolder();
-    }, WATCH_EVERY);
-  }
-
-  // Coming back to the window is the other moment worth looking: you have
-  // almost certainly just been in the folder putting something there.
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && bridge.active && currentMode() === 'convert') offerFolder();
+  bridge.setOnFolderChanged(() => {
+    if (currentMode() === 'convert') offerFolder();
+    else folderMovedOn = true;    // picked up on the way back, below
   });
+
+  // Coming back to the window is worth a look whatever happens, and it is
+  // not a timer: you have almost certainly just been in the folder putting
+  // something there. It is also the whole answer on a system where none of
+  // the three watchers exists — bridge.watching says so — which is why there
+  // is no button to press and no clock running in that case either.
+  const lookAgain = () => {
+    if (!document.hidden && bridge.active && currentMode() === 'convert') offerFolder();
+  };
+  document.addEventListener('visibilitychange', lookAgain);
+  window.addEventListener('focus', lookAgain);
 
   async function addFolder() {
     const anchor = batch.items.find(it => it.token);
@@ -568,8 +569,6 @@
   bridge.setOnStateChange(() => {
     if (!bridge.active) toast('The desktop helper stopped — replacing files is off', 'err');
     else toast('The desktop helper is back', 'ok');
-    // Nothing to watch a folder with once the helper is gone.
-    watchFolder(bridge.active);
     syncButtons();
     N4DU.batchUI.syncBatch();
   });
@@ -609,7 +608,6 @@
     .then(() => N4DU.handover.claim({ onEdit: editItem }))
     .catch(() => {})
     .finally(() => {
-      watchFolder(bridge.active);
       syncButtons();
       N4DU.batchUI.syncBatch();
     });
