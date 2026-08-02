@@ -85,7 +85,7 @@ from diskio import (  # noqa: E402
     ALLOWED_EXT, OPENABLE_EXT, PICK_TIMEOUT,
     native_pick, target_path, replace_file, openable, _natural_key, _safe_stem,
 )
-from httpapi import Handler, start_server, settings_status  # noqa: E402
+from httpapi import Handler, NoFreePort, start_server, settings_status  # noqa: E402
 from pagestate import (  # noqa: E402
     _page, _pending, _pending_lock, _shutdown,
     page_is_there, expect_page, take_pending, page_alive, request_shutdown,
@@ -404,7 +404,15 @@ def main():
         # underneath it and everyone waiting gives up.
         if holds_lock:
             appstate.touch_start_lock()
-        server, port = start_server()
+        try:
+            server, port = start_server()
+        except NoFreePort as exc:
+            # Through fatal(), like every other unrecoverable error here.
+            # start_server used to raise SystemExit, whose message goes to
+            # sys.stderr — which is None under pythonw.exe, so launched from
+            # the right-click entry the program printed to nowhere and looked
+            # like it had simply refused to start.
+            fatal(str(exc))
         url = f"http://{HOST}:{port}/"
         if args["open"]:
             # Everything the launch was given goes into the same queue the
@@ -453,7 +461,13 @@ def main():
         event(SYM["open"], "Opened: " + (os.path.abspath(args["open"][0])
                                          if len(args["open"]) == 1
                                          else f"{len(args['open'])} files"), "0")
-        for waiting in _pending:
+        # A copy, under the lock. The server has been answering since a few
+        # lines above, so /api/adopt can be extending this list — and
+        # trimming it — while this walks it. Only trace output was at stake,
+        # but it is the one place the lock discipline was broken.
+        with _pending_lock:
+            queued = list(_pending)
+        for waiting in queued:
             trace("token", "{}  {}".format(waiting["token"][:8], waiting["path"]), "2")
     threading.Thread(target=watchdog, args=(time.time(),), daemon=True).start()
     if args["browser"]:

@@ -692,16 +692,41 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
+class NoFreePort(RuntimeError):
+    """Raised rather than SystemExit'd. Launched from the right-click entry
+    the program runs under pythonw.exe, where sys.stderr is None — so the
+    message SystemExit prints went nowhere at all and the app simply did
+    nothing. main.pyw catches this and puts it on screen, which is what
+    every other unrecoverable error there already does."""
+
+
+class _Server(ThreadingHTTPServer):
+    """The server, with address reuse turned off.
+
+    http.server switches SO_REUSEADDR on for everybody, and on Windows that
+    option means something else entirely: it lets a second process bind an
+    address another process is already bound to and LISTENING on. So a
+    second launch that could not find the first one's session marker — after
+    --forget, or with a moved LOCALAPPDATA — bound the same port instead of
+    moving to the next one, and new connections quietly went to whichever
+    socket was newer. On POSIX the bind simply fails and the loop advances,
+    which is why it never showed up in testing here.
+
+    Nothing is lost by turning it off: the port list has fifteen entries and
+    a port stuck in TIME_WAIT just means the next one is used.
+    """
+    allow_reuse_address = False
+
+
 def start_server():
     """Starts the server on the first free port. It really binds (rather
     than probing) so nothing else can win the race for the port."""
     last = None
     for port in PORTS:
         try:
-            return ThreadingHTTPServer((HOST, port), Handler), port
+            return _Server((HOST, port), Handler), port
         except OSError as exc:
             last = exc
-    raise SystemExit(
-        f"\n  No free port between {PORTS.start} and {PORTS.stop - 1}.\n"
-        f"  Is N4DU Studio already running? Close it and try again.\n"
-        f"  ({last})\n")
+    raise NoFreePort(
+        f"No free port between {PORTS.start} and {PORTS.stop - 1}. "
+        f"Is N4DU Studio already running? Close it and try again. ({last})")
