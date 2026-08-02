@@ -145,12 +145,6 @@
     return text.length > 60 ? text.slice(0, 57) + '…' : text;
   }
 
-  function sizeLabel(bytes) {
-    if (!bytes) return '0 KB';
-    const kb = bytes / 1024;
-    return kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(kb < 10 ? 1 : 0) + ' KB';
-  }
-
   N4DU.batchRun = {
     run, busy,
     connect(d) { deps = { ...deps, ...d }; },
