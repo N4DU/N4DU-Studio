@@ -14,8 +14,9 @@
   // drive the bridge from the browser.
   const HDR = { 'X-N4DU': '1' };
 
-  let byeKey = null;   // secret authorising the shutdown notice
+  let byeKey = null;          // secret authorising the shutdown notice
   let onPending = () => {};   // files handed over while the page was open
+  let onFolderChanged = () => {};   // the folder gained or lost a picture
   let onStateChange = () => {};   // the helper appeared, or went away
   let heartbeat = null;
 
@@ -66,6 +67,12 @@
           onStateChange();
         }
         if (info && info.pending && info.pending.length) onPending(info.pending);
+        // The operating system noticed something appear next to the picture
+        // you have open, and said so — see watchdir.py. Nothing here polls
+        // the disk; this heartbeat exists anyway, so it is what carries the
+        // news home.
+        bridge.watching = info ? info.watching !== false : true;
+        if (info && info.folderChanged) onFolderChanged();
       })
       .catch(() => {
         if (++misses >= 3 && bridge.active) {
@@ -257,6 +264,7 @@
   bridge.collect = collect;
   bridge.siblings = siblings;
   bridge.replaceByToken = replaceByToken;
+  bridge.setOnFolderChanged = (fn) => { onFolderChanged = fn || (() => {}); };
   bridge.setOnPending = (fn) => { onPending = fn || (() => {}); };
   // Told when the helper stops answering, or starts again — so the
   // interface can lock and unlock what only the helper can do.

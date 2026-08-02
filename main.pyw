@@ -64,7 +64,8 @@ if _HERE not in sys.path:
 
 from config import HOST, PORTS, ROOT, MAX_SIBLINGS, MAX_UPLOAD, STALL_SECONDS  # noqa: E402
 
-import shell_integration  # noqa: E402  (needs the path fixed up first)
+import shell_integration  # noqa: E402
+import watchdir  # noqa: E402  (needs the path fixed up first)
 import appstate          # noqa: E402  settings, session marker, file tokens
 import diskio            # noqa: E402  the file dialog and replacing on disk
 import console           # noqa: E402  everything printed, and nothing decided
@@ -491,6 +492,7 @@ def main():
         # A newline first: Ctrl+C leaves "^C" where the cursor was.
         _write("")
         event(SYM["ok"], "Stopped with Ctrl+C. Goodbye.", "92")
+    watchdir.stop()         # let the folder watcher's thread out of the kernel
     server.shutdown()
     server.server_close()   # release the port now, not at interpreter exit
 

@@ -119,7 +119,13 @@
       : 'Open the editor for the selected picture';
     placeChrome();
     if (edit_) refresh();
-    else N4DU.batchUI.syncBatch();
+    else {
+      N4DU.batchUI.syncBatch();
+      // A picture may have appeared in the folder while the editor was open.
+      // The news was noted rather than acted on then; this is the moment it
+      // is worth anything.
+      if (folderMovedOn) { folderMovedOn = false; offerFolder(); }
+    }
     N4DU.windowSize.fit();
   }
 
@@ -281,19 +287,52 @@
   // decision changes with its version and how many are selected. Rather than
   // depend on it, the app asks what else is in the folder and offers it.
   let offering = false;
+  let asking = false;      // an offerFolder() already in flight
 
   async function offerFolder() {
-    if (!bridge.active || offering) return;
+    if (!bridge.active || offering || asking) return;
     const anchor = batch.items.find(it => it.token);
     if (!anchor) { N4DU.batchUI.setFolderOffer(0, ''); return; }
+    asking = true;
     try {
       const have = batch.items.map(it => it.path).filter(Boolean);
       const { folder, metas } = await bridge.siblings(anchor.token, have);
       N4DU.batchUI.setFolderOffer(metas.length, folder.split(/[\\/]/).pop());
     } catch {
       N4DU.batchUI.setFolderOffer(0, '');
+    } finally {
+      asking = false;
     }
   }
+
+  // Being told, rather than looking.
+  //
+  // Pictures appear next to the one you opened while the program is running,
+  // and nothing in a browser can see that. Asking every few seconds would
+  // catch it, and would also spend work for ever on something that almost
+  // never happens — and still be late by up to however long the gap is.
+  //
+  // So the operating system is asked to say something instead. watchdir.py
+  // parks a thread in the kernel where it costs nothing until there is news;
+  // the heartbeat that already runs every second carries the news home. No
+  // new timer, no new connection, and the disk is never read to find out.
+  let folderMovedOn = false;      // news that arrived while looking elsewhere
+
+  bridge.setOnFolderChanged(() => {
+    if (currentMode() === 'convert') offerFolder();
+    else folderMovedOn = true;    // picked up on the way back, below
+  });
+
+  // Coming back to the window is worth a look whatever happens, and it is
+  // not a timer: you have almost certainly just been in the folder putting
+  // something there. It is also the whole answer on a system where none of
+  // the three watchers exists — bridge.watching says so — which is why there
+  // is no button to press and no clock running in that case either.
+  const lookAgain = () => {
+    if (!document.hidden && bridge.active && currentMode() === 'convert') offerFolder();
+  };
+  document.addEventListener('visibilitychange', lookAgain);
+  window.addEventListener('focus', lookAgain);
 
   async function addFolder() {
     const anchor = batch.items.find(it => it.token);
@@ -568,7 +607,10 @@
     // had its say, because a window opened by a tab never has one.
     .then(() => N4DU.handover.claim({ onEdit: editItem }))
     .catch(() => {})
-    .finally(() => { syncButtons(); N4DU.batchUI.syncBatch(); });
+    .finally(() => {
+      syncButtons();
+      N4DU.batchUI.syncBatch();
+    });
   syncButtons();
 
 })(window.N4DU ??= {});
