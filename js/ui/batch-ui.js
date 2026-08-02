@@ -5,8 +5,8 @@
 (function (N4DU) {
 
   const { batch, bridge, toast } = N4DU;
-  const { FORMATS, detectEncodeSupport, download } = N4DU.exporter;
-  const { convert, targetSize, outputName, RESIZE_MODES } = N4DU.convert;
+  const { FORMATS, detectEncodeSupport } = N4DU.exporter;
+  const { convert, targetSize, RESIZE_MODES } = N4DU.convert;
 
   const $ = (id) => document.getElementById(id);
   const STORE = 'n4du.convert';
