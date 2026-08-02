@@ -36,7 +36,13 @@
 
   const NAME = 'n4du-studio';       // the window we open, and re-use
   const STORE = 'n4du.window';      // the size you last left it at
-  const OPT_OUT = 'n4du.noPopOut';  // "stop doing this"
+  // "stop doing this". There is deliberately no button for it: the notice
+  // has exactly one, and it is the one that helps. This is the escape hatch
+  // for somebody who wants the plain page and is willing to say so —
+  // localStorage.setItem('n4du.noPopOut', '1') in the console, or
+  // N4DU.ownWindow.stopAsking(). Nothing in the interface calls it, and that
+  // is the intent rather than an oversight.
+  const OPT_OUT = 'n4du.noPopOut';
 
   // Where the compact layout starts to make sense. Below this the tab is
   // already about the size the window would be, and a pop-up would be a

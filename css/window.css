@@ -20,6 +20,10 @@ body.app-window .titlebar { padding: 0 10px; }
 body.app-window.mode-convert .titlebar,
 body.app-window.mode-convert .statusbar { display: none; }
 body.app-window.mode-convert .app { grid-template-rows: 1fr; }
+/* The toast is pushed down to clear that title bar — 60px for a bar 48px
+   tall. With the bar gone it was clearing nothing and sitting across the
+   first row of file tiles, over their × buttons. */
+body.app-window.mode-convert .toast { top: 12px; }
 body.app-window.mode-edit .app { grid-template-rows: 40px 1fr 22px; }
 
 /* The three that came down from the bar sit at the end of the Files row,
