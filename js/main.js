@@ -191,10 +191,29 @@
       await onFile(picked[0].file, true);
       return;
     }
+    const { added } = await addFromDisk(picked);
+    announceAdded(added);
+  }
+
+  // Files from the bridge arrive one at a time because each carries its own
+  // token and path, and batch.add takes one set of those for the whole call.
+  //
+  // The count has to be tallied rather than assumed. Every one of these
+  // places used to report picked.length — the number of files ASKED for —
+  // so right-clicking five images where two were corrupt said "Added 5
+  // files" over a list holding three, and said nothing about the two.
+  async function addFromDisk(picked) {
+    let added = 0;
+    const failed = [];
     for (const one of picked) {
-      await batch.add([one.file], { token: one.token, path: one.path });
+      const r = await batch.add([one.file], { token: one.token, path: one.path });
+      added += r.added;
+      failed.push(...r.failed);
     }
-    announceAdded(picked.length);
+    if (failed.length) {
+      toast(`${failed.length} file${failed.length > 1 ? 's' : ''} could not be read`, 'err');
+    }
+    return { added, failed };
   }
 
   // Files with no location: dropped, pasted, or chosen through the browser.
@@ -246,12 +265,12 @@
       const have = batch.items.map(it => it.path).filter(Boolean);
       const { metas } = await bridge.siblings(anchor.token, have);
       const picked = await bridge.collect(metas);
-      for (const one of picked) {
-        await batch.add([one.file], { token: one.token, path: one.path });
+      const { added, failed } = await addFromDisk(picked);
+      if (!failed.length) {
+        toast(added
+          ? `Added ${added} more from the same folder`
+          : 'Nothing else in that folder', added ? 'ok' : '');
       }
-      toast(picked.length
-        ? `Added ${picked.length} more from the same folder`
-        : 'Nothing else in that folder', picked.length ? 'ok' : '');
     } catch (err) {
       toast(err.message, 'err');
     } finally {
@@ -426,8 +445,11 @@
     if (!token || !bridge.active) return;
     const picked = await bridge.adopt(token);
     if (picked) {
-      await batch.add([picked.file], { token: picked.token, path: picked.path });
-      offerFolder();
+      const { added } = await addFromDisk([picked]);
+      // Right-clicking a file whose bytes are damaged opened the program on
+      // an empty list with nothing said. addFromDisk reports the failure;
+      // the folder offer is only worth making when something did arrive.
+      if (added) offerFolder();
     } else {
       toast('That file could not be opened — it may have been moved.', 'err');
     }
@@ -447,10 +469,10 @@
 
   bridge.setOnPending(async (metas) => {
     const picked = await bridge.collect(metas);
-    for (const one of picked) {
-      await batch.add([one.file], { token: one.token, path: one.path });
+    const { added, failed } = await addFromDisk(picked);
+    if (added && !failed.length) {
+      toast(`Added ${added} file${added > 1 ? 's' : ''} from your file explorer`, 'ok');
     }
-    if (picked.length) toast(`Added ${picked.length} file${picked.length > 1 ? 's' : ''} from your file explorer`, 'ok');
     offerFolder();
   });
 
