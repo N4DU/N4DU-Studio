@@ -133,6 +133,16 @@
       return;
     }
     batch.select(item.id);
+    // Coming back to the picture you were already editing is a change of
+    // view, not a new document. It used to re-decode and re-load, which
+    // threw away every undo step — and worse, made Revert a lie: the batch
+    // item now holds the EDITED bitmap, so "back to the picture you opened"
+    // handed back the rotated, brushed version and there was no route to the
+    // original left at all. One tap of the mode button was enough.
+    if (editing === item.id && edit.ready()) {
+      setMode('edit');
+      return;
+    }
     editing = item.id;
     let handle = null;
     try {
@@ -314,6 +324,14 @@
   function showInEditor(bmp, meta, fromBridge) {
     resetForImage(bmp, meta);
     edit.load(bmp);          // fresh editing session for this image
+    // And a fresh crop box, which means none. The selection lives in
+    // editor-canvas.js and survived a new picture being opened, still
+    // holding the last one's coordinates: open something smaller and the
+    // stale box fell entirely outside it, so the dimming covered the whole
+    // photo and a yellow rectangle floated over nothing. There was no way
+    // to clear it either — Reset stays disabled for a box bigger than the
+    // picture, and the crop panel is hidden while the tool is Move.
+    N4DU.editorCanvas.setSelection(null);
     // Dropped, pasted or browser-picked files have no path on disk, so the
     // replacement target is cleared (it is chosen inside the dialog).
     if (!fromBridge) bridge.clearFile();
