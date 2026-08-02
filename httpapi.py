@@ -98,6 +98,15 @@ class Handler(BaseHTTPRequestHandler):
     # program on this machine could have kept going until nothing was left.
     timeout = 30
 
+    # The page is thirty-odd separate files, all fetched down one reused
+    # connection. Each response goes out as two writes — headers, then body —
+    # and with Nagle's algorithm on, the second write waits for the first to
+    # be acknowledged. The browser has nothing to acknowledge it with, so the
+    # kernel's delayed ACK timer answers instead: 40ms, per file, every time.
+    # Measured on this machine: 45-57ms per file on a kept-alive connection
+    # against 0.7ms on a fresh one. That is the whole difference.
+    disable_nagle_algorithm = True
+
     def log_message(self, *_):
         pass  # keep the console clean: only our own events
 
