@@ -129,14 +129,56 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "Wrong host"}, 403)
             return False
         origin = self.headers.get("Origin", "")
-        own = f"http://{HOST}:{self.server.server_address[1]}"
-        if origin and origin != own:
+        # Both spellings, because _same_machine() accepts both. It did not:
+        # the Host check let "localhost:4517" through and the Origin check
+        # only knew "http://127.0.0.1:4517". A person who typed localhost got
+        # a page that loaded and looked connected — GETs carry no Origin, so
+        # the heartbeat passed — while every POST came back 403. No run
+        # secret, so Replace and the file dialog failed with "Origin not
+        # allowed", and the page could never announce its own exit.
+        port = self.server.server_address[1]
+        own = (f"http://{HOST}:{port}", f"http://localhost:{port}")
+        if origin and origin not in own:
             self._json({"error": "Origin not allowed"}, 403)
             return False
         if self.headers.get("X-N4DU") != "1":
             self._json({"error": "Missing header"}, 403)
             return False
         return True
+
+    def _is_our_navigation(self):
+        """Is this a browser actually going to the page, from us or from
+        nowhere — rather than some other website reaching in?
+
+        This decides whether a request for "/" cancels a shutdown, and that
+        made it worth attacking. Narrowing the cancel to the interface's own
+        URL was not enough: _static runs before any X-N4DU or Origin check,
+        and the Host header of a cross-site <img src="http://127.0.0.1:4517/">
+        is set by the browser to exactly the value we accept. One such image,
+        refreshed once a second, kept a server with file-replacing powers
+        alive for ever — and page_is_there() then answered yes for a window
+        that no longer existed, so files handed over by later right-clicks
+        were queued for nobody and no window opened for them.
+
+        Sec-Fetch-Site says who asked, and the browser sets it — a page
+        cannot forge it. "none" is somebody typing the address or opening a
+        bookmark; "same-origin" is our own page reloading itself. Anything
+        cross-site is refused, as is any destination that is not a document:
+        an <img> asks for "image", a fetch() for "empty".
+
+        A browser too old to send these headers gets the benefit of the
+        doubt, which is where this started; it is not a downgrade for anyone.
+        """
+        site = self.headers.get("Sec-Fetch-Site")
+        dest = self.headers.get("Sec-Fetch-Dest")
+        if site is not None and site not in ("none", "same-origin"):
+            return False
+        if dest is not None and dest != "document":
+            return False
+        origin = self.headers.get("Origin", "")
+        port = self.server.server_address[1]
+        return not origin or origin in (f"http://{HOST}:{port}",
+                                        f"http://localhost:{port}")
 
     def _json(self, obj, status=200):
         body = json.dumps(obj).encode()
@@ -167,8 +209,27 @@ class Handler(BaseHTTPRequestHandler):
         Reported as a success. The declared length is also capped: an absurd
         Content-Length would otherwise be buffered in full.
         """
-        declared = int(self.headers.get("Content-Length", 0) or 0)
-        if declared < 0 or declared > MAX_UPLOAD:
+        # Chunked bodies are not read here, and pretending the body was empty
+        # left the chunk framing in the socket to be parsed as the start of
+        # the next request — one request in, two answers out, the second one
+        # a bare 400 with no status line. The page never sends chunked, so
+        # refusing is honest; carrying on was not.
+        if self.headers.get("Transfer-Encoding", "").lower() != "":
+            self.close_connection = True
+            raise UploadError("Send the body with a Content-Length.", 411)
+        raw = self.headers.get("Content-Length", "0") or "0"
+        try:
+            declared = int(raw)
+        except ValueError:
+            # /api/settings and /api/adopt caught this themselves and answered
+            # 400; /api/replace did not, so a Content-Length of "abc" came
+            # back as a 500 with a Python exception for a message.
+            self.close_connection = True
+            raise UploadError("The request did not say how long it was.")
+        if declared < 0:
+            self.close_connection = True
+            raise UploadError("The request did not say how long it was.")
+        if declared > MAX_UPLOAD:
             raise UploadError("That file is too large to write.", 413)
         buf = bytearray()
         while len(buf) < declared:
@@ -573,7 +634,8 @@ class Handler(BaseHTTPRequestHandler):
         # watchdog take over. Any URL used to count, so an <img> tag on any
         # website could keep a server with file-replacing powers alive for
         # ever — and an unrelated favicon fetch did it by accident.
-        if _page["closing_since"] is not None and path in ("/", "", "/index.html"):
+        if _page["closing_since"] is not None and path in ("/", "", "/index.html") \
+                and self._is_our_navigation():
             _page["closing_since"] = None
             _page["last_ping"] = time.time()
         if path in ("/", ""):
