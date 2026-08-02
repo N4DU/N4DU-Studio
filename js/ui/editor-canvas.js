@@ -36,10 +36,10 @@
   }
 
   // Is a modal dialog open? (canvas shortcuts must not act)
-  // All three of them: with only the replace dialog checked, arrow keys went
-  // on nudging the crop framing underneath the settings and help sheets.
+  // All of them: with only the replace dialog checked, arrow keys went on
+  // nudging the crop framing underneath the settings and help sheets.
   function modalOpen() {
-    return ['replaceModal', 'settingsModal', 'helpModal'].some(id => {
+    return ['replaceModal', 'settingsModal', 'helpModal', 'windowModal'].some(id => {
       const m = document.getElementById(id);
       return !!m && !m.hidden;
     });

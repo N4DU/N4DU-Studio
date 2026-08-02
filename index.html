@@ -113,17 +113,6 @@
        weight out. Nothing else on screen. -->
   <section class="convert" id="convertView">
 
-    <!-- Why you are looking at a tab and not at the window. Written by
-         js/main.js from what js/own-window.js actually tried, so it says what
-         happened rather than a guess. Hidden unless there is something to
-         say, and dismissible: nobody should be told twice. -->
-    <div class="conv-notice" id="windowNotice" hidden>
-      <span id="windowNoticeText"></span>
-      <button class="btn-ghost tiny" id="windowNoticeAction" hidden></button>
-      <button class="notice-x" id="windowNoticeClose" title="Dismiss"
-              aria-label="Dismiss">×</button>
-    </div>
-
     <div class="conv-block conv-files">
       <div class="conv-head">
         <span class="conv-title" id="filesTitle">Files</span>
@@ -445,6 +434,30 @@
 </div>
 
 <!-- Help -->
+<!-- Shown over everything when the browser refused to open the window on
+     its own. One button, and it is the one worth pressing: opening a window
+     from a click is something every browser allows, so nothing has to be
+     permitted in advance. The only other way out is the ×, which is
+     deliberately the smaller, quieter thing on screen — a notice you close
+     without reading is a notice that never worked. -->
+<div class="modal-backdrop" id="windowModal" hidden>
+  <div class="modal modal-launch">
+    <button class="launch-x" id="windowModalClose" title="Not now"
+            aria-label="Not now">×</button>
+    <div class="launch-icon" aria-hidden="true">
+      <svg viewBox="0 0 48 34">
+        <rect x="1" y="1" width="46" height="32" rx="4"/>
+        <path d="M1 9h46"/>
+        <rect class="fill" x="24" y="13" width="19" height="16" rx="3"/>
+      </svg>
+    </div>
+    <div class="modal-title" id="windowModalTitle">Open it in its own window</div>
+    <p class="launch-body" id="windowModalBody"></p>
+    <button class="btn-accent launch-go" id="windowModalGo">Open the window</button>
+    <p class="launch-fine" id="windowModalFine"></p>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="helpModal" hidden>
   <div class="modal modal-wide">
     <div class="modal-title">How it works</div>
