@@ -76,6 +76,14 @@
       W = Math.max(1, Math.floor(W * s));
       H = Math.max(1, Math.floor(H * s));
     }
+    // Never zero. Rounding a side down to nothing is easy to reach with
+    // honest numbers — "longest side 1 px" on a 1x10000 strip gives 0x1, and
+    // 1% of a 30x40 thumbnail gives 0x0 — and a canvas with a zero side
+    // throws IndexSizeError out of convertToBlob, so the file simply failed
+    // with a DOM exception for a message. One pixel is a truthful answer to
+    // "make it smaller than one pixel"; a crash is not.
+    W = Math.max(1, W);
+    H = Math.max(1, H);
     return { W, H };
   }
 
