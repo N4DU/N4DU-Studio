@@ -87,7 +87,7 @@ from diskio import (  # noqa: E402
 )
 from httpapi import Handler, NoFreePort, start_server, settings_status  # noqa: E402
 from pagestate import (  # noqa: E402
-    _page, _pending, _pending_lock, _shutdown,
+    _page, _pending, _shutdown,
     page_is_there, expect_page, take_pending, page_alive, request_shutdown,
     watchdog,
 )
@@ -422,6 +422,11 @@ def main():
                 full = os.path.abspath(path)
                 _pending.append({"token": remember_file(full), "path": full,
                                  "name": os.path.basename(full)})
+            # Kept for the log, which is printed further down — after the
+            # server is answering, by which point the page may already have
+            # collected the queue and emptied it. Reading _pending there
+            # printed the tokens only when the browser happened to be slow.
+            opened_files = list(_pending)
         write_session(port)
     finally:
         # Held until the marker exists, so the launches waiting behind us
@@ -461,13 +466,7 @@ def main():
         event(SYM["open"], "Opened: " + (os.path.abspath(args["open"][0])
                                          if len(args["open"]) == 1
                                          else f"{len(args['open'])} files"), "0")
-        # A copy, under the lock. The server has been answering since a few
-        # lines above, so /api/adopt can be extending this list — and
-        # trimming it — while this walks it. Only trace output was at stake,
-        # but it is the one place the lock discipline was broken.
-        with _pending_lock:
-            queued = list(_pending)
-        for waiting in queued:
+        for waiting in opened_files:
             trace("token", "{}  {}".format(waiting["token"][:8], waiting["path"]), "2")
     threading.Thread(target=watchdog, args=(time.time(),), daemon=True).start()
     if args["browser"]:
