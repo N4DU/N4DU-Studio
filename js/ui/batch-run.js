@@ -19,7 +19,7 @@
   let deps = {
     optsFor: () => ({}), fmtFor: () => 'png', opts: {}, KEEP: 'keep',
     syncBatch: () => {}, limitLabel: () => '',
-    renderGrid: () => {}, cancelEstimate: () => {},
+    renderGrid: () => {}, cancelEstimate: () => {}, afterRun: () => {},
   };
 
   // A run is in progress. It lives here rather than in batch-ui.js because
@@ -72,7 +72,18 @@
 
         if (replace) {
           const stem = item.name.replace(/\.[^.]+$/, '') || 'image';
-          await bridge.replaceByToken(item.token, out.blob, FORMATS[deps.fmtFor(item)].ext, stem, true);
+          const wrote = await bridge.replaceByToken(
+            item.token, out.blob, FORMATS[deps.fmtFor(item)].ext, stem, true);
+          // Where the file ended up, which is not where it started whenever
+          // the format changed: foto.png comes back as foto.jpg. The answer
+          // was being thrown away, so every item went on naming a file that
+          // no longer existed — and the folder offer works by asking "which
+          // of these are already in the list?", by path. It compared the
+          // whole folder against a list of dead paths, decided the converted
+          // files were new, and offered to add the very pictures you were
+          // looking at. That is the button coming back after it had gone.
+          if (wrote && wrote.path) item.path = wrote.path;
+          if (wrote && wrote.name) item.name = wrote.name;
           replaced++;
         } else {
           produced.push({ name: outputName(item.name, deps.fmtFor(item)), blob: out.blob });
@@ -101,6 +112,9 @@
     // and 40 in the zip, and nothing saying which one had been left out.
     const late = batch.items.filter(it => !targets.includes(it)).length;
     report({ replace, done, failed, replaced, overCap, total: targets.length, late });
+    // Replacing renames files on disk, so what is left in the folder has
+    // just changed. Whoever offers the rest of the folder needs to hear it.
+    deps.afterRun({ replace, replaced });
   }
 
   // Sends the results out: one archive by default, separate downloads when

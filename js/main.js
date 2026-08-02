@@ -461,7 +461,12 @@
   initHelp();
   document.getElementById('btnPopWindow').addEventListener('click', openInOwnWindow);
   N4DU.settings.initSettings();
-  N4DU.batchUI.initBatchUI({ onAdd: chooseFile, onAddFolder: addFolder, onEdit: editItem });
+  N4DU.batchUI.initBatchUI({
+    onAdd: chooseFile, onAddFolder: addFolder, onEdit: editItem,
+    // A run that replaced files renamed them; the folder offer counts
+    // by path and has to be asked again.
+    onRunDone: (info) => { if (info && info.replaced) offerFolder(); },
+  });
 
   // The editor must not outlive the file it is showing.
   //

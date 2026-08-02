@@ -50,6 +50,7 @@
 
   let support = null;        // which formats this browser can really write
   let onEditRequest = () => {};
+  let onRunDone = () => {};
 
   // How many more images sit in the folder of the file that is open, and
   // what that folder is called. Filled in by main.js after asking the bridge.
@@ -65,6 +66,7 @@
   // ── Setup ─────────────────────────────────────────────────────────
   function initBatchUI(hooks = {}) {
     onEditRequest = hooks.onEdit || (() => {});
+    onRunDone = hooks.onRunDone || (() => {});
     restore();
     buildFormats();
     buildResizeModes();
@@ -525,6 +527,7 @@
     // Stopping the estimate is the view's business: it owns the timer and
     // the sequence number that decides which answer is still wanted.
     cancelEstimate() { clearTimeout(estimateTimer); estimateSeq++; },
+    afterRun(info) { onRunDone(info); },
   });
 
   function sizeLabel(bytes) {

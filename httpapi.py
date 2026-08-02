@@ -422,7 +422,16 @@ class Handler(BaseHTTPRequestHandler):
 
         folder = os.path.dirname(os.path.abspath(anchor))
         # Paths already in the list, so they are not offered twice.
-        known = {os.path.abspath(p) for p in query.get("have", []) if p}
+        #
+        # normcase, because the comparison decides whether a file you are
+        # already looking at gets offered to you again. On Windows the disk
+        # does not care about case and neither can this: a path that came
+        # back as C:\Fotos\IMG.PNG and a listing that says img.png are the
+        # same file, and comparing them as text says they are not. On POSIX
+        # normcase does nothing, which is correct there — the two really are
+        # different files.
+        known = {os.path.normcase(os.path.abspath(p))
+                 for p in query.get("have", []) if p}
         try:
             names = sorted(os.listdir(folder), key=_natural_key)
         except OSError as exc:
@@ -431,7 +440,7 @@ class Handler(BaseHTTPRequestHandler):
         found = []
         for name in names:
             full = os.path.join(folder, name)
-            if full in known or not os.path.isfile(full):
+            if os.path.normcase(full) in known or not os.path.isfile(full):
                 continue
             if os.path.splitext(name)[1].lower().lstrip(".") not in OPENABLE_EXT:
                 continue
