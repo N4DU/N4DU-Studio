@@ -701,21 +701,37 @@ class NoFreePort(RuntimeError):
 
 
 class _Server(ThreadingHTTPServer):
-    """The server, with address reuse turned off.
+    """The server, claiming its port the way each system means it.
 
-    http.server switches SO_REUSEADDR on for everybody, and on Windows that
-    option means something else entirely: it lets a second process bind an
-    address another process is already bound to and LISTENING on. So a
-    second launch that could not find the first one's session marker — after
-    --forget, or with a moved LOCALAPPDATA — bound the same port instead of
-    moving to the next one, and new connections quietly went to whichever
-    socket was newer. On POSIX the bind simply fails and the loop advances,
-    which is why it never showed up in testing here.
+    SO_REUSEADDR does not mean the same thing on Windows as it does
+    everywhere else. On POSIX it means "a port left in TIME_WAIT by my own
+    last run is fine to take", which is exactly what is wanted: close the
+    app, open it again, same address. On Windows it means "bind this even
+    if another process is already bound and LISTENING" — so a second launch
+    that could not find the first one's session marker (after --forget, or
+    with LOCALAPPDATA moved) took the port out from under it, and new
+    connections went to whichever socket was newer. http.server switches it
+    on for everybody.
 
-    Nothing is lost by turning it off: the port list has fifteen entries and
-    a port stuck in TIME_WAIT just means the next one is used.
+    So: keep it off Windows, and there ask for the opposite. Windows has an
+    option that means what SO_REUSEADDR means elsewhere, in reverse —
+    SO_EXCLUSIVEADDRUSE, "nobody else may bind this while I hold it" — and
+    setting it turns the hijack into the bind failure it should have been,
+    which sends the loop to the next port.
     """
-    allow_reuse_address = False
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self):
+        if os.name == "nt":
+            try:
+                import socket
+                # SO_EXCLUSIVEADDRUSE, absent from the socket module on
+                # non-Windows builds and not always present on Windows ones.
+                self.socket.setsockopt(socket.SOL_SOCKET,
+                                       getattr(socket, "SO_EXCLUSIVEADDRUSE", ~4 + 1), 1)
+            except OSError:
+                pass    # an old build without it; the port loop still works
+        super().server_bind()
 
 
 def start_server():
