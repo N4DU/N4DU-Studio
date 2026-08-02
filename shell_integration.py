@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-N4DU Studio — system integration.
+N4DU Studio — the right-click entry.
 
 Adds (or removes) the entry that appears when you right-click an image file
 in the file manager: "Edit with N4DU Studio", with the logo next to it.
@@ -12,17 +12,34 @@ rights, nothing touched outside your own account, and disabling removes
 exactly what enabling created.
 
 Standard library only. Windows uses the registry; macOS and Linux report
-themselves as unsupported for now (see MACOS_NOTE / LINUX_NOTE) rather than
-pretending to work.
+themselves as unsupported for now (see shellbase) rather than pretending to
+work. Two neighbours carry the rest: sendto.py builds the Send To shortcut,
+appwindow.py opens the page in its own window.
 """
 
 import os
 import sys
-import subprocess
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
-ENTRY = os.path.join(ROOT, "main.pyw")
-ICON = os.path.join(ROOT, "assets", "n4du.ico")
+from shellbase import (
+    ENTRY, ICON, LINUX_NOTE, MACOS_NOTE, ROOT,
+    command_line, platform_name, shell_python, unsupported_reason,
+    winreg_module as _winreg,
+)
+from sendto import (
+    install_sendto, remove_sendto, sendto_dir, sendto_installed,
+    sendto_path, sendto_supported,
+)
+from appwindow import find_app_browser, open_app_window
+
+__all__ = [
+    "EXTENSIONS", "VERB_KEY", "VERB_LABEL", "ROOT", "ENTRY", "ICON",
+    "MACOS_NOTE", "LINUX_NOTE", "platform_name", "shell_python",
+    "command_line", "status", "enable", "disable", "repair_if_stale",
+    "dump", "describe", "notify_shell",
+    "sendto_dir", "sendto_path", "sendto_supported", "sendto_installed",
+    "install_sendto", "remove_sendto",
+    "find_app_browser", "open_app_window",
+]
 
 VERB_KEY = "N4DUStudio"        # registry key name (never shown)
 VERB_LABEL = "N4DU Studio"     # what the menu shows — the name, nothing else
@@ -43,76 +60,7 @@ EXTENSIONS = (
 # Where Windows keeps per-user, per-extension context menu verbs.
 _KEY_FMT = r"Software\Classes\SystemFileAssociations\{ext}\shell\{verb}"
 
-MACOS_NOTE = ("On macOS the equivalent is a Quick Action in Automator; "
-              "N4DU Studio does not install one yet.")
-LINUX_NOTE = ("On Linux the entry depends on the desktop (Nautilus, Dolphin, "
-              "Thunar each differ); N4DU Studio does not install one yet.")
-
-
-# ── Platform ────────────────────────────────────────────────────────
-def _winreg():
-    """The winreg module, or None when this is not Windows. Kept behind a
-    function so the tests can substitute a fake registry."""
-    if os.name != "nt":
-        return None
-    import winreg
-    return winreg
-
-
-def platform_name():
-    if os.name == "nt":
-        return "windows"
-    if sys.platform == "darwin":
-        return "macos"
-    return "linux"
-
-
-def _unsupported_reason():
-    return {"macos": MACOS_NOTE, "linux": LINUX_NOTE}.get(platform_name(), "")
-
-
-# ── The command the menu entry runs ─────────────────────────────────
-def shell_python():
-    """The interpreter the menu entry should call.
-
-    On Windows that is pythonw.exe: python.exe would flash a console window
-    every time somebody right-clicks an image. The app shuts itself down when
-    the page closes, so nothing is left running invisibly.
-    """
-    exe = sys.executable or "python"
-    if os.name != "nt":
-        return exe
-    name = os.path.basename(exe).lower()
-    if name.startswith("pythonw"):
-        return exe                      # already the quiet one
-
-    # Look in more than one place. Next to the interpreter is the usual
-    # answer, but it is not the only one: inside a virtual environment the
-    # console build sits in Scripts\ while the windowed build may only exist
-    # in the base installation, and the "python3.exe" naming has its own
-    # "pythonw3.exe" partner. Falling back to python.exe is what put a black
-    # console on screen every time an image was right-clicked.
-    stem = os.path.splitext(name)[0]                 # python, python3, ...
-    windowed = "pythonw" + stem[len("python"):] if stem.startswith("python") else "pythonw"
-    folders = [os.path.dirname(exe)]
-    for attr in ("_base_executable", "base_prefix", "prefix", "exec_prefix"):
-        value = getattr(sys, attr, None)
-        if not value:
-            continue
-        folders.append(os.path.dirname(value) if attr == "_base_executable" else value)
-    for folder in folders:
-        for candidate in (windowed + ".exe", "pythonw.exe"):
-            path = os.path.join(folder, candidate)
-            if os.path.isfile(path):
-                return path
-    return exe
-
-
-def command_line(python=None, entry=None):
-    """The exact string stored in the registry. %1 is the file that was
-    right-clicked; Windows substitutes its full path."""
-    return '"{py}" "{entry}" --open "%1"'.format(
-        py=python or shell_python(), entry=entry or ENTRY)
+_unsupported_reason = unsupported_reason
 
 
 # ── Reading the current state ───────────────────────────────────────
@@ -153,7 +101,7 @@ def status():
         "label": VERB_LABEL,
     }
     if reg is None:
-        base["reason"] = _unsupported_reason()
+        base["reason"] = unsupported_reason()
         return base
 
     expected = command_line()
@@ -189,7 +137,7 @@ def enable():
     """
     reg = _winreg()
     if reg is None:
-        raise RuntimeError(_unsupported_reason() or "Not supported on this system.")
+        raise RuntimeError(unsupported_reason() or "Not supported on this system.")
     if not os.path.isfile(ENTRY):
         raise RuntimeError("main.pyw is not where it was expected: " + ENTRY)
 
@@ -227,7 +175,7 @@ def disable():
     """Removes exactly the keys enable() creates, and nothing else."""
     reg = _winreg()
     if reg is None:
-        raise RuntimeError(_unsupported_reason() or "Not supported on this system.")
+        raise RuntimeError(unsupported_reason() or "Not supported on this system.")
     for ext in EXTENSIONS:
         _remove_ext(reg, ext)
     remove_sendto()
@@ -235,94 +183,15 @@ def disable():
     return status()
 
 
-# ── Send To ─────────────────────────────────────────────────────────
-# The right-click entry runs once per file — except it does not: Windows
-# invokes it only for the item under the cursor, and MultiSelectModel does
-# not change that for a verb under SystemFileAssociations (verified on a
-# real machine: the value is stored, the behaviour is unchanged).
-#
-# Send To is the mechanism that does work. Windows passes the WHOLE
-# selection to one invocation, which is exactly what "select twenty images
-# and open them" needs. It is also older than the context menu itself, so
-# it behaves the same on every version.
-SENDTO_NAME = "N4DU Studio.lnk"
-
-# Building a .lnk by hand means writing a binary shell-link structure.
-# WScript.Shell has done it correctly since 1998 and ships with Windows, so
-# PowerShell drives it instead — still no dependencies to install.
-_SHORTCUT_PS = """
-$ErrorActionPreference = 'Stop'
-$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:N4DU_LNK)
-$s.TargetPath = $env:N4DU_TARGET
-$s.Arguments = $env:N4DU_ARGS
-$s.WorkingDirectory = $env:N4DU_CWD
-$s.IconLocation = $env:N4DU_ICON
-$s.Description = 'Convert or edit these images with N4DU Studio'
-$s.Save()
-"""
-
-
-def sendto_dir():
-    base = os.environ.get("APPDATA")
-    if not base:
-        return None
-    return os.path.join(base, "Microsoft", "Windows", "SendTo")
-
-
-def sendto_path():
-    folder = sendto_dir()
-    return os.path.join(folder, SENDTO_NAME) if folder else None
-
-
-def sendto_supported():
-    """Can a Send To entry exist here at all? Only then is a missing one
-    worth repairing — otherwise every launch on a machine without the
-    folder would rewrite the registry for nothing."""
-    folder = sendto_dir()
-    return os.name == "nt" and bool(folder) and os.path.isdir(folder)
-
-
-def sendto_installed():
-    path = sendto_path()
-    return bool(path) and os.path.isfile(path)
-
-
-def install_sendto():
-    """Puts N4DU Studio in the Send To menu. Returns True when it is there."""
-    if os.name != "nt":
-        return False
-    path = sendto_path()
-    if not path or not os.path.isdir(os.path.dirname(path)):
-        return False
-    env = dict(os.environ)
-    env.update({
-        "N4DU_LNK": path,
-        "N4DU_TARGET": shell_python(),
-        # Windows appends the selected files after these arguments, and
-        # --open takes every path that follows it.
-        "N4DU_ARGS": '"{}" --open'.format(ENTRY),
-        "N4DU_CWD": ROOT,
-        "N4DU_ICON": ICON if os.path.isfile(ICON) else shell_python(),
-    })
-    try:
-        proc = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive",
-             "-ExecutionPolicy", "Bypass", "-Command", _SHORTCUT_PS],
-            env=env, capture_output=True, text=True, timeout=30,
-            creationflags=0x08000000)      # no console window flashes
-        return proc.returncode == 0 and os.path.isfile(path)
-    except (OSError, subprocess.SubprocessError):
-        return False
-
-
-def remove_sendto():
-    path = sendto_path()
-    if not path:
-        return
-    try:
-        os.remove(path)
-    except OSError:
-        pass
+def _remove_ext(reg, ext):
+    key_path = _KEY_FMT.format(ext=ext, verb=VERB_KEY)
+    # The command subkey has to go first: Windows will not delete a key that
+    # still has children.
+    for path in (key_path + r"\command", key_path):
+        try:
+            reg.DeleteKey(reg.HKEY_CURRENT_USER, path)
+        except OSError:
+            pass  # already gone, which is the desired end state anyway
 
 
 def notify_shell():
@@ -344,120 +213,7 @@ def notify_shell():
         return False
 
 
-def _remove_ext(reg, ext):
-    key_path = _KEY_FMT.format(ext=ext, verb=VERB_KEY)
-    # The command subkey has to go first: Windows will not delete a key that
-    # still has children.
-    for path in (key_path + r"\command", key_path):
-        try:
-            reg.DeleteKey(reg.HKEY_CURRENT_USER, path)
-        except OSError:
-            pass  # already gone, which is the desired end state anyway
-
-
-# ── The compact window ──────────────────────────────────────────────
-# Chrome and Edge can open a page as its own small window with no tabs or
-# address bar (--app). That is the closest thing to a desktop window without
-# shipping a browser, and it is what the "compact window" setting uses.
-# A small starting size so the window does not flash open large. The page
-# then measures its own contents and settles on the right height — small for
-# one file, taller for a big batch (see js/ui/window-size.js).
-_APP_FLAGS = ("--app={url}", "--window-size=452,400")
-
-_WINDOWS_CANDIDATES = (
-    r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe",
-    r"%PROGRAMFILES%\Google\Chrome\Application\chrome.exe",
-    r"%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe",
-    r"%PROGRAMFILES(X86)%\Microsoft\Edge\Application\msedge.exe",
-    r"%PROGRAMFILES%\Microsoft\Edge\Application\msedge.exe",
-    r"%LOCALAPPDATA%\Programs\Opera\opera.exe",
-    r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe",
-)
-
-_MACOS_CANDIDATES = (
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-)
-
-_LINUX_CANDIDATES = (
-    "google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
-    "microsoft-edge", "brave-browser",
-)
-
-
-def find_app_browser():
-    """A browser that understands --app, or None."""
-    if os.name == "nt":
-        for raw in _WINDOWS_CANDIDATES:
-            path = os.path.expandvars(raw)
-            if "%" not in path and os.path.isfile(path):
-                return path
-        return None
-    if sys.platform == "darwin":
-        for path in _MACOS_CANDIDATES:
-            if os.path.isfile(path):
-                return path
-        return None
-    from shutil import which
-    for name in _LINUX_CANDIDATES:
-        found = which(name)
-        if found:
-            return found
-    return None
-
-
-def open_app_window(url, browser=None, profile=None):
-    """Opens the page in its own compact window. Returns True on success;
-    the caller falls back to a normal browser tab when it returns False.
-
-    profile: a folder for the window to keep its own browser state in.
-    This matters more than it looks. When Chrome is ALREADY RUNNING, a
-    second launch does not start a process — it hands the address to the
-    running one, which sizes the window however it likes and throws
-    --window-size away. Measured: asking for 640x560 with Chrome open gave
-    1500x1000, the size of the existing window. With a profile of its own
-    this launch is the first for that profile, so the size is honoured and
-    the window opens right rather than opening large and shrinking.
-    """
-    exe = browser or find_app_browser()
-    if not exe:
-        return False
-    argv = [exe] + [flag.format(url=url) for flag in _APP_FLAGS]
-    if profile:
-        argv += ["--user-data-dir=" + profile,
-                 "--no-first-run", "--no-default-browser-check",
-                 "--disable-features=Translate"]
-    try:
-        # Detached: the app window must outlive nothing in particular, but it
-        # must not die with a launcher that exits straight away.
-        kwargs = {}
-        if os.name == "nt":
-            kwargs["creationflags"] = 0x00000008  # DETACHED_PROCESS
-        else:
-            kwargs["start_new_session"] = True
-        subprocess.Popen(argv, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, **kwargs)
-        return True
-    except OSError:
-        return False
-
-
-# ── Command line (useful for support, and for tests) ────────────────
-def _cli(argv):
-    action = argv[0] if argv else "status"
-    if action == "enable":
-        print(describe(enable()))
-    elif action == "disable":
-        print(describe(disable()))
-    elif action == "status":
-        print(describe(status()))
-    else:
-        print("usage: python shell_integration.py [status|enable|disable]")
-        return 2
-    return 0
-
-
+# ── Repair ──────────────────────────────────────────────────────────
 # One Send To attempt per run — see repair_if_stale().
 _sendto_tried = False
 
@@ -498,6 +254,7 @@ def repair_if_stale():
         return None
 
 
+# ── Saying what is there (for support, and for tests) ───────────────
 def dump():
     """Everything actually stored, verbatim. For working out why the menu is
     behaving the way it is on a machine we cannot see."""
@@ -548,6 +305,21 @@ def describe(st):
         return "Right-click entry: partly registered ({} of {} types)".format(
             len(st["installed"]), len(st["extensions"]))
     return "Right-click entry: OFF"
+
+
+# ── Command line (useful for support, and for tests) ────────────────
+def _cli(argv):
+    action = argv[0] if argv else "status"
+    if action == "enable":
+        print(describe(enable()))
+    elif action == "disable":
+        print(describe(disable()))
+    elif action == "status":
+        print(describe(status()))
+    else:
+        print("usage: python shell_integration.py [status|enable|disable]")
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
