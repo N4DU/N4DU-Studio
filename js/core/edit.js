@@ -116,6 +116,17 @@
   }
 
   // Discards every edit and goes back to the image as loaded.
+  // Replaces the picture with something already rendered — the shape and
+  // framing baked in, say. A real edit, so it goes on the undo stack like any
+  // other and can be taken straight back off.
+  function replaceWith(source_) {
+    if (!source_ || !source_.width || !source_.height) return false;
+    pushHistory();
+    surface = canvasFrom(source_);
+    changed();
+    return true;
+  }
+
   function revert(bitmap) {
     pushHistory();
     surface = canvasFrom(bitmap);
@@ -439,7 +450,7 @@
 
   N4DU.edit = {
     load, setOnChanged, source, width, height, ready, toBitmap,
-    canUndo, canRedo, undo, redo, revert,
+    canUndo, canRedo, undo, redo, revert, replaceWith,
     rotate, flip, crop, blurAll, removeColor,
     beginStroke, endStroke, paintStroke, blurStroke, pickColor,
   };

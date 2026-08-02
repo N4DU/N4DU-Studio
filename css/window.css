@@ -33,7 +33,6 @@ body.app-window.mode-edit .app { grid-template-rows: 40px 1fr 22px; }
   display: flex; align-items: center; gap: 6px;
   margin-left: auto; flex-shrink: 0;
 }
-.head-chrome[hidden] { display: none; }
 body.app-window.mode-convert .conv-head .icon-btn {
   width: 24px; height: 24px; border-color: var(--border2);
 }
@@ -100,7 +99,6 @@ body.app-window.mode-convert .conv-drop { gap: 4px; }
   padding: 7px 9px;
   line-height: 1.5;
 }
-.warn-line[hidden] { display: none; }
 
 .conv-actions {
   border-top: 1px solid var(--border);
@@ -115,7 +113,6 @@ body.app-window.mode-convert .conv-drop { gap: 4px; }
 }
 .conv-estimate.warn { color: var(--danger); }
 .conv-progress { display: flex; align-items: center; gap: 10px; }
-.conv-progress[hidden] { display: none; }
 .conv-progress-bar {
   flex: 1; height: 5px; border-radius: 3px;
   background: var(--surface2); overflow: hidden;

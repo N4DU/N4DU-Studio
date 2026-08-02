@@ -29,7 +29,6 @@ body.mode-convert .app { max-width: none; }
   white-space: nowrap;
 }
 .status-sell:hover { border-bottom-color: var(--accent); }
-.status-sell[hidden] { display: none; }
 
 body.mode-convert .workspace,
 body.mode-convert .edit-only { display: none !important; }
@@ -166,7 +165,6 @@ body.app-window.no-files .conv-estimate { display: none; }
    from the file explorer, without shouting. */
 .btn-ghost.tiny.accent { border-color: var(--accent); color: var(--accent); }
 .btn-ghost.tiny.accent:hover { background: rgba(232,255,71,.1); }
-.btn-ghost.tiny[hidden] { display: none; }
 
 /* The file list is the one thing here allowed to scroll: fifty files have
    to go somewhere, and shrinking them further would make the previews
@@ -283,7 +281,6 @@ body.app-window.no-files .conv-estimate { display: none; }
   }
 }
 .conv-drop:hover, .conv-drop.over { border-color: var(--accent); background: rgba(232,255,71,.04); }
-.conv-drop[hidden] { display: none; }
 .drop-icon.small { width: 30px; height: 30px; }
 .drop-sub.dim { color: var(--faint); font-size: .68rem; }
 

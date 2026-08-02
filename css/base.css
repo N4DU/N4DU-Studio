@@ -7,6 +7,15 @@
 /* N4DU Studio — desktop interface */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* The `hidden` attribute has to actually hide.
+   The browser's own rule for it is display:none, and ANY author rule that sets
+   a display beats it — .btn-ghost sets inline-flex, so a button carrying
+   `hidden` stayed on screen. This had been patched one selector at a time,
+   nine times over, and the tenth was the "Window" button appearing in the
+   DESKTOP version: the one place it must never be, because that window is
+   already its own. One rule instead of a tenth patch. */
+[hidden] { display: none !important; }
+
 :root {
   --bg:       #0a0a0a;
   --chrome:   #141414;

@@ -78,6 +78,20 @@
     return canvas;
   }
 
-  N4DU.render = { drawRegion, renderOutput, source };
+  // The size the picture is once the framing and the shape are applied, but
+  // before any resizing. This is what the picture IS, as opposed to what the
+  // export happens to be scaled to.
+  function contentSize(state) {
+    const src = source(state);
+    if (!src) return { W: 0, H: 0 };
+    if (state.mode === 'crop') {
+      const { side } = cropRect(state, src.width, src.height);
+      const n = Math.max(1, Math.round(side));
+      return { W: n, H: n };
+    }
+    return { W: src.width, H: src.height };
+  }
+
+  N4DU.render = { drawRegion, renderOutput, source, contentSize };
 
 })(window.N4DU ??= {});

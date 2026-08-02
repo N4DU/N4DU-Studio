@@ -236,7 +236,6 @@ body.has-image .canvas-stack { display: flex; }
   mix-blend-mode: difference;
   z-index: 5;
 }
-.brush-cursor[hidden] { display: none; }
 
 /* Busy indicator for operations that take a moment */
 .busy {
@@ -248,7 +247,6 @@ body.has-image .canvas-stack { display: flex; }
   font-family: var(--fh); font-size: .85rem; color: var(--accent);
   z-index: 10;
 }
-.busy[hidden] { display: none; }
 .busy span {
   width: 15px; height: 15px;
   border: 2px solid rgba(232,255,71,.25);

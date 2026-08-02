@@ -159,15 +159,44 @@
 
   // Hands the editor's current pixels back to the batch item, so converting
   // uses the edited version.
+  // Rounded corners and the square framing are export settings: they live in
+  // `state` and were only ever applied inside renderOutput, at the moment a
+  // file was written. So they reached Download, and nothing else. Round a
+  // picture, go back to the converter, and the tile still showed square
+  // corners — because the bitmap handed back was the raw surface — and
+  // "Replace originals" wrote square corners over your file.
+  //
+  // Leaving the editor is the moment to settle it: the shape gets applied to
+  // the pixels, as a real edit that Undo can take back off, and the settings
+  // go back to neutral so a second visit cannot apply the same rounding twice.
+  function bakeShape() {
+    if (!edit.ready()) return;
+    if (!(state.roundness > 0 || state.mode === 'crop')) return;
+    const { W, H } = N4DU.render.contentSize(state);
+    if (!W || !H) return;
+    // No resizing here on purpose: outW/outH are the export's business, and
+    // the converter has resize settings of its own to apply afterwards.
+    if (edit.replaceWith(N4DU.render.renderOutput(state, W, H))) {
+      // Neutral again, or a second visit would round the rounded corners.
+      state.roundness = 0;
+      state.mode = 'original';
+      N4DU.syncToSurface(edit.width(), edit.height());
+    }
+  }
+
   function returnToConverter() {
-    // Only when something was actually changed. Handing a bitmap back after
-    // a look-and-leave visit pinned a full-size RGBA surface to every file
-    // that had ever been opened — six 12 MP photos came to about 290 MB —
-    // and switched conversion away from the original bytes for no reason.
-    if (editing !== null && edit.ready() && edit.canUndo()) {
+    if (editing !== null && edit.ready()) {
       try {
-        const bmp = edit.toBitmap();
-        if (bmp) batch.setEdited(editing, bmp);
+        bakeShape();
+        // Only when something was actually changed. Handing a bitmap back
+        // after a look-and-leave visit pinned a full-size RGBA surface to
+        // every file that had ever been opened — six 12 MP photos came to
+        // about 290 MB — and switched conversion away from the original
+        // bytes for no reason.
+        if (edit.canUndo()) {
+          const bmp = edit.toBitmap();
+          if (bmp) batch.setEdited(editing, bmp);
+        }
       } catch { /* nothing worth losing the mode switch over */ }
     }
     setMode('convert');

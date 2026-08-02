@@ -10,7 +10,6 @@
   z-index: 500;
   padding: 20px;
 }
-.modal-backdrop[hidden] { display: none; }
 
 .modal {
   background: var(--surface);
@@ -148,7 +147,6 @@
   padding: 1px 5px;
   border-radius: 4px;
 }
-.locked-note[hidden] { display: none; }
 
 /* Browser-only mode: still prominent (this is a headline feature), but the
    dashed edge marks it as needing the desktop launcher. Greying it out made
