@@ -13,13 +13,19 @@
      single launch — carrying your address there, failing noisily with no
      network, and flashing a different font when it arrived. The system
      stack in css/style.css looks close enough to be worth none of that. -->
-<link rel="stylesheet" href="css/style.css">
+<!-- ?v= on every stylesheet and script, and it has to stay there.
+     GitHub Pages serves these files with no fingerprint in their names, so a
+     browser that has been here before keeps using the copies it already has
+     and a new deploy changes nothing on screen — the page looks stale for
+     reasons no amount of reloading explains. The version below is what makes
+     a new deploy actually arrive. BUMP IT whenever css/ or js/ changes. -->
+<link rel="stylesheet" href="css/style.css?v=2026.08.02">
 <!-- In the HEAD on purpose, and this one is not moveable.
      It decides whether this document should be running in a window of its
      own, and it has to decide before the browser paints a full-width tab
      holding an interface built for 452 pixels. Everything else loads at the
      end of the body, where scripts belong. -->
-<script src="js/own-window.js"></script>
+<script src="js/own-window.js?v=2026.08.02"></script>
 </head>
 <body class="mode-convert">
 
@@ -612,28 +618,28 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/state.js"></script>
-<script src="js/core/geometry.js"></script>
-<script src="js/core/loader.js"></script>
-<script src="js/core/edit.js"></script>
-<script src="js/core/render.js"></script>
-<script src="js/core/exporter.js"></script>
-<script src="js/core/convert.js"></script>
-<script src="js/core/zip.js"></script>
-<script src="js/core/batch.js"></script>
-<script src="js/core/bridge.js"></script>
-<script src="js/ui/toast.js"></script>
-<script src="js/ui/editable-number.js"></script>
-<script src="js/ui/crop-box.js"></script>
-<script src="js/ui/dropzone.js"></script>
-<script src="js/ui/editor-canvas.js"></script>
-<script src="js/ui/previews.js"></script>
-<script src="js/ui/controls.js"></script>
-<script src="js/ui/tools.js"></script>
-<script src="js/ui/replace-dialog.js"></script>
-<script src="js/ui/settings.js"></script>
-<script src="js/ui/batch-ui.js"></script>
-<script src="js/ui/window-size.js"></script>
-<script src="js/main.js"></script>
+<script src="js/state.js?v=2026.08.02"></script>
+<script src="js/core/geometry.js?v=2026.08.02"></script>
+<script src="js/core/loader.js?v=2026.08.02"></script>
+<script src="js/core/edit.js?v=2026.08.02"></script>
+<script src="js/core/render.js?v=2026.08.02"></script>
+<script src="js/core/exporter.js?v=2026.08.02"></script>
+<script src="js/core/convert.js?v=2026.08.02"></script>
+<script src="js/core/zip.js?v=2026.08.02"></script>
+<script src="js/core/batch.js?v=2026.08.02"></script>
+<script src="js/core/bridge.js?v=2026.08.02"></script>
+<script src="js/ui/toast.js?v=2026.08.02"></script>
+<script src="js/ui/editable-number.js?v=2026.08.02"></script>
+<script src="js/ui/crop-box.js?v=2026.08.02"></script>
+<script src="js/ui/dropzone.js?v=2026.08.02"></script>
+<script src="js/ui/editor-canvas.js?v=2026.08.02"></script>
+<script src="js/ui/previews.js?v=2026.08.02"></script>
+<script src="js/ui/controls.js?v=2026.08.02"></script>
+<script src="js/ui/tools.js?v=2026.08.02"></script>
+<script src="js/ui/replace-dialog.js?v=2026.08.02"></script>
+<script src="js/ui/settings.js?v=2026.08.02"></script>
+<script src="js/ui/batch-ui.js?v=2026.08.02"></script>
+<script src="js/ui/window-size.js?v=2026.08.02"></script>
+<script src="js/main.js?v=2026.08.02"></script>
 </body>
 </html>
