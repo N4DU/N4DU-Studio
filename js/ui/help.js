@@ -14,9 +14,12 @@
         const m = document.getElementById(id);
         return m && !m.hidden;
       });
-      if (!busy) modal.hidden = false;
+      if (busy) return;
+      modal.hidden = false;
+      // Focus goes in, and stays in, until it closes — see js/ui/modal.js.
+      N4DU.modal.opened(modal, document.getElementById('btnHelpClose'));
     };
-    const hide = () => { modal.hidden = true; };
+    const hide = () => { modal.hidden = true; N4DU.modal.closed(modal); };
     document.getElementById('btnHelp').addEventListener('click', show);
     document.getElementById('btnHelpClose').addEventListener('click', hide);
     modal.addEventListener('click', e => { if (e.target === modal) hide(); });

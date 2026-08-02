@@ -47,6 +47,8 @@
 
   function open() {
     $('settingsModal').hidden = false;
+    // Focus goes in, and stays in, until it closes — see js/ui/modal.js.
+    N4DU.modal.opened($('settingsModal'), $('btnSettingsClose'));
     render(null);
     if (!bridge.active) return;   // browser-only: the locked notice explains it
     bridge.readSettings().then(render).catch(err => {
@@ -56,6 +58,7 @@
 
   function close() {
     $('settingsModal').hidden = true;
+    N4DU.modal.closed($('settingsModal'));
   }
 
   // Sends one change and re-renders from whatever the system reports back.
