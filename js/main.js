@@ -281,19 +281,57 @@
   // decision changes with its version and how many are selected. Rather than
   // depend on it, the app asks what else is in the folder and offers it.
   let offering = false;
+  let asking = false;      // an offerFolder() already in flight
 
   async function offerFolder() {
-    if (!bridge.active || offering) return;
+    if (!bridge.active || offering || asking) return;
     const anchor = batch.items.find(it => it.token);
     if (!anchor) { N4DU.batchUI.setFolderOffer(0, ''); return; }
+    asking = true;
     try {
       const have = batch.items.map(it => it.path).filter(Boolean);
       const { folder, metas } = await bridge.siblings(anchor.token, have);
       N4DU.batchUI.setFolderOffer(metas.length, folder.split(/[\\/]/).pop());
     } catch {
       N4DU.batchUI.setFolderOffer(0, '');
+    } finally {
+      asking = false;
     }
   }
+
+  // Keeping an eye on the folder, because the folder is not ours.
+  //
+  // Pictures appear in it while the program is open — you save a screenshot
+  // there, you duplicate one, someone else drops a scan in — and nothing
+  // tells the browser. The offer was only recomputed when the app itself did
+  // something, so a file added from the file explorer stayed invisible until
+  // you happened to add another one THROUGH the program. It looked like the
+  // button had stopped working; it had simply never been asked again.
+  //
+  // A folder listing is one cheap local call, so it is asked for on a timer.
+  // Not while the window is in the background, not during the editor, and
+  // not in the middle of a conversion — none of those are moments anybody is
+  // waiting to be told, and the last one is already using the disk.
+  const WATCH_EVERY = 4000;
+  let watching = null;
+
+  function watchFolder(on) {
+    clearInterval(watching);
+    watching = null;
+    if (!on) return;
+    watching = setInterval(() => {
+      if (document.hidden) return;
+      if (currentMode() !== 'convert') return;
+      if (N4DU.batchRun.busy()) return;
+      offerFolder();
+    }, WATCH_EVERY);
+  }
+
+  // Coming back to the window is the other moment worth looking: you have
+  // almost certainly just been in the folder putting something there.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && bridge.active && currentMode() === 'convert') offerFolder();
+  });
 
   async function addFolder() {
     const anchor = batch.items.find(it => it.token);
@@ -530,6 +568,8 @@
   bridge.setOnStateChange(() => {
     if (!bridge.active) toast('The desktop helper stopped — replacing files is off', 'err');
     else toast('The desktop helper is back', 'ok');
+    // Nothing to watch a folder with once the helper is gone.
+    watchFolder(bridge.active);
     syncButtons();
     N4DU.batchUI.syncBatch();
   });
@@ -568,7 +608,11 @@
     // had its say, because a window opened by a tab never has one.
     .then(() => N4DU.handover.claim({ onEdit: editItem }))
     .catch(() => {})
-    .finally(() => { syncButtons(); N4DU.batchUI.syncBatch(); });
+    .finally(() => {
+      watchFolder(bridge.active);
+      syncButtons();
+      N4DU.batchUI.syncBatch();
+    });
   syncButtons();
 
 })(window.N4DU ??= {});
