@@ -24,24 +24,95 @@
   // Blurs a region of src into ctx (which must be w×h). Uses the native
   // filter when available, otherwise a separable box blur — three passes
   // approximate a Gaussian closely enough to look the same.
+  //
+  // The work is done on a padded copy, and this is the whole point of the
+  // function. A blur kernel reaches outside whatever you hand it, and a
+  // canvas is empty outside its own edges: blurring a w×h copy on its own
+  // mixed the picture with transparency all the way round, so "blur the
+  // whole picture" came back with every edge faded out — invisible on PNG
+  // until you looked, and a bright glowing frame once composited over white
+  // for JPEG. Measured on a solid opaque square: alpha 70 at the corner,
+  // 134 at the edge, 255 only in the middle.
+  //
+  // So the region is read back with a margin. Where the margin falls inside
+  // the picture it is real neighbouring pixels, which is also what stops the
+  // blur brush from seeing the edges of its own little box. Where it falls
+  // outside — at the true border of the picture — the border pixels are
+  // stretched into it, which is the standard way to blur an edge without
+  // inventing anything: the edge stays as opaque as it started.
   function blurInto(ctx, src, sx, sy, w, h, radius) {
+    const m = Math.max(1, Math.ceil(radius * 3));
+    // What the padded read wants, and what the picture can actually give.
+    const rx = Math.max(0, sx - m);
+    const ry = Math.max(0, sy - m);
+    const rw = Math.min(src.width, sx + w + m) - rx;
+    const rh = Math.min(src.height, sy + h + m) - ry;
+    if (rw <= 0 || rh <= 0) return;
+
+    const padded = new OffscreenCanvas(w + m * 2, h + m * 2);
+    const pctx = padded.getContext('2d');
+    // Where the real pixels land inside the padded canvas.
+    const dx = m - (sx - rx);
+    const dy = m - (sy - ry);
+    pctx.drawImage(src, rx, ry, rw, rh, dx, dy, rw, rh);
+    stretchEdges(pctx, dx, dy, rw, rh);
+
+    const blurred = new OffscreenCanvas(padded.width, padded.height);
+    const bctx = blurred.getContext('2d');
     if (hasFilter()) {
-      ctx.filter = `blur(${radius}px)`;
-      ctx.drawImage(src, sx, sy, w, h, 0, 0, w, h);
-      ctx.filter = 'none';
-      return;
+      bctx.filter = `blur(${radius}px)`;
+      bctx.drawImage(padded, 0, 0);
+      bctx.filter = 'none';
+    } else {
+      bctx.drawImage(padded, 0, 0);
+      const img = bctx.getImageData(0, 0, blurred.width, blurred.height);
+      const r = Math.max(1, Math.round(radius * 0.6));
+      premultiply(img.data);
+      for (let pass = 0; pass < 3; pass++) {
+        boxBlurPass(img.data, blurred.width, blurred.height, r, true);
+        boxBlurPass(img.data, blurred.width, blurred.height, r, false);
+      }
+      unpremultiply(img.data);
+      bctx.putImageData(img, 0, 0);
     }
-    ctx.drawImage(src, sx, sy, w, h, 0, 0, w, h);
-    const img = ctx.getImageData(0, 0, w, h);
-    const r = Math.max(1, Math.round(radius * 0.6));
-    for (let pass = 0; pass < 3; pass++) {
-      boxBlurPass(img.data, w, h, r, true);
-      boxBlurPass(img.data, w, h, r, false);
-    }
-    ctx.putImageData(img, 0, 0);
+
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(blurred, m, m, w, h, 0, 0, w, h);
+  }
+
+  // Fills the empty margin around a drawn region by stretching its border
+  // pixels outwards. Sides first across the region's own height, then top
+  // and bottom across the full width, so the corners come out of the sides
+  // that were just filled rather than being left empty.
+  function stretchEdges(ctx, x, y, w, h) {
+    const canvas = ctx.canvas;
+    const W = canvas.width, H = canvas.height;
+    const right = x + w, bottom = y + h;
+    // Smoothing off, and it matters. Stretching a one-pixel slice with
+    // bilinear filtering samples past the slice into the empty canvas, so
+    // the replicated margin came out slightly transparent — and that fed
+    // straight back into the blur, leaving alpha 251 where 255 was the whole
+    // point of doing this. Nearest-neighbour on a one-pixel source is not an
+    // approximation: there is only one pixel to choose.
+    const smoothing = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = false;
+    if (x > 0) ctx.drawImage(canvas, x, y, 1, h, 0, y, x, h);
+    if (right < W) ctx.drawImage(canvas, right - 1, y, 1, h, right, y, W - right, h);
+    if (y > 0) ctx.drawImage(canvas, 0, y, W, 1, 0, 0, W, y);
+    if (bottom < H) ctx.drawImage(canvas, 0, bottom - 1, W, 1, 0, bottom, W, H - bottom);
+    ctx.imageSmoothingEnabled = smoothing;
   }
 
   // One box-blur pass over rows (horizontal) or columns (vertical).
+  //
+  // Works on PREMULTIPLIED colour, and has to. Averaging raw RGBA weights
+  // the colour hiding behind a transparent pixel exactly as much as the
+  // colour you can see, and that hidden colour is almost always black: a
+  // white shape blurred against a cut-out came out mid-grey along the cut,
+  // where the native filter holds the colour and fades only the alpha.
+  // Measured across a white-to-transparent boundary: 207, 199, 184, 169,
+  // 153 … 56. Multiplying by alpha before and dividing after is the whole
+  // fix — see premultiply()/unpremultiply() around the passes.
   function boxBlurPass(d, w, h, r, horizontal) {
     const outer = horizontal ? h : w;
     const inner = horizontal ? w : h;
@@ -76,6 +147,23 @@
           sb -= line[drop * 4 + 2]; sa -= line[drop * 4 + 3]; count--;
         }
       }
+    }
+  }
+
+  function premultiply(d) {
+    for (let i = 0; i < d.length; i += 4) {
+      const a = d[i + 3] / 255;
+      d[i] *= a; d[i + 1] *= a; d[i + 2] *= a;
+    }
+  }
+
+  function unpremultiply(d) {
+    for (let i = 0; i < d.length; i += 4) {
+      const a = d[i + 3] / 255;
+      if (a === 0) continue;          // nothing to recover, and no divide by zero
+      d[i] = Math.min(255, d[i] / a);
+      d[i + 1] = Math.min(255, d[i + 1] / a);
+      d[i + 2] = Math.min(255, d[i + 2] / a);
     }
   }
 

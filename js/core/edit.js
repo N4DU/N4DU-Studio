@@ -393,7 +393,13 @@
     sctx.clip();
     sctx.globalCompositeOperation = 'destination-out';
     sctx.drawImage(mask, x, y);
-    sctx.globalCompositeOperation = 'source-over';
+    // Added, not drawn over. The stroke's edge is antialiased, so along its
+    // rim the mask is half-covered — and punching a half-covered hole and
+    // then drawing half-covered paint into it does not fill it: source-over
+    // gives a + (1-a)(1-a), which is 0.75 where a is 0.5. Blurring made a
+    // thin see-through outline along every stroke. "lighter" adds the two
+    // premultiplied halves instead, and (1-a) + a is exactly 1.
+    sctx.globalCompositeOperation = 'lighter';
     sctx.drawImage(mask, x, y);
     sctx.restore();
     changed();
