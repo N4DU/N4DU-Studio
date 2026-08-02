@@ -5,7 +5,6 @@
 
   const { state, resetForImage, toast, bridge, edit, batch } = N4DU;
   const { loadImage, decodeErrorMessage } = N4DU.loader;
-  const { exportBlob, download, FORMATS } = N4DU.exporter;
   const { initDropzone, openPicker } = N4DU.dropzone;
   const { initEditorCanvas, drawEditor, syncCanvasUI } = N4DU.editorCanvas;
   const { initControls, syncControls, updateEstimate } = N4DU.controls;
@@ -394,6 +393,18 @@
   function afterReplace(out) {
     document.getElementById('titleFile').textContent =
       `${out.name} — ${state.origW}×${state.origH} px`;
+    // The list has to follow the file. Replacing a.png with a.jpg from the
+    // editor renames it on disk, and the tile behind the editor went on
+    // saying "a.png" and pointing at a path that no longer exists — so did
+    // the folder offer, which uses the paths already in the list to work out
+    // what else is in the folder. The token itself stays good: the server
+    // retargets it to the new path as part of the replacement.
+    const item = batch.items.find(it => it.id === editing);
+    if (item && out.name) {
+      item.name = out.name;
+      if (out.path) item.path = out.path;
+      N4DU.batchUI.syncBatch();
+    }
     syncButtons();
   }
 

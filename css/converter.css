@@ -16,7 +16,6 @@ body.mode-convert .app { max-width: none; }
    a small window inside a big one: it just looks like something failed to
    load. The tool fills whatever it is given — a tab, or the compact window
    the launcher opens — and only the file grid changes shape. */
-body.mode-convert .app { max-width: none; }
 
 /* On a wide screen the settings would stretch to absurd line lengths, so
    they stay a readable column while the file list uses the whole width. */
