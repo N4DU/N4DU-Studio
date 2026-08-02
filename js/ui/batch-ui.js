@@ -49,7 +49,6 @@
   const optsFor = item => ({ ...opts, fmt: fmtFor(item) });
 
   let support = null;        // which formats this browser can really write
-  let working = false;
   let onEditRequest = () => {};
 
   // How many more images sit in the folder of the file that is open, and
@@ -289,13 +288,13 @@
     $('filesSummary').textContent = totals.count
       ? `${sizeLabel(totals.bytes)} total${totals.replaceable ? `, ${totals.replaceable} on disk` : ''}`
       : 'nothing loaded';
-    $('btnClearFiles').disabled = !totals.count || working;
+    $('btnClearFiles').disabled = !totals.count || working();
 
     // "Add the rest of this folder" appears as soon as one file arrives from
     // disk. How many files a right-click hands over is Windows's decision,
     // not ours — this makes the whole folder one click away either way.
     const folderBtn = $('btnAddFolder');
-    folderBtn.hidden = !(bridge.active && folderCount > 0 && !working);
+    folderBtn.hidden = !(bridge.active && folderCount > 0 && !working());
     // The long wording is the widest thing in this row by some way, and in
     // the launcher's small window it is what pushed everything else off the
     // edge. There it says just "+ 5 more"; the folder's name was always in
@@ -321,7 +320,7 @@
     // with 147 of 200 cards built produced a zip of 147 and then said
     // "Converted 158 of 158 files" — a true-sounding sentence about a job
     // it had silently made smaller.
-    const ready = totals.count > 0 && usable && !working && !batch.loading();
+    const ready = totals.count > 0 && usable && !working() && !batch.loading();
     $('btnConvertAll').disabled = !ready;
     $('btnConvertAll').innerHTML = buttonLabel(totals);
 
@@ -389,7 +388,7 @@
       kill.title = 'Remove from the list (or press Delete)';
       kill.addEventListener('click', e => {
         e.stopPropagation();
-        if (!working) batch.remove(item.id);
+        if (!working()) batch.remove(item.id);
       });
       tile.appendChild(kill);
 
@@ -401,7 +400,7 @@
       tile.addEventListener('keydown', e => {
         if (e.key !== 'Delete' && e.key !== 'Backspace') return;
         e.preventDefault();
-        if (!working) batch.remove(item.id);
+        if (!working()) batch.remove(item.id);
       });
       tile.addEventListener('dblclick', () => onEditRequest(item.id));
       grid.appendChild(tile);
@@ -449,7 +448,7 @@
     const item = batch.selected();
     const totals = batch.totals();
 
-    if (working) return;
+    if (working()) return;
     if (!item) { el.textContent = 'Add some files to begin.'; el.classList.remove('warn'); return; }
     if (opts.fmt !== KEEP && support && !support[opts.fmt]) { el.textContent = '—'; return; }
 
@@ -510,120 +509,18 @@
       ? `${parseFloat((opts.maxKb / 1024).toFixed(3))} MB`
       : `${opts.maxKb} KB`;
   }
-
   // ── Running the batch ─────────────────────────────────────────────
-  // One file at a time, on purpose: converting fifty 12-megapixel scans in
-  // parallel exhausts memory and the tab dies. Sequential is slower to
-  // start and the only version that finishes.
-  async function run(replace) {
-    if (working || !batch.items.length) return;
-    if (replace && !bridge.active) {
-      toast('Overwriting files needs the desktop version', 'err');
-      return;
-    }
-    working = true;
-    clearTimeout(estimateTimer);
-    estimateSeq++;
-    syncBatch();
-    $('batchProgress').hidden = false;
-
-    const produced = [];
-    let done = 0, failed = 0, replaced = 0, overCap = 0;
-    // A snapshot, not the live array. Files dropped while a run was going
-    // were swept into it halfway through, and the progress denominator grew
-    // underneath the text that was already counting up to it.
-    const targets = (replace ? batch.items.filter(it => it.token) : batch.items).slice();
-
-    for (const [index, item] of targets.entries()) {
-      progress(index, targets.length, item.name);
-      item.status = 'working';
-      item.error = null;
-      renderGrid();
-      // Let the browser paint the progress before the blocking work starts.
-      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-
-      let handle = null;
-      try {
-        handle = await batch.decode(item);
-        const out = await convert(handle.bmp, optsFor(item));
-        item.result = out;
-        item.status = 'done';
-        if (out.limit && !out.limit.ok) overCap++;
-
-        if (replace) {
-          const stem = item.name.replace(/\.[^.]+$/, '') || 'image';
-          await bridge.replaceByToken(item.token, out.blob, FORMATS[fmtFor(item)].ext, stem, true);
-          replaced++;
-        } else {
-          produced.push({ name: outputName(item.name, fmtFor(item)), blob: out.blob });
-        }
-        done++;
-      } catch (err) {
-        item.status = 'error';
-        item.error = shortError(err);
-        failed++;
-      } finally {
-        if (handle) handle.release();
-      }
-    }
-
-    progress(targets.length, targets.length, '');
-    $('batchProgress').hidden = true;
-    working = false;
-
-    if (produced.length) await deliver(produced);
-
-    syncBatch();
-    // A run works from the list as it stood when it started. Files can still
-    // arrive while it is going — that is deliberate, you should not have to
-    // wait to queue the next lot — but they were then counted nowhere:
-    // "Added 1 file", then "Converted 40 of 40 files", with 41 in the list
-    // and 40 in the zip, and nothing saying which one had been left out.
-    const late = batch.items.filter(it => !targets.includes(it)).length;
-    report({ replace, done, failed, replaced, overCap, total: targets.length, late });
-  }
-
-  // Sends the results out: one archive by default, separate downloads when
-  // asked. Fifty individual downloads is a fifty-prompt browser fight.
-  async function deliver(produced) {
-    if (produced.length === 1 || opts.separate) {
-      for (const file of produced) {
-        download(file.blob, file.name);
-        // Browsers drop downloads fired in a tight loop.
-        await new Promise(r => setTimeout(r, 120));
-      }
-      return;
-    }
-    const stamp = new Date().toISOString().slice(0, 10);
-    const archive = await N4DU.zip.zip(produced);
-    // With mixed formats there is no one extension to name the archive after.
-    const tag = opts.fmt === KEEP ? 'images' : FORMATS[opts.fmt].ext;
-    download(archive, `n4du-${tag}-${stamp}.zip`);
-  }
-
-  function report({ replace, done, failed, replaced, overCap, total, late = 0 }) {
-    if (!total) { toast('Nothing to do', ''); return; }
-    const bits = [];
-    if (replace) bits.push(`Overwrote ${replaced} of ${total} file${total > 1 ? 's' : ''}`);
-    else bits.push(`Converted ${done} of ${total} file${total > 1 ? 's' : ''}`);
-    if (overCap) bits.push(`${overCap} could not get under ${limitLabel()}`);
-    if (failed) bits.push(`${failed} failed`);
-    if (late) bits.push(`${late} arrived after this run started — press again for ${late > 1 ? 'them' : 'it'}`);
-    toast(bits.join(' · '), failed || overCap ? 'err' : 'ok');
-  }
-
-  function progress(index, total, name) {
-    const pct = total ? Math.round((index / total) * 100) : 0;
-    $('batchProgressBar').style.width = pct + '%';
-    $('batchProgressText').textContent = index >= total
-      ? 'Finishing…'
-      : `${index + 1} of ${total} — ${name}`;
-  }
-
-  function shortError(err) {
-    const text = (err && err.message) || String(err);
-    return text.length > 60 ? text.slice(0, 57) + '…' : text;
-  }
+  // The work itself lives in js/ui/batch-run.js. This file paints controls
+  // and answers clicks; that one converts files and reports on what it did.
+  // They meet here: it borrows the settings, and lends back whether a run is
+  // in progress — half of this interface is disabled while one is.
+  const { run, busy: working } = N4DU.batchRun;
+  N4DU.batchRun.connect({
+    optsFor, fmtFor, opts, KEEP, syncBatch, limitLabel, renderGrid,
+    // Stopping the estimate is the view's business: it owns the timer and
+    // the sequence number that decides which answer is still wanted.
+    cancelEstimate() { clearTimeout(estimateTimer); estimateSeq++; },
+  });
 
   function sizeLabel(bytes) {
     if (!bytes) return '0 KB';

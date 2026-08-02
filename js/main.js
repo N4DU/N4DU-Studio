@@ -316,71 +316,10 @@
     bridge.path = item.path || null;
     showInEditor(bmp, { name: item.name, size: item.size }, !!item.token);
   }
-
-  // ── Download ──────────────────────────────────────────────────────
-  async function onDownload() {
-    if (!state.img) return;
-    const btn = document.getElementById('btnExport');
-    btn.disabled = true;
-    btn.textContent = 'Working…';
-    try {
-      const { blob, filename, limit } = await exportBlob(state);
-      download(blob, filename);
-      if (limit && !limit.ok) {
-        // Never present an oversized file as a success.
-        toast(`Downloaded ${filename} · ${sizeLabel(blob.size)} — could not get under ${N4DU.controls.limitLabel()}`, 'err');
-      } else {
-        toast(`Downloaded ${filename} · ${sizeLabel(blob.size)}`, 'ok');
-      }
-    } catch (err) {
-      toast('Export failed: ' + err.message, 'err');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Download';
-      syncButtons();
-    }
-  }
-
-  // ── Copy to clipboard ─────────────────────────────────────────────
-  // Writing images to the clipboard needs a secure context (https or
-  // localhost). Opening the file directly from disk does not qualify, so the
-  // failure is explained instead of silently doing nothing.
-  async function onCopy() {
-    if (!state.img) return;
-    const btn = document.getElementById('btnCopy');
-    btn.disabled = true;
-    btn.textContent = 'Copying…';
-    try {
-      if (!navigator.clipboard || !window.ClipboardItem) {
-        throw new Error('this browser cannot copy images');
-      }
-      // PNG is the only format clipboards accept reliably, so the copy is
-      // always PNG regardless of the chosen export format.
-      const canvas = N4DU.render.renderOutput(state, ...outputSize());
-      const blob = await canvas.convertToBlob({ type: 'image/png' });
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-      toast(`Copied to clipboard · PNG · ${sizeLabel(blob.size)}`, 'ok');
-    } catch (err) {
-      const secure = window.isSecureContext;
-      toast(secure
-        ? 'Could not copy: ' + err.message
-        : 'Copying needs the desktop version (or an https page)', 'err');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Copy';
-      syncButtons();
-    }
-  }
-
-  function outputSize() {
-    const { W, H } = N4DU.exporter.outputDims(state);
-    return [W, H];
-  }
-
-  function sizeLabel(bytes) {
-    const kb = bytes / 1024;
-    return kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(0) + ' KB';
-  }
+  // ── Taking the result away ────────────────────────────────────────
+  // Download and Copy live in js/ui/deliver.js: two buttons, one job, and
+  // nothing else in here depends on how either of them works.
+  const { onDownload, onCopy, outputSize, sizeLabel } = N4DU.deliver;
 
   // ── Buttons ───────────────────────────────────────────────────────
   // Replace is always visible: in browser-only mode it stays enabled but
@@ -422,131 +361,16 @@
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
     }[c]));
   }
-
   // ── Keyboard shortcuts ────────────────────────────────────────────
-  // Ignored while typing in a field or with the replace dialog open: Ctrl+S
-  // would download and Ctrl+R would wipe a half-typed name.
-  window.addEventListener('keydown', e => {
-    if (!(e.ctrlKey || e.metaKey)) return;
-    if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
-    if (!document.getElementById('replaceModal').hidden) return;
-    if (!document.getElementById('settingsModal').hidden) return;
-    // Help too: Ctrl+R was opening the Replace dialog behind the help sheet,
-    // and Ctrl+S downloading from under it.
-    if (!document.getElementById('helpModal').hidden) return;
-    const k = e.key.toLowerCase();
-    if (k === 'o') { e.preventDefault(); chooseFile(); return; }
-    if (currentMode() === 'convert') return;   // the rest belong to the editor
-    if (!state.img) return;
-    if (k === 's' || k === 'e') { e.preventDefault(); onDownload(); }
-    if (k === 'c') { e.preventDefault(); onCopy(); }
-    if (k === 'r') { e.preventDefault(); openReplaceDialog(); }
-    if (k === 'z') {
-      e.preventDefault();
-      // The same path as the Undo button. Doing it by hand here left the old
-      // crop box behind: after Ctrl+Z it sat over a different part of the
-      // restored picture with Apply still enabled, and one click cropped to
-      // the stale rectangle — throwing the undo away.
-      N4DU.tools.stepHistory(e.shiftKey ? edit.redo : edit.undo);
-    }
+  // Which key means what lives in js/ui/shortcuts.js; what each one does
+  // lives here. Handed over rather than reached for.
+  N4DU.shortcuts.initShortcuts({
+    chooseFile, currentMode, onDownload, onCopy, openReplaceDialog,
   });
 
-  // ── A window of its own, from the web ─────────────────────────────
-  // The attempt itself happens in js/own-window.js, in the HEAD, before this
-  // file has even loaded — it has to, or the tab paints first. What is left
-  // here is the part that needs the interface: doing it on purpose from the
-  // button, and saying out loud why it did not happen on its own.
-  const ownWindow = N4DU.ownWindow;
-
-  function inOwnWindow() {
-    return ownWindow.isOwnWindow();
-  }
-
-  function openInOwnWindow() {
-    // Measured, not guessed: the window arrives at the size the interface
-    // says it needs rather than arriving wrong and correcting itself.
-    if (!ownWindow.open(N4DU.windowSize.measure())) {
-      toast('Your browser blocked the window — allow pop-ups for this page', 'err');
-      return;
-    }
-    hideWindowNotice();
-  }
-
-  // What happened before the page was painted.
-  //
-  // Shown over everything, on arrival, and only when the browser refused to
-  // open the window by itself. One button, because there is only one thing
-  // worth doing: opening a window from a click is something every browser
-  // allows, so nothing has to be permitted in advance.
-  //
-  // The way out is a small x rather than a second button. A notice with a
-  // "Later" next to its "Yes" gets dismissed by reflex, and this one only
-  // appears when there is something real to gain by reading it.
-  function showWindowNotice() {
-    const box = document.getElementById('windowModal');
-    if (!box) return;
-    if (inOwnWindow() || bridge.active) return;   // this IS the window
-
-    const { tried, opened, reason } = ownWindow.outcome;
-
-    // It went out into its own window but this page could neither go back
-    // nor close. Nothing to decide, so nothing to interrupt anybody with —
-    // the title bar's own Window button brings it back to the front.
-    if (opened) return;
-    if (!(tried && reason === 'blocked')) return;
-
-    const local = location.protocol === 'file:';
-    document.getElementById('windowModalBody').innerHTML =
-      'N4DU Studio is made for a <b>small window of its own</b>, and this '
-      + 'browser does not let a page open one without being asked.';
-    document.getElementById('windowModalFine').innerHTML = local
-      ? 'Opening <b>main.pyw</b> instead skips this every time.'
-      : 'To skip this step in future, allow pop-ups for this page.';
-
-    const go = document.getElementById('windowModalGo');
-    const shut = () => { box.hidden = true; N4DU.windowSize.fit(); };
-
-    go.addEventListener('click', () => { openInOwnWindow(); shut(); });
-    document.getElementById('windowModalClose').addEventListener('click', shut);
-    // Escape closes it; clicking the dimmed background does not. Missing a
-    // notice by clicking slightly off target is exactly the accident this
-    // is trying to avoid.
-    document.addEventListener('keydown', e => {
-      if (e.key === 'Escape' && !box.hidden) shut();
-    });
-
-    box.hidden = false;
-    go.focus();
-  }
-
-  function hideWindowNotice() {
-    const box = document.getElementById('windowModal');
-    if (box) box.hidden = true;
-  }
-
-  // ── Help ──────────────────────────────────────────────────────────
-  function initHelp() {
-    const modal = document.getElementById('helpModal');
-    // Never on top of another dialog. Stacked sheets looked broken, and since
-    // each dialog listens for Escape on its own, one press shut both of them.
-    // Refusing to stack is the fix; the Escape handlers then cannot collide.
-    const show = () => {
-      const busy = ['replaceModal', 'settingsModal'].some(id => {
-        const m = document.getElementById(id);
-        return m && !m.hidden;
-      });
-      if (!busy) modal.hidden = false;
-    };
-    const hide = () => { modal.hidden = true; };
-    document.getElementById('btnHelp').addEventListener('click', show);
-    document.getElementById('btnHelpClose').addEventListener('click', hide);
-    modal.addEventListener('click', e => { if (e.target === modal) hide(); });
-    window.addEventListener('keydown', e => {
-      if (e.key === 'Escape' && !modal.hidden) hide();
-      // "?" opens help from anywhere outside a text field.
-      if (e.key === '?' && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) show();
-    });
-  }
+  // ── A window of its own, and the sheet that explains it ───────────
+  const { inOwnWindow, openInOwnWindow, showWindowNotice } = N4DU.launchNotice;
+  const { initHelp } = N4DU.help;
 
   initDropzone(onFiles, chooseFile);
   initEditorCanvas(refresh);
