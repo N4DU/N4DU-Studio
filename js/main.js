@@ -490,7 +490,7 @@
 
     const { tried, opened, reason } = ownWindow.outcome;
     if (opened) {
-      // It is out there, but this tab had nowhere to go back to.
+      // It is out there, but this tab could neither go back nor close.
       text.innerHTML = '<b>N4DU Studio opened in its own window.</b> '
                      + 'You can close this tab.';
       action.hidden = false;
@@ -501,13 +501,34 @@
     }
 
     if (tried && reason === 'blocked') {
-      text.innerHTML = '<b>This is the full-page version.</b> N4DU Studio is '
-        + 'built for a small window of its own, and your browser blocked it '
-        + 'from opening one — that is what the pop-up blocker is for. Allow '
-        + 'pop-ups for this page and it will open in its own window from now '
-        + 'on, or press Window to do it once.';
+      // One button, and no permission needed for it.
+      //
+      // Opening a window from a click is something every browser allows —
+      // that is precisely what the pop-up blocker is drawing the line
+      // around. So the fix on offer is the button, not a tour of the
+      // browser's settings; the permission is mentioned second, as the way
+      // to stop being asked, for people who want that.
+      //
+      // And it does not close. The browser's own "Pop-ups blocked" bubble
+      // has already gone by the time most people look up, and a notice you
+      // can dismiss by accident is a notice you never see again. It goes
+      // away when it is no longer true, which is when you press the button.
+      box.classList.add('loud');
+      close.hidden = true;
+      text.innerHTML =
+        '<b>This is the full-page version.</b> N4DU Studio is made for a '
+        + 'small window of its own — press the button and it opens, at the '
+        + 'size it is meant to be.'
+        + '<span class="how">One press, every time you open it. To skip even '
+        + 'that: allow pop-ups for this page in your browser, and from then '
+        + 'on it opens on its own.'
+        + (location.protocol === 'file:'
+            ? ' Or open <b>main.pyw</b> instead, which needs none of this.'
+            : '')
+        + '</span>';
       action.hidden = false;
-      action.textContent = 'Open the window now';
+      action.textContent = 'Open in its own window';
+      action.classList.add('primary');
       action.addEventListener('click', () => openInOwnWindow());
       box.hidden = false;
       return;

@@ -976,6 +976,35 @@ body.mode-edit .convert-only { display: none !important; }
 .conv-notice[hidden] { display: none; }
 .conv-notice #windowNoticeText { flex: 1; min-width: 0; }
 .conv-notice b { color: var(--text); font-weight: 600; }
+
+/* When the browser refused, this is the only thing on screen that can put it
+   right — and the browser's own "Pop-ups blocked" bubble has already closed
+   by the time most people look up. So it carries real weight: the accent
+   colour, room to breathe, and the second line spelling out where the
+   control it left behind actually is. */
+.conv-notice.loud {
+  background: linear-gradient(180deg, rgba(232,255,71,.07), rgba(232,255,71,.02));
+  border-color: rgba(232,255,71,.34);
+  border-left-width: 4px;
+  align-items: flex-start;
+  padding: 12px 12px 12px 14px;
+  font-size: .8rem;
+  color: var(--text);
+}
+.conv-notice.loud .how {
+  display: block; margin-top: 5px; color: var(--muted); font-size: .75rem;
+}
+/* The button is the fix, so it looks like the fix. */
+.conv-notice.loud #windowNoticeAction {
+  flex-shrink: 0; align-self: center;
+  background: var(--accent); border-color: var(--accent); color: #000;
+  font-family: var(--fh); font-weight: 700;
+  font-size: .78rem; padding: 8px 14px;
+}
+.conv-notice.loud #windowNoticeAction:hover {
+  background: var(--accent2); border-color: var(--accent2);
+}
+.conv-notice.loud .notice-x { display: none; }
 .notice-x {
   background: none; border: 0; color: var(--muted); cursor: pointer;
   font-size: 1rem; line-height: 1; padding: 2px 5px; border-radius: 5px;
