@@ -120,6 +120,11 @@
     $('batchSeparate').addEventListener('change', e => {
       opts.separate = e.target.checked;
       save();
+      // The Convert button names what it is about to hand you — "Convert &
+      // download .zip", or without the .zip for separate files. Ticking the
+      // box changed the behaviour and left the button describing the old
+      // one, until some unrelated repaint happened to correct it.
+      syncBatch();
     });
 
     $('btnConvertAll').addEventListener('click', () => run(false));
