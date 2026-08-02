@@ -529,6 +529,10 @@
 
   bridge.init()
     .then(openStartupFile)
+    // The tab that pressed Window is waiting to hand its work across, and
+    // closing itself as soon as it has. Taken here, after the bridge has
+    // had its say, because a window opened by a tab never has one.
+    .then(() => N4DU.handover.claim({ onEdit: editItem }))
     .catch(() => {})
     .finally(() => { syncButtons(); N4DU.batchUI.syncBatch(); });
   syncButtons();
