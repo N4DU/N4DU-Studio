@@ -338,7 +338,11 @@
   // ── Taking the result away ────────────────────────────────────────
   // Download and Copy live in js/ui/deliver.js: two buttons, one job, and
   // nothing else in here depends on how either of them works.
-  const { onDownload, onCopy, outputSize, sizeLabel } = N4DU.deliver;
+  const { onDownload, onCopy } = N4DU.deliver;
+  // deliver.js repaints the buttons when it has finished, through a function
+  // it expects to be handed. Nobody ever handed it one, so the call in both
+  // of its finally blocks did nothing at all.
+  N4DU.deliver.setSyncButtons(() => syncButtons());
 
   // ── Buttons ───────────────────────────────────────────────────────
   // Replace is always visible: in browser-only mode it stays enabled but

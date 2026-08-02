@@ -3,55 +3,6 @@
    window is too short or too narrow for the arrangement it would prefer.
    Loaded last, on purpose: these rules exist to override the ones above. */
 
-/* ── THE COMPACT WINDOW ──
-   Half the area of the old one, and not by scaling everything down: the
-   previews stay big enough to recognise and the buttons big enough to hit.
-   What shrinks is the padding, the label column and the wasted width. */
-@media (max-width: 560px) {
-  :root { --gap: 11px; --pad: 10px; }
-  .convert { gap: 10px; padding: 11px; }
-  .conv-row { grid-template-columns: 58px 1fr; gap: 7px; }
-  .conv-pair { grid-template-columns: 58px 1fr; }
-  .conv-pair .conv-label.second { text-align: left; }
-  .conv-label { font-size: .7rem; }
-  .conv-fields { gap: 5px; }
-  .conv-fields input[type=number] { width: 62px; padding: 4px 6px; font-size: .75rem; }
-  .conv-fields select { padding: 4px 5px; font-size: .75rem; }
-  .conv-fields .unit, .conv-note { font-size: .66rem; }
-  .conv-title { font-size: .66rem; letter-spacing: .07em; }
-  .conv-sub { font-size: .66rem; }
-  .btn-ghost.tiny { padding: 2px 7px; font-size: .65rem; }
-  /* Eight formats have to fit on one line at 452px. They needed 368px of a
-     365px row, so TIFF fell to a second row on its own and cost a whole
-     line of window height for one word. */
-  .pill { font-size: .67rem; padding: 3px 7px; }
-  .pills.tight { gap: 3px; }
-  /* Tiles: narrower, but the picture inside keeps its height. */
-  .file-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
-  .file-tile { padding: 6px 4px 5px; gap: 3px; }
-  .file-thumb { height: 56px; }
-  .file-tile-name { font-size: .62rem; }
-  .file-tile-meta { font-size: .58rem; }
-  .conv-estimate { font-size: .71rem; }
-  .conv-actions { padding-top: 9px; gap: 8px; }
-  /* Buttons keep a real hit area — this is what must not shrink. */
-  .conv-buttons .btn-accent, .conv-buttons .btn-primary { padding: 8px 11px; font-size: .74rem; }
-  .conv-buttons .bi { width: 13px; height: 13px; }
-  .check.inline { font-size: .66rem; }
-  /* The drop zone, tightened. In a short window its three lines were
-     crushed together and overlapping — the text was the first thing to look
-     broken. Less padding, less leading, smaller sub-lines: the same words,
-     with room to breathe. */
-  .conv-drop { padding: 12px 10px; gap: 2px; }
-  .drop-label { font-size: .82rem; margin-top: 4px; }
-  .drop-sub { font-size: .69rem; line-height: 1.35; }
-  .drop-sub.dim { font-size: .64rem; line-height: 1.3; }
-  .drop-icon.small { width: 22px; height: 22px; }
-  .titlebar { gap: 8px; padding: 0 8px; }
-  .brand span { font-size: .84rem; }
-  .status-hint { font-size: .62rem; }
-}
-
 /* A window of its own already says "N4DU Studio" in its own title bar, so
    the wordmark here is the same name twice, one line below the other. The
    mark stays — it is the icon, not the name — and the row it sat in gets
@@ -269,4 +220,61 @@ body.app-window.mode-convert .conv-drop { gap: 4px; }
   /* One column puts the instruction hundreds of pixels down the page, so the
      top of the window is clear again — and 104px would land on the tools. */
   body.mode-edit .toast { top: 60px; }
+}
+
+
+/* ── THE COMPACT WINDOW ──
+   Last in the file, and that is not tidiness. This block used to sit at the
+   top, above the ordinary declarations for the very same selectors — same
+   specificity, later wins — so almost none of it applied. Measured at
+   452px: the number fields stayed 86px wide where this asks for 62, the
+   labels 12.8px where this asks for 12, the gaps 7px where this asks for 5.
+   Only the rules with no twin below survived. The window the launcher opens
+   is 452px, so this is the shape the program is usually in.
+   Half the area of the old one, and not by scaling everything down: the
+   previews stay big enough to recognise and the buttons big enough to hit.
+   What shrinks is the padding, the label column and the wasted width. */
+@media (max-width: 560px) {
+  :root { --gap: 11px; --pad: 10px; }
+  .convert { gap: 10px; padding: 11px; }
+  .conv-row { grid-template-columns: 58px 1fr; gap: 7px; }
+  .conv-pair { grid-template-columns: 58px 1fr; }
+  .conv-pair .conv-label.second { text-align: left; }
+  .conv-label { font-size: .7rem; }
+  .conv-fields { gap: 5px; }
+  .conv-fields input[type=number] { width: 62px; padding: 4px 6px; font-size: .75rem; }
+  .conv-fields select { padding: 4px 5px; font-size: .75rem; }
+  .conv-fields .unit, .conv-note { font-size: .66rem; }
+  .conv-title { font-size: .66rem; letter-spacing: .07em; }
+  .conv-sub { font-size: .66rem; }
+  .btn-ghost.tiny { padding: 2px 7px; font-size: .65rem; }
+  /* Eight formats have to fit on one line at 452px. They needed 368px of a
+     365px row, so TIFF fell to a second row on its own and cost a whole
+     line of window height for one word. */
+  .pill { font-size: .67rem; padding: 3px 7px; }
+  .pills.tight { gap: 3px; }
+  /* Tiles: narrower, but the picture inside keeps its height. */
+  .file-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+  .file-tile { padding: 6px 4px 5px; gap: 3px; }
+  .file-thumb { height: 56px; }
+  .file-tile-name { font-size: .62rem; }
+  .file-tile-meta { font-size: .58rem; }
+  .conv-estimate { font-size: .71rem; }
+  .conv-actions { padding-top: 9px; gap: 8px; }
+  /* Buttons keep a real hit area — this is what must not shrink. */
+  .conv-buttons .btn-accent, .conv-buttons .btn-primary { padding: 8px 11px; font-size: .74rem; }
+  .conv-buttons .bi { width: 13px; height: 13px; }
+  .check.inline { font-size: .66rem; }
+  /* The drop zone, tightened. In a short window its three lines were
+     crushed together and overlapping — the text was the first thing to look
+     broken. Less padding, less leading, smaller sub-lines: the same words,
+     with room to breathe. */
+  .conv-drop { padding: 12px 10px; gap: 2px; }
+  .drop-label { font-size: .82rem; margin-top: 4px; }
+  .drop-sub { font-size: .69rem; line-height: 1.35; }
+  .drop-sub.dim { font-size: .64rem; line-height: 1.3; }
+  .drop-icon.small { width: 22px; height: 22px; }
+  .titlebar { gap: 8px; padding: 0 8px; }
+  .brand span { font-size: .84rem; }
+  .status-hint { font-size: .62rem; }
 }
