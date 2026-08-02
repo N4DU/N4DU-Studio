@@ -187,8 +187,57 @@
     return null;
   }
 
+  // ── Being handed the work from the tab that opened us ─────────────
+  //
+  // This has to live here, in the <head>, and nowhere else. The window that
+  // opened this one is about to close itself, so it needs an answer as early
+  // as there is anything to answer with — and at this point in the page not
+  // one of the program's modules exists yet. So the hello goes out now and
+  // whatever comes back is held until js/ui/handover.js asks for it.
+  let handed = null;                  // the payload, once it lands
+  let onHanded = null;                // whoever is waiting for it
+  let openedByAnotherPage = false;
+  const expectsHandover = () => openedByAnotherPage;
+
+  try {
+    openedByAnotherPage = !!(window.opener && !window.opener.closed);
+  } catch {
+    openedByAnotherPage = true;       // cross-origin opener: still an opener
+  }
+
+  if (openedByAnotherPage) {
+    window.addEventListener('message', (e) => {
+      // Identity by window object rather than origin string: opened from a
+      // file:// page both origins are "null", which would match anybody.
+      let fromOpener = false;
+      try { fromOpener = e.source === window.opener; } catch { fromOpener = false; }
+      if (!fromOpener || !e.data || e.data.n4du !== 'state') return;
+      handed = e.data.payload;
+      if (onHanded) { const fn = onHanded; onHanded = null; fn(handed); }
+    });
+    try { window.opener.postMessage({ n4du: 'ready' }, '*'); } catch { /* gone */ }
+  }
+
+  function awaitHandover(ms) {
+    if (handed) return Promise.resolve(handed);
+    if (!openedByAnotherPage) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      onHanded = resolve;
+      // The opener may be an ordinary link rather than a copy of this page,
+      // or may have been closed before it could answer. Waiting for ever is
+      // not an option: the interface has to come up either way.
+      setTimeout(() => { if (onHanded === resolve) { onHanded = null; resolve(null); } }, ms);
+    });
+  }
+
+  // Filled in by js/ui/handover.js, which knows what a file list is. Kept as
+  // a hook so this file stays what it is: the window, and nothing else.
+  let handOver = null;
+
   N4DU.ownWindow = {
     NAME, outcome, remember, isOwnWindow,
+    expectsHandover, awaitHandover,
+    setHandover(fn) { handOver = fn; },
     stopAsking() { try { localStorage.setItem(OPT_OUT, '1'); } catch { /* ignore */ } },
     // The button path: no "should we?" checks, because you asked for it, and
     // a click is a user gesture — which is the whole reason this route needs
@@ -197,8 +246,16 @@
     // window resizing itself.
     open(want) {
       const win = spawn(want || readStored());
-      if (win) stepAside();
-      return !!win;
+      if (!win) return false;
+      // The work goes across BEFORE this page gets out of the way. Stepping
+      // aside first closed the tab mid-message, which is exactly how a list
+      // of twelve files became an empty window.
+      if (handOver) {
+        Promise.resolve(handOver(win)).catch(() => {}).then(stepAside);
+      } else {
+        stepAside();
+      }
+      return true;
     },
   };
 
