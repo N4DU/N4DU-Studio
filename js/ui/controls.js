@@ -173,8 +173,16 @@
     const hints = [];
     if (!FORMATS[state.fmt].alpha && state.roundness > 0)
       hints.push(`${FORMATS[state.fmt].label} has no transparency: outside the shape the background will be white.`);
-    if (state.fmt === 'ico')
-      hints.push('ICO supports up to 256×256 px; larger sizes are scaled down.');
+    if (state.fmt === 'ico') {
+      // Name the size it will actually be. The width and height boxes keep
+      // whatever you typed — you get it back when you pick another format —
+      // so with ICO chosen they read 1024 × 683 while a 256 × 171 file
+      // lands in Downloads, and the only clue was the filename, afterwards.
+      const { W, H } = N4DU.exporter.outputDims(state);
+      hints.push(W < state.outW || H < state.outH
+        ? `ICO tops out at 256 px, so this will be saved at ${W} × ${H}.`
+        : 'ICO supports up to 256×256 px; larger sizes are scaled down.');
+    }
     $('fmtHint').textContent = hints.join(' ');
   }
 

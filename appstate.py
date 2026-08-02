@@ -129,14 +129,28 @@ def tidy_state():
 
 
 def purge_state():
-    """Removes the folder entirely. Safe to call when nothing is running."""
-    for name in ("settings.json", "session.json", "start.lock"):
-        _forget(name)
-    # The window's own browser profile is ours too, so it goes as well.
+    """Removes the folder, but only what is genuinely ours to remove.
+
+    Called at exit when tidy_state() decided there was nothing left worth
+    keeping. That decision was made EARLIER, though — possibly minutes
+    earlier — and a preference saved in between is a preference the user
+    just expressed. Turning the right-click entry off and then turning the
+    compact window off deleted the second choice on the way out, and it was
+    gone at the next launch. So the question is asked again here, now.
+    """
+    # A setting written since tidy_state() ran is a setting somebody wanted.
+    if os.path.isfile(_state_file("settings.json")):
+        return False
+    _forget("session.json")
+    # start.lock and the browser profile are NOT unconditionally ours. Another
+    # instance may hold the lock while it boots, and removing it lets a third
+    # one acquire it too — two servers, which is the exact accident the lock
+    # exists to prevent. The same window may still be using the profile.
+    # os.rmdir below refuses a folder that is not empty, which is the check.
     try:
-        shutil.rmtree(os.path.join(state_dir(), "browser"), ignore_errors=True)
+        shutil.rmtree(os.path.join(state_dir(), "browser"))
     except OSError:
-        pass
+        pass                  # in use, or already gone; either way not ours
     try:
         os.rmdir(state_dir())
         return True
@@ -151,12 +165,21 @@ def write_session(port):
     data = {"port": port, "secret": SECRET, "pid": os.getpid()}
     try:
         path = _state_file("session.json", create=True)
-        # Created 0600 rather than created-then-chmodded. This file holds the
-        # secret that authorises opening arbitrary paths, and the old order
-        # left it world-readable for the width of the write — a real window
-        # on a shared machine. On Windows the mode is ignored, which is fine:
-        # LOCALAPPDATA is already per-user.
-        fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        # Removed first, then created 0600. The mode argument only applies
+        # when os.open actually CREATES the file: a session.json already
+        # sitting there kept whatever mode it had, and O_CREAT follows a
+        # symlink. On a shared POSIX machine another local user could
+        # pre-create that path world-readable, or as a link somewhere else,
+        # and then read the secret that authorises opening arbitrary paths.
+        # Unlinking first means this open is always a creation.
+        #
+        # On Windows the mode is ignored, which is fine: LOCALAPPDATA is
+        # already per-user.
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(data, fh)
     except OSError:

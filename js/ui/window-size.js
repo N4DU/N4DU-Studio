@@ -155,6 +155,13 @@
     // the rest of the session.
     window.addEventListener('resize', () => {
       if (!asked) return;
+      // Only a window of our own has a size worth remembering. In an
+      // ordinary tab resizeTo does nothing, so `asked` is set and never
+      // granted — which makes every resize of the BROWSER look like the
+      // user resizing our window. Open the page in a maximised tab, nudge
+      // the browser or open devtools, and 1100x800 was stored as the size
+      // of the compact window; the next visit popped out at 1100x800.
+      if (!(N4DU.ownWindow && N4DU.ownWindow.isOwnWindow())) return;
       // Our own resize lands here too, and the window manager may round or
       // clamp what it grants — so only a change well after our request, and
       // well away from what we asked for, counts as the user's doing.
@@ -167,7 +174,11 @@
       // Re-opening the link re-loads the window, and without this it would
       // shrink back to 452 every time — undoing a deliberate resize is the
       // kind of thing that makes a tool feel like it is arguing with you.
-      if (N4DU.ownWindow) N4DU.ownWindow.remember(window.outerWidth, window.outerHeight);
+      // Inner pixels, because that is what spawn() asks window.open for.
+      // Storing outer and requesting inner added the frame back on every
+      // cycle, so a window resized and reopened a few times crept steadily
+      // larger for no reason anybody asked for.
+      if (N4DU.ownWindow) N4DU.ownWindow.remember(window.innerWidth, window.innerHeight);
     });
   }
 

@@ -152,6 +152,28 @@ def target_path(original, ext, new_stem=None):
     return target
 
 
+def _temp_name(final_name):
+    """The hidden name the bytes are written under before being moved into
+    place. It only has to be unique, hidden, and in the same folder — the
+    stem is carried along purely so a temp file left by a killed process is
+    recognisable rather than cryptic.
+
+    Which is why it gets trimmed. A file already ON DISK can have a name
+    filling the whole 255-byte limit; adding a leading dot, eight hex
+    characters and ".tmp" to it does not fit, and replacing such a file
+    failed with a bare "File name too long" before a single byte was
+    written. The name is not sanitised here — this is a name that already
+    exists, so the filesystem has already accepted it.
+    """
+    stem = os.path.splitext(final_name)[0]
+    suffix = f".{secrets.token_hex(4)}.tmp"       # 14 bytes, all ASCII
+    room = 255 - len(suffix.encode("utf-8")) - 1  # and the leading dot
+    encoded = stem.encode("utf-8", "ignore")
+    if len(encoded) > room:
+        stem = encoded[:room].decode("utf-8", "ignore")
+    return f".{stem}{suffix}"
+
+
 def replace_file(original, data, ext, new_stem=None, overwrite=False):
     """Writes the bytes into the original's folder under the new extension
     (and name, when given), atomically, then deletes the previous file if the
@@ -164,6 +186,15 @@ def replace_file(original, data, ext, new_stem=None, overwrite=False):
 
     Returns (final_path, warning_or_None).
     """
+    # A symlink is a name pointing at a file, and "replace this picture"
+    # means the picture — not the pointer. os.replace() moves the new bytes
+    # onto the LINK, so the photo library it pointed at kept the old image
+    # while the app reported success and the link quietly became a real file.
+    # Following it first makes both the write and the delete land on the
+    # thing the user was actually looking at.
+    if os.path.islink(original):
+        original = os.path.realpath(original)
+
     target = target_path(original, ext, new_stem)
     # Not a string comparison. On Windows and macOS the filesystem is
     # case-insensitive, so IMG.PNG and IMG.png are ONE file while comparing
@@ -197,13 +228,26 @@ def replace_file(original, data, ext, new_stem=None, overwrite=False):
         raise FileExistsError(os.path.basename(target))
 
     folder = os.path.dirname(original)
-    stem = os.path.splitext(os.path.basename(target))[0]
-    tmp = os.path.join(folder, f".{stem}.{secrets.token_hex(4)}.tmp")
+    tmp = os.path.join(folder, _temp_name(os.path.basename(target)))
+    # The replacement is a brand new file, so it starts with whatever the
+    # umask says — 0644 on most machines. Replacing a picture somebody had
+    # deliberately made private at 0600 handed it to everybody else on a
+    # shared machine, in the name of editing it. The old permissions are
+    # carried across; on Windows this is a no-op, which is correct there.
+    try:
+        keep_mode = os.stat(original).st_mode & 0o7777
+    except OSError:
+        keep_mode = None
     try:
         with open(tmp, "wb") as fh:
             fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())   # bytes hit the disk before publishing
+        if keep_mode is not None:
+            try:
+                os.chmod(tmp, keep_mode)
+            except OSError:
+                pass    # a filesystem with no modes to set; not worth failing
         os.replace(tmp, target)     # atomic: never leaves a half-written file
     except Exception:
         # A full disk or a vanished network drive used to leave the hidden

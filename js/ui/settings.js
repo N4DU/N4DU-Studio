@@ -47,6 +47,8 @@
 
   function open() {
     $('settingsModal').hidden = false;
+    // Focus goes in, and stays in, until it closes — see js/ui/modal.js.
+    N4DU.modal.opened($('settingsModal'), $('btnSettingsClose'));
     render(null);
     if (!bridge.active) return;   // browser-only: the locked notice explains it
     bridge.readSettings().then(render).catch(err => {
@@ -56,6 +58,7 @@
 
   function close() {
     $('settingsModal').hidden = true;
+    N4DU.modal.closed($('settingsModal'));
   }
 
   // Sends one change and re-renders from whatever the system reports back.
@@ -98,6 +101,13 @@
     $('settingsLocked').hidden = !locked;
     $('setContextMenu').disabled = locked;
     $('setAppWindow').disabled = locked;
+    // "Remove every trace from this machine" removes a registry entry and a
+    // settings folder, and in the browser there is neither. It was shown
+    // anyway: it armed, said "Click again to confirm", disarmed, and then
+    // apply() returned on the first line because there is no bridge. Two
+    // deliberate presses on a destructive-looking button, and nothing —
+    // not even a message saying why.
+    $('forgetRow').hidden = locked;
 
     if (locked) {
       $('setStatus').textContent = '';

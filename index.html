@@ -12,20 +12,27 @@
      your machine, and it was fetching a stylesheet from Google on every
      single launch — carrying your address there, failing noisily with no
      network, and flashing a different font when it arrived. The system
-     stack in css/style.css looks close enough to be worth none of that. -->
+     stack in css/base.css looks close enough to be worth none of that. -->
 <!-- ?v= on every stylesheet and script, and it has to stay there.
      GitHub Pages serves these files with no fingerprint in their names, so a
      browser that has been here before keeps using the copies it already has
      and a new deploy changes nothing on screen — the page looks stale for
      reasons no amount of reloading explains. The version below is what makes
      a new deploy actually arrive. BUMP IT whenever css/ or js/ changes. -->
-<link rel="stylesheet" href="css/style.css?v=2026.08.02">
+<!-- Five files, loaded in this order and only this order: base declares the
+     custom properties everything else reads, and window.css exists to
+     override what came before it. -->
+<link rel="stylesheet" href="css/base.css?v=2026.08.02b">
+<link rel="stylesheet" href="css/editor.css?v=2026.08.02b">
+<link rel="stylesheet" href="css/modals.css?v=2026.08.02b">
+<link rel="stylesheet" href="css/converter.css?v=2026.08.02b">
+<link rel="stylesheet" href="css/window.css?v=2026.08.02b">
 <!-- In the HEAD on purpose, and this one is not moveable.
      It decides whether this document should be running in a window of its
      own, and it has to decide before the browser paints a full-width tab
      holding an interface built for 452 pixels. Everything else loads at the
      end of the body, where scripts belong. -->
-<script src="js/own-window.js?v=2026.08.02"></script>
+<script src="js/own-window.js?v=2026.08.02b"></script>
 </head>
 <body class="mode-convert">
 
@@ -150,14 +157,14 @@
       <div class="conv-row conv-pair">
         <label class="conv-label">Size</label>
         <div class="conv-fields">
-          <select id="resizeMode"></select>
-          <input type="number" id="resizeValue" min="1" max="20000" value="1920">
+          <select id="resizeMode" aria-label="How to resize"></select>
+          <input type="number" id="resizeValue" min="1" max="20000" value="1920" aria-label="Resize amount">
           <span class="unit" id="resizeUnit">px</span>
         </div>
         <label class="conv-label second">Max</label>
         <div class="conv-fields">
-          <input type="number" id="batchMaxSize" placeholder="any" min="1">
-          <select id="batchMaxUnit">
+          <input type="number" id="batchMaxSize" placeholder="any" min="1" aria-label="Maximum file size">
+          <select id="batchMaxUnit" aria-label="Units for the maximum file size">
             <option value="KB" selected>KB</option>
             <option value="MB">MB</option>
           </select>
@@ -168,7 +175,7 @@
       <div class="conv-row" id="qualityRowBatch">
         <label class="conv-label">Quality</label>
         <div class="conv-fields">
-          <input type="range" id="batchQuality" min="1" max="100" step="1" value="92">
+          <input type="range" id="batchQuality" min="1" max="100" step="1" value="92" aria-label="Quality">
           <span class="bar-val narrow" id="batchQualityVal">92</span>
         </div>
       </div>
@@ -236,13 +243,13 @@
 
         <div class="opt" data-for="brush erase blur">
           <label>Brush size <span class="opt-val" id="brushSizeVal">24 px</span></label>
-          <input type="range" id="brushSize" min="1" max="200" step="1" value="24">
+          <input type="range" id="brushSize" min="1" max="200" step="1" value="24" aria-label="Brush size">
         </div>
 
         <div class="opt" data-for="brush">
           <label>Colour</label>
           <div class="color-row">
-            <input type="color" id="brushColor" value="#ff3b3b">
+            <input type="color" id="brushColor" value="#ff3b3b" aria-label="Brush colour">
             <span class="color-hex" id="brushColorHex">#ff3b3b</span>
             <button class="icon-btn small-icon" id="btnPick"
                     title="Pick a colour from the picture">
@@ -253,13 +260,13 @@
 
         <div class="opt" data-for="blur">
           <label>Blur amount <span class="opt-val" id="blurRadiusVal">8 px · medium</span></label>
-          <input type="range" id="blurRadius" min="1" max="40" step="1" value="8">
+          <input type="range" id="blurRadius" min="1" max="40" step="1" value="8" aria-label="Blur radius">
           <button class="btn-ghost small" id="blurAll">Blur the whole picture</button>
         </div>
 
         <div class="opt" data-for="remove">
           <label>Tolerance <span class="opt-val" id="toleranceVal">18%</span></label>
-          <input type="range" id="tolerance" min="0" max="100" step="1" value="18">
+          <input type="range" id="tolerance" min="0" max="100" step="1" value="18" aria-label="Colour tolerance">
           <label class="check">
             <input type="checkbox" id="contiguous" checked>
             <span>Only the area I click</span>
@@ -321,14 +328,14 @@
           <div class="float-bar shape-bar">
             <span class="bar-label">Corners</span>
             <span class="bar-icon" title="Square">▢</span>
-            <input type="range" id="shapeSlider" min="0" max="100" step="1" value="0">
+            <input type="range" id="shapeSlider" min="0" max="100" step="1" value="0" aria-label="Corner rounding">
             <span class="bar-icon" title="Circle">●</span>
             <span class="bar-val" id="shapeVal">Sharp</span>
             <button class="reset-btn" id="resetShape" title="Back to square corners">↺</button>
           </div>
           <div class="float-bar zoom-bar" id="zoomBar">
             <span class="bar-label">Zoom</span>
-            <input type="range" id="zoomSlider" min="1" max="5" step="0.01" value="1">
+            <input type="range" id="zoomSlider" min="1" max="5" step="0.01" value="1" aria-label="Zoom">
             <span class="bar-val narrow" id="zoomVal">100%</span>
             <button class="reset-btn" id="resetZoom" title="Back to 100%">↺</button>
           </div>
@@ -375,12 +382,12 @@
         <div class="row2 size-row">
           <div class="field">
             <label>Width</label>
-            <input type="number" id="outW" value="400" min="1" max="8192">
+            <input type="number" id="outW" value="400" min="1" max="8192" aria-label="Output width in pixels">
           </div>
           <button class="lock-btn active" id="lockBtn" title="Keep the proportions">🔗</button>
           <div class="field">
             <label>Height</label>
-            <input type="number" id="outH" value="400" min="1" max="8192">
+            <input type="number" id="outH" value="400" min="1" max="8192" aria-label="Output height in pixels">
           </div>
         </div>
       </div>
@@ -404,12 +411,12 @@
         <div class="row2">
           <div class="field" id="qualityRow" style="display:none;">
             <label>Quality 1–100</label>
-            <input type="number" id="qualityVal" value="92" min="1" max="100">
+            <input type="number" id="qualityVal" value="92" min="1" max="100" aria-label="Quality, 1 to 100">
           </div>
           <div class="field">
             <label>Never exceed</label>
             <div class="unit-row">
-              <input type="number" id="maxSize" placeholder="any" min="1">
+              <input type="number" id="maxSize" placeholder="any" min="1" aria-label="Maximum file size">
               <select id="maxUnit" title="Unit">
                 <option value="KB" selected>KB</option>
                 <option value="MB">MB</option>
@@ -447,7 +454,7 @@
      deliberately the smaller, quieter thing on screen — a notice you close
      without reading is a notice that never worked. -->
 <div class="modal-backdrop" id="windowModal" hidden>
-  <div class="modal modal-launch">
+  <div class="modal modal-launch" role="dialog" aria-modal="true" aria-labelledby="windowModalTitle">
     <button class="launch-x" id="windowModalClose" title="Not now"
             aria-label="Not now">×</button>
     <div class="launch-icon" aria-hidden="true">
@@ -465,8 +472,8 @@
 </div>
 
 <div class="modal-backdrop" id="helpModal" hidden>
-  <div class="modal modal-wide">
-    <div class="modal-title">How it works</div>
+  <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="helpModalTitle">
+    <div class="modal-title" id="helpModalTitle">How it works</div>
     <ol class="help-list">
       <li><b>Load the files.</b> As many as you like: drop them in, press
         Ctrl+V, or use <em>Add files</em>. Every one shows up in the list with
@@ -498,12 +505,12 @@
 
 <!-- Settings: the switches that change the operating system -->
 <div class="modal-backdrop" id="settingsModal" hidden>
-  <div class="modal modal-wide">
-    <div class="modal-title">Settings</div>
+  <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+    <div class="modal-title" id="settingsModalTitle">Settings</div>
 
     <div class="setting">
       <label class="switch">
-        <input type="checkbox" id="setContextMenu">
+        <input type="checkbox" id="setContextMenu" aria-label="Add "Edit with N4DU Studio" to the right-click menu">
         <span class="track"></span>
       </label>
       <div class="setting-text">
@@ -521,7 +528,7 @@
 
     <div class="setting">
       <label class="switch">
-        <input type="checkbox" id="setAppWindow">
+        <input type="checkbox" id="setAppWindow" aria-label="Open in a compact window">
         <span class="track"></span>
       </label>
       <div class="setting-text">
@@ -572,8 +579,8 @@
 
 <!-- Replace dialog: which file is swapped for which -->
 <div class="modal-backdrop" id="replaceModal" hidden>
-  <div class="modal">
-    <div class="modal-title">Replace a file on your disk</div>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="replaceModalTitle">
+    <div class="modal-title" id="replaceModalTitle">Replace a file on your disk</div>
 
     <div class="swap-row">
       <div class="file-card" id="srcCard">
@@ -591,7 +598,7 @@
           <canvas id="dstThumb"></canvas>
         </div>
         <div class="file-rename">
-          <input type="text" id="dstStem" spellcheck="false" maxlength="120">
+          <input type="text" id="dstStem" spellcheck="false" maxlength="120" aria-label="Name for the replacement file">
           <span class="file-ext" id="dstExt">.png</span>
         </div>
       </div>
@@ -618,28 +625,36 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/state.js?v=2026.08.02"></script>
-<script src="js/core/geometry.js?v=2026.08.02"></script>
-<script src="js/core/loader.js?v=2026.08.02"></script>
-<script src="js/core/edit.js?v=2026.08.02"></script>
-<script src="js/core/render.js?v=2026.08.02"></script>
-<script src="js/core/exporter.js?v=2026.08.02"></script>
-<script src="js/core/convert.js?v=2026.08.02"></script>
-<script src="js/core/zip.js?v=2026.08.02"></script>
-<script src="js/core/batch.js?v=2026.08.02"></script>
-<script src="js/core/bridge.js?v=2026.08.02"></script>
-<script src="js/ui/toast.js?v=2026.08.02"></script>
-<script src="js/ui/editable-number.js?v=2026.08.02"></script>
-<script src="js/ui/crop-box.js?v=2026.08.02"></script>
-<script src="js/ui/dropzone.js?v=2026.08.02"></script>
-<script src="js/ui/editor-canvas.js?v=2026.08.02"></script>
-<script src="js/ui/previews.js?v=2026.08.02"></script>
-<script src="js/ui/controls.js?v=2026.08.02"></script>
-<script src="js/ui/tools.js?v=2026.08.02"></script>
-<script src="js/ui/replace-dialog.js?v=2026.08.02"></script>
-<script src="js/ui/settings.js?v=2026.08.02"></script>
-<script src="js/ui/batch-ui.js?v=2026.08.02"></script>
-<script src="js/ui/window-size.js?v=2026.08.02"></script>
-<script src="js/main.js?v=2026.08.02"></script>
+<script src="js/state.js?v=2026.08.02b"></script>
+<script src="js/core/geometry.js?v=2026.08.02b"></script>
+<script src="js/core/loader.js?v=2026.08.02b"></script>
+<script src="js/core/paint.js?v=2026.08.02b"></script>
+<script src="js/core/edit.js?v=2026.08.02b"></script>
+<script src="js/core/render.js?v=2026.08.02b"></script>
+<script src="js/core/exporter.js?v=2026.08.02b"></script>
+<script src="js/core/convert.js?v=2026.08.02b"></script>
+<script src="js/core/zip.js?v=2026.08.02b"></script>
+<script src="js/core/batch.js?v=2026.08.02b"></script>
+<script src="js/core/bridge.js?v=2026.08.02b"></script>
+<script src="js/ui/toast.js?v=2026.08.02b"></script>
+<script src="js/ui/modal.js?v=2026.08.02b"></script>
+<script src="js/ui/editable-number.js?v=2026.08.02b"></script>
+<script src="js/ui/crop-box.js?v=2026.08.02b"></script>
+<script src="js/ui/dropzone.js?v=2026.08.02b"></script>
+<script src="js/ui/editor-canvas.js?v=2026.08.02b"></script>
+<script src="js/ui/previews.js?v=2026.08.02b"></script>
+<script src="js/ui/controls.js?v=2026.08.02b"></script>
+<script src="js/ui/tools.js?v=2026.08.02b"></script>
+<script src="js/ui/replace-dialog.js?v=2026.08.02b"></script>
+<script src="js/ui/settings.js?v=2026.08.02b"></script>
+<script src="js/ui/batch-run.js?v=2026.08.02b"></script>
+<script src="js/ui/batch-ui.js?v=2026.08.02b"></script>
+<script src="js/ui/window-size.js?v=2026.08.02b"></script>
+<script src="js/ui/deliver.js?v=2026.08.02b"></script>
+<script src="js/ui/help.js?v=2026.08.02b"></script>
+<script src="js/ui/launch-notice.js?v=2026.08.02b"></script>
+<script src="js/ui/handover.js?v=2026.08.02b"></script>
+<script src="js/ui/shortcuts.js?v=2026.08.02b"></script>
+<script src="js/main.js?v=2026.08.02b"></script>
 </body>
 </html>

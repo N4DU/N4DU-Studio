@@ -8,6 +8,10 @@
 // redo possible.
 (function (N4DU) {
 
+  // The pixel work lives in js/core/paint.js: pure functions over a canvas,
+  // with no idea that a document or an undo stack exists.
+  const { hasFilter, blurInto, strokeBox, tracePath } = N4DU.paint;
+
   const MAX_HISTORY = 20;   // snapshots kept in each direction
   // ...but counting snapshots is not the same as counting memory. Each one
   // is the whole surface: on a 12 megapixel photo that is 48 MB, and twenty
@@ -79,8 +83,21 @@
     redoStack = [];   // a new edit invalidates the redo trail
   }
 
+  // Undo and redo end whatever stroke is in progress, and they have to.
+  //
+  // Ctrl+Z with the brush still held popped the stroke's one and only
+  // snapshot, so the canvas came back clean — and then the drag carried on
+  // painting the restored surface with no history entry behind it. Let go
+  // and you had a painted picture with Undo greyed out: the paint could
+  // never be taken back, for the rest of the session.
+  //
+  // Dropping strokeBase is the whole fix. The next segment finds no base
+  // and starts a fresh stroke of its own (see paintStroke and blurStroke),
+  // which snapshots first, so the rest of the drag is one more undo step
+  // rather than pixels from nowhere.
   function undo() {
     if (!undoStack.length) return false;
+    strokeBase = null;
     redoStack.push(snapshot());
     trimHistory(redoStack);
     surface = undoStack.pop();
@@ -90,6 +107,7 @@
 
   function redo() {
     if (!redoStack.length) return false;
+    strokeBase = null;
     undoStack.push(snapshot());
     trimHistory(undoStack);
     surface = redoStack.pop();
@@ -187,76 +205,6 @@
   }
 
   // ── Filters ───────────────────────────────────────────────────────
-
-  // Does this browser support canvas filters? Safari only gained them
-  // recently, so a manual blur is kept as a fallback.
-  let filterSupport = null;
-  function hasFilter() {
-    if (filterSupport === null) {
-      const ctx = new OffscreenCanvas(1, 1).getContext('2d');
-      ctx.filter = 'blur(1px)';
-      filterSupport = ctx.filter !== 'none';
-    }
-    return filterSupport;
-  }
-
-  // Blurs a region of src into ctx (which must be w×h). Uses the native
-  // filter when available, otherwise a separable box blur — three passes
-  // approximate a Gaussian closely enough to look the same.
-  function blurInto(ctx, src, sx, sy, w, h, radius) {
-    if (hasFilter()) {
-      ctx.filter = `blur(${radius}px)`;
-      ctx.drawImage(src, sx, sy, w, h, 0, 0, w, h);
-      ctx.filter = 'none';
-      return;
-    }
-    ctx.drawImage(src, sx, sy, w, h, 0, 0, w, h);
-    const img = ctx.getImageData(0, 0, w, h);
-    const r = Math.max(1, Math.round(radius * 0.6));
-    for (let pass = 0; pass < 3; pass++) {
-      boxBlurPass(img.data, w, h, r, true);
-      boxBlurPass(img.data, w, h, r, false);
-    }
-    ctx.putImageData(img, 0, 0);
-  }
-
-  // One box-blur pass over rows (horizontal) or columns (vertical).
-  function boxBlurPass(d, w, h, r, horizontal) {
-    const outer = horizontal ? h : w;
-    const inner = horizontal ? w : h;
-    const stride = horizontal ? 4 : w * 4;
-    const jump = horizontal ? w * 4 : 4;
-    const line = new Float32Array(inner * 4);
-
-    for (let o = 0; o < outer; o++) {
-      const base = o * jump;
-      for (let i = 0; i < inner; i++) {
-        const p = base + i * stride;
-        line[i * 4] = d[p]; line[i * 4 + 1] = d[p + 1];
-        line[i * 4 + 2] = d[p + 2]; line[i * 4 + 3] = d[p + 3];
-      }
-      let sr = 0, sg = 0, sb = 0, sa = 0, count = 0;
-      // Prime the window.
-      for (let i = 0; i <= r && i < inner; i++) {
-        sr += line[i * 4]; sg += line[i * 4 + 1];
-        sb += line[i * 4 + 2]; sa += line[i * 4 + 3]; count++;
-      }
-      for (let i = 0; i < inner; i++) {
-        const p = base + i * stride;
-        d[p] = sr / count; d[p + 1] = sg / count;
-        d[p + 2] = sb / count; d[p + 3] = sa / count;
-        const add = i + r + 1, drop = i - r;
-        if (add < inner) {
-          sr += line[add * 4]; sg += line[add * 4 + 1];
-          sb += line[add * 4 + 2]; sa += line[add * 4 + 3]; count++;
-        }
-        if (drop >= 0) {
-          sr -= line[drop * 4]; sg -= line[drop * 4 + 1];
-          sb -= line[drop * 4 + 2]; sa -= line[drop * 4 + 3]; count--;
-        }
-      }
-    }
-  }
 
   // Blurs the whole surface. radius is in pixels.
   function blurAll(radius) {
@@ -422,7 +370,7 @@
     // Padding must exceed the blur reach, otherwise the mask would expose
     // pixels contaminated by the region's own edges.
     const pad = Math.ceil(width / 2 + radius * 3 + 2);
-    const box = strokeBox(points, pad);
+    const box = strokeBox(points, pad, surface);
     if (!box) return;
     const { x, y, w, h } = box;
 
@@ -459,44 +407,16 @@
     sctx.clip();
     sctx.globalCompositeOperation = 'destination-out';
     sctx.drawImage(mask, x, y);
-    sctx.globalCompositeOperation = 'source-over';
+    // Added, not drawn over. The stroke's edge is antialiased, so along its
+    // rim the mask is half-covered — and punching a half-covered hole and
+    // then drawing half-covered paint into it does not fill it: source-over
+    // gives a + (1-a)(1-a), which is 0.75 where a is 0.5. Blurring made a
+    // thin see-through outline along every stroke. "lighter" adds the two
+    // premultiplied halves instead, and (1-a) + a is exactly 1.
+    sctx.globalCompositeOperation = 'lighter';
     sctx.drawImage(mask, x, y);
     sctx.restore();
     changed();
-  }
-
-  // Bounding box of a set of points, padded and clipped to the surface.
-  function strokeBox(points, pad) {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const p of points) {
-      if (p.x < minX) minX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y > maxY) maxY = p.y;
-    }
-    if (minX === Infinity) return null;
-    const x = Math.max(0, Math.floor(minX - pad));
-    const y = Math.max(0, Math.floor(minY - pad));
-    const x2 = Math.min(surface.width, Math.ceil(maxX + pad));
-    const y2 = Math.min(surface.height, Math.ceil(maxY + pad));
-    if (x2 <= x || y2 <= y) return null;
-    return { x, y, w: x2 - x, h: y2 - y };
-  }
-
-  function tracePath(ctx, points, width) {
-    if (points.length === 1) {
-      // A single tap still paints a dot.
-      const p = points[0];
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, Math.max(0.5, width / 2), 0, Math.PI * 2);
-      ctx.fillStyle = ctx.strokeStyle;
-      ctx.fill();
-      return;
-    }
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
-    ctx.stroke();
   }
 
   // Colour of a single pixel, as #rrggbb (used by the eyedropper).

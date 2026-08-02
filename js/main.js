@@ -5,7 +5,6 @@
 
   const { state, resetForImage, toast, bridge, edit, batch } = N4DU;
   const { loadImage, decodeErrorMessage } = N4DU.loader;
-  const { exportBlob, download, FORMATS } = N4DU.exporter;
   const { initDropzone, openPicker } = N4DU.dropzone;
   const { initEditorCanvas, drawEditor, syncCanvasUI } = N4DU.editorCanvas;
   const { initControls, syncControls, updateEstimate } = N4DU.controls;
@@ -133,6 +132,16 @@
       return;
     }
     batch.select(item.id);
+    // Coming back to the picture you were already editing is a change of
+    // view, not a new document. It used to re-decode and re-load, which
+    // threw away every undo step — and worse, made Revert a lie: the batch
+    // item now holds the EDITED bitmap, so "back to the picture you opened"
+    // handed back the rotated, brushed version and there was no route to the
+    // original left at all. One tap of the mode button was enough.
+    if (editing === item.id && edit.ready()) {
+      setMode('edit');
+      return;
+    }
     editing = item.id;
     let handle = null;
     try {
@@ -191,10 +200,29 @@
       await onFile(picked[0].file, true);
       return;
     }
+    const { added } = await addFromDisk(picked);
+    announceAdded(added);
+  }
+
+  // Files from the bridge arrive one at a time because each carries its own
+  // token and path, and batch.add takes one set of those for the whole call.
+  //
+  // The count has to be tallied rather than assumed. Every one of these
+  // places used to report picked.length — the number of files ASKED for —
+  // so right-clicking five images where two were corrupt said "Added 5
+  // files" over a list holding three, and said nothing about the two.
+  async function addFromDisk(picked) {
+    let added = 0;
+    const failed = [];
     for (const one of picked) {
-      await batch.add([one.file], { token: one.token, path: one.path });
+      const r = await batch.add([one.file], { token: one.token, path: one.path });
+      added += r.added;
+      failed.push(...r.failed);
     }
-    announceAdded(picked.length);
+    if (failed.length) {
+      toast(`${failed.length} file${failed.length > 1 ? 's' : ''} could not be read`, 'err');
+    }
+    return { added, failed };
   }
 
   // Files with no location: dropped, pasted, or chosen through the browser.
@@ -246,12 +274,12 @@
       const have = batch.items.map(it => it.path).filter(Boolean);
       const { metas } = await bridge.siblings(anchor.token, have);
       const picked = await bridge.collect(metas);
-      for (const one of picked) {
-        await batch.add([one.file], { token: one.token, path: one.path });
+      const { added, failed } = await addFromDisk(picked);
+      if (!failed.length) {
+        toast(added
+          ? `Added ${added} more from the same folder`
+          : 'Nothing else in that folder', added ? 'ok' : '');
       }
-      toast(picked.length
-        ? `Added ${picked.length} more from the same folder`
-        : 'Nothing else in that folder', picked.length ? 'ok' : '');
     } catch (err) {
       toast(err.message, 'err');
     } finally {
@@ -295,6 +323,14 @@
   function showInEditor(bmp, meta, fromBridge) {
     resetForImage(bmp, meta);
     edit.load(bmp);          // fresh editing session for this image
+    // And a fresh crop box, which means none. The selection lives in
+    // editor-canvas.js and survived a new picture being opened, still
+    // holding the last one's coordinates: open something smaller and the
+    // stale box fell entirely outside it, so the dimming covered the whole
+    // photo and a yellow rectangle floated over nothing. There was no way
+    // to clear it either — Reset stays disabled for a box bigger than the
+    // picture, and the crop panel is hidden while the tool is Move.
+    N4DU.editorCanvas.setSelection(null);
     // Dropped, pasted or browser-picked files have no path on disk, so the
     // replacement target is cleared (it is chosen inside the dialog).
     if (!fromBridge) bridge.clearFile();
@@ -316,71 +352,14 @@
     bridge.path = item.path || null;
     showInEditor(bmp, { name: item.name, size: item.size }, !!item.token);
   }
-
-  // ── Download ──────────────────────────────────────────────────────
-  async function onDownload() {
-    if (!state.img) return;
-    const btn = document.getElementById('btnExport');
-    btn.disabled = true;
-    btn.textContent = 'Working…';
-    try {
-      const { blob, filename, limit } = await exportBlob(state);
-      download(blob, filename);
-      if (limit && !limit.ok) {
-        // Never present an oversized file as a success.
-        toast(`Downloaded ${filename} · ${sizeLabel(blob.size)} — could not get under ${N4DU.controls.limitLabel()}`, 'err');
-      } else {
-        toast(`Downloaded ${filename} · ${sizeLabel(blob.size)}`, 'ok');
-      }
-    } catch (err) {
-      toast('Export failed: ' + err.message, 'err');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Download';
-      syncButtons();
-    }
-  }
-
-  // ── Copy to clipboard ─────────────────────────────────────────────
-  // Writing images to the clipboard needs a secure context (https or
-  // localhost). Opening the file directly from disk does not qualify, so the
-  // failure is explained instead of silently doing nothing.
-  async function onCopy() {
-    if (!state.img) return;
-    const btn = document.getElementById('btnCopy');
-    btn.disabled = true;
-    btn.textContent = 'Copying…';
-    try {
-      if (!navigator.clipboard || !window.ClipboardItem) {
-        throw new Error('this browser cannot copy images');
-      }
-      // PNG is the only format clipboards accept reliably, so the copy is
-      // always PNG regardless of the chosen export format.
-      const canvas = N4DU.render.renderOutput(state, ...outputSize());
-      const blob = await canvas.convertToBlob({ type: 'image/png' });
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-      toast(`Copied to clipboard · PNG · ${sizeLabel(blob.size)}`, 'ok');
-    } catch (err) {
-      const secure = window.isSecureContext;
-      toast(secure
-        ? 'Could not copy: ' + err.message
-        : 'Copying needs the desktop version (or an https page)', 'err');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Copy';
-      syncButtons();
-    }
-  }
-
-  function outputSize() {
-    const { W, H } = N4DU.exporter.outputDims(state);
-    return [W, H];
-  }
-
-  function sizeLabel(bytes) {
-    const kb = bytes / 1024;
-    return kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(0) + ' KB';
-  }
+  // ── Taking the result away ────────────────────────────────────────
+  // Download and Copy live in js/ui/deliver.js: two buttons, one job, and
+  // nothing else in here depends on how either of them works.
+  const { onDownload, onCopy } = N4DU.deliver;
+  // deliver.js repaints the buttons when it has finished, through a function
+  // it expects to be handed. Nobody ever handed it one, so the call in both
+  // of its finally blocks did nothing at all.
+  N4DU.deliver.setSyncButtons(() => syncButtons());
 
   // ── Buttons ───────────────────────────────────────────────────────
   // Replace is always visible: in browser-only mode it stays enabled but
@@ -414,6 +393,18 @@
   function afterReplace(out) {
     document.getElementById('titleFile').textContent =
       `${out.name} — ${state.origW}×${state.origH} px`;
+    // The list has to follow the file. Replacing a.png with a.jpg from the
+    // editor renames it on disk, and the tile behind the editor went on
+    // saying "a.png" and pointing at a path that no longer exists — so did
+    // the folder offer, which uses the paths already in the list to work out
+    // what else is in the folder. The token itself stays good: the server
+    // retargets it to the new path as part of the replacement.
+    const item = batch.items.find(it => it.id === editing);
+    if (item && out.name) {
+      item.name = out.name;
+      if (out.path) item.path = out.path;
+      N4DU.batchUI.syncBatch();
+    }
     syncButtons();
   }
 
@@ -422,131 +413,16 @@
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
     }[c]));
   }
-
   // ── Keyboard shortcuts ────────────────────────────────────────────
-  // Ignored while typing in a field or with the replace dialog open: Ctrl+S
-  // would download and Ctrl+R would wipe a half-typed name.
-  window.addEventListener('keydown', e => {
-    if (!(e.ctrlKey || e.metaKey)) return;
-    if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
-    if (!document.getElementById('replaceModal').hidden) return;
-    if (!document.getElementById('settingsModal').hidden) return;
-    // Help too: Ctrl+R was opening the Replace dialog behind the help sheet,
-    // and Ctrl+S downloading from under it.
-    if (!document.getElementById('helpModal').hidden) return;
-    const k = e.key.toLowerCase();
-    if (k === 'o') { e.preventDefault(); chooseFile(); return; }
-    if (currentMode() === 'convert') return;   // the rest belong to the editor
-    if (!state.img) return;
-    if (k === 's' || k === 'e') { e.preventDefault(); onDownload(); }
-    if (k === 'c') { e.preventDefault(); onCopy(); }
-    if (k === 'r') { e.preventDefault(); openReplaceDialog(); }
-    if (k === 'z') {
-      e.preventDefault();
-      // The same path as the Undo button. Doing it by hand here left the old
-      // crop box behind: after Ctrl+Z it sat over a different part of the
-      // restored picture with Apply still enabled, and one click cropped to
-      // the stale rectangle — throwing the undo away.
-      N4DU.tools.stepHistory(e.shiftKey ? edit.redo : edit.undo);
-    }
+  // Which key means what lives in js/ui/shortcuts.js; what each one does
+  // lives here. Handed over rather than reached for.
+  N4DU.shortcuts.initShortcuts({
+    chooseFile, currentMode, onDownload, onCopy, openReplaceDialog,
   });
 
-  // ── A window of its own, from the web ─────────────────────────────
-  // The attempt itself happens in js/own-window.js, in the HEAD, before this
-  // file has even loaded — it has to, or the tab paints first. What is left
-  // here is the part that needs the interface: doing it on purpose from the
-  // button, and saying out loud why it did not happen on its own.
-  const ownWindow = N4DU.ownWindow;
-
-  function inOwnWindow() {
-    return ownWindow.isOwnWindow();
-  }
-
-  function openInOwnWindow() {
-    // Measured, not guessed: the window arrives at the size the interface
-    // says it needs rather than arriving wrong and correcting itself.
-    if (!ownWindow.open(N4DU.windowSize.measure())) {
-      toast('Your browser blocked the window — allow pop-ups for this page', 'err');
-      return;
-    }
-    hideWindowNotice();
-  }
-
-  // What happened before the page was painted.
-  //
-  // Shown over everything, on arrival, and only when the browser refused to
-  // open the window by itself. One button, because there is only one thing
-  // worth doing: opening a window from a click is something every browser
-  // allows, so nothing has to be permitted in advance.
-  //
-  // The way out is a small x rather than a second button. A notice with a
-  // "Later" next to its "Yes" gets dismissed by reflex, and this one only
-  // appears when there is something real to gain by reading it.
-  function showWindowNotice() {
-    const box = document.getElementById('windowModal');
-    if (!box) return;
-    if (inOwnWindow() || bridge.active) return;   // this IS the window
-
-    const { tried, opened, reason } = ownWindow.outcome;
-
-    // It went out into its own window but this page could neither go back
-    // nor close. Nothing to decide, so nothing to interrupt anybody with —
-    // the title bar's own Window button brings it back to the front.
-    if (opened) return;
-    if (!(tried && reason === 'blocked')) return;
-
-    const local = location.protocol === 'file:';
-    document.getElementById('windowModalBody').innerHTML =
-      'N4DU Studio is made for a <b>small window of its own</b>, and this '
-      + 'browser does not let a page open one without being asked.';
-    document.getElementById('windowModalFine').innerHTML = local
-      ? 'Opening <b>main.pyw</b> instead skips this every time.'
-      : 'To skip this step in future, allow pop-ups for this page.';
-
-    const go = document.getElementById('windowModalGo');
-    const shut = () => { box.hidden = true; N4DU.windowSize.fit(); };
-
-    go.addEventListener('click', () => { openInOwnWindow(); shut(); });
-    document.getElementById('windowModalClose').addEventListener('click', shut);
-    // Escape closes it; clicking the dimmed background does not. Missing a
-    // notice by clicking slightly off target is exactly the accident this
-    // is trying to avoid.
-    document.addEventListener('keydown', e => {
-      if (e.key === 'Escape' && !box.hidden) shut();
-    });
-
-    box.hidden = false;
-    go.focus();
-  }
-
-  function hideWindowNotice() {
-    const box = document.getElementById('windowModal');
-    if (box) box.hidden = true;
-  }
-
-  // ── Help ──────────────────────────────────────────────────────────
-  function initHelp() {
-    const modal = document.getElementById('helpModal');
-    // Never on top of another dialog. Stacked sheets looked broken, and since
-    // each dialog listens for Escape on its own, one press shut both of them.
-    // Refusing to stack is the fix; the Escape handlers then cannot collide.
-    const show = () => {
-      const busy = ['replaceModal', 'settingsModal'].some(id => {
-        const m = document.getElementById(id);
-        return m && !m.hidden;
-      });
-      if (!busy) modal.hidden = false;
-    };
-    const hide = () => { modal.hidden = true; };
-    document.getElementById('btnHelp').addEventListener('click', show);
-    document.getElementById('btnHelpClose').addEventListener('click', hide);
-    modal.addEventListener('click', e => { if (e.target === modal) hide(); });
-    window.addEventListener('keydown', e => {
-      if (e.key === 'Escape' && !modal.hidden) hide();
-      // "?" opens help from anywhere outside a text field.
-      if (e.key === '?' && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) show();
-    });
-  }
+  // ── A window of its own, and the sheet that explains it ───────────
+  const { inOwnWindow, openInOwnWindow, showWindowNotice } = N4DU.launchNotice;
+  const { initHelp } = N4DU.help;
 
   initDropzone(onFiles, chooseFile);
   initEditorCanvas(refresh);
@@ -602,8 +478,11 @@
     if (!token || !bridge.active) return;
     const picked = await bridge.adopt(token);
     if (picked) {
-      await batch.add([picked.file], { token: picked.token, path: picked.path });
-      offerFolder();
+      const { added } = await addFromDisk([picked]);
+      // Right-clicking a file whose bytes are damaged opened the program on
+      // an empty list with nothing said. addFromDisk reports the failure;
+      // the folder offer is only worth making when something did arrive.
+      if (added) offerFolder();
     } else {
       toast('That file could not be opened — it may have been moved.', 'err');
     }
@@ -623,10 +502,10 @@
 
   bridge.setOnPending(async (metas) => {
     const picked = await bridge.collect(metas);
-    for (const one of picked) {
-      await batch.add([one.file], { token: one.token, path: one.path });
+    const { added, failed } = await addFromDisk(picked);
+    if (added && !failed.length) {
+      toast(`Added ${added} file${added > 1 ? 's' : ''} from your file explorer`, 'ok');
     }
-    if (picked.length) toast(`Added ${picked.length} file${picked.length > 1 ? 's' : ''} from your file explorer`, 'ok');
     offerFolder();
   });
 
@@ -650,6 +529,10 @@
 
   bridge.init()
     .then(openStartupFile)
+    // The tab that pressed Window is waiting to hand its work across, and
+    // closing itself as soon as it has. Taken here, after the bridge has
+    // had its say, because a window opened by a tab never has one.
+    .then(() => N4DU.handover.claim({ onEdit: editItem }))
     .catch(() => {})
     .finally(() => { syncButtons(); N4DU.batchUI.syncBatch(); });
   syncButtons();

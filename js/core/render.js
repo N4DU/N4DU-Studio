@@ -11,23 +11,31 @@
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
 
-    if (sw <= dw * 2 || sh <= dh * 2) {
+    // Each axis is judged on its own. The check used to be "either axis is
+    // not a big reduction", so a 2000×2000 picture going to 100×2000 — an
+    // editor thing, with the aspect lock off — took the single-drawImage
+    // path and aliased the 20× horizontal squeeze, because the vertical
+    // one was not a reduction at all. And halving both axes together would
+    // have been worse: the height would have undershot 2000 on the first
+    // step and had to be scaled back up.
+    const stepW = () => w > dw * 2;
+    const stepH = () => h > dh * 2;
+    let w = sw, h = sh;
+    if (!stepW() && !stepH()) {
       ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
       return;
     }
 
-    let tmp = new OffscreenCanvas(Math.ceil(sw / 2), Math.ceil(sh / 2));
-    let tctx = tmp.getContext('2d');
-    tctx.imageSmoothingQuality = 'high';
-    tctx.drawImage(img, sx, sy, sw, sh, 0, 0, tmp.width, tmp.height);
-    let w = tmp.width, h = tmp.height;
-
-    while (w > dw * 2 && h > dh * 2) {
-      const nw = Math.ceil(w / 2), nh = Math.ceil(h / 2);
+    let tmp = null;
+    while (stepW() || stepH()) {
+      const nw = stepW() ? Math.ceil(w / 2) : w;
+      const nh = stepH() ? Math.ceil(h / 2) : h;
       const next = new OffscreenCanvas(nw, nh);
       const nctx = next.getContext('2d');
+      nctx.imageSmoothingEnabled = true;
       nctx.imageSmoothingQuality = 'high';
-      nctx.drawImage(tmp, 0, 0, w, h, 0, 0, nw, nh);
+      if (tmp) nctx.drawImage(tmp, 0, 0, w, h, 0, 0, nw, nh);
+      else nctx.drawImage(img, sx, sy, sw, sh, 0, 0, nw, nh);
       tmp = next; w = nw; h = nh;
     }
 
