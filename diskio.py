@@ -152,6 +152,28 @@ def target_path(original, ext, new_stem=None):
     return target
 
 
+def _temp_name(final_name):
+    """The hidden name the bytes are written under before being moved into
+    place. It only has to be unique, hidden, and in the same folder — the
+    stem is carried along purely so a temp file left by a killed process is
+    recognisable rather than cryptic.
+
+    Which is why it gets trimmed. A file already ON DISK can have a name
+    filling the whole 255-byte limit; adding a leading dot, eight hex
+    characters and ".tmp" to it does not fit, and replacing such a file
+    failed with a bare "File name too long" before a single byte was
+    written. The name is not sanitised here — this is a name that already
+    exists, so the filesystem has already accepted it.
+    """
+    stem = os.path.splitext(final_name)[0]
+    suffix = f".{secrets.token_hex(4)}.tmp"       # 14 bytes, all ASCII
+    room = 255 - len(suffix.encode("utf-8")) - 1  # and the leading dot
+    encoded = stem.encode("utf-8", "ignore")
+    if len(encoded) > room:
+        stem = encoded[:room].decode("utf-8", "ignore")
+    return f".{stem}{suffix}"
+
+
 def replace_file(original, data, ext, new_stem=None, overwrite=False):
     """Writes the bytes into the original's folder under the new extension
     (and name, when given), atomically, then deletes the previous file if the
@@ -197,8 +219,7 @@ def replace_file(original, data, ext, new_stem=None, overwrite=False):
         raise FileExistsError(os.path.basename(target))
 
     folder = os.path.dirname(original)
-    stem = os.path.splitext(os.path.basename(target))[0]
-    tmp = os.path.join(folder, f".{stem}.{secrets.token_hex(4)}.tmp")
+    tmp = os.path.join(folder, _temp_name(os.path.basename(target)))
     try:
         with open(tmp, "wb") as fh:
             fh.write(data)
