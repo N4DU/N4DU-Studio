@@ -123,17 +123,32 @@
       return;
     }
 
-    // Do not leave a corpse behind. If there is somewhere to go back to —
-    // the page whose link you followed — go there, and the whole thing reads
-    // as the link having opened an application. If there is nothing behind
-    // us (the file was opened directly), stay put and say what happened;
-    // main.js paints that once the DOM exists.
+    stepAside();
+  }
+
+  // Getting out of the way once the real window is up.
+  //
+  // Two different situations, and the browser allows a different thing in
+  // each — measured, not assumed:
+  //
+  //   * Opened from a link, so there is a page behind us: history.back()
+  //     returns you to it and the whole thing reads as the link having
+  //     launched an application. window.close() is REFUSED here; a page with
+  //     history behind it is not script-closable.
+  //
+  //   * Opened directly — a double-clicked file, one entry in the history —
+  //     there is nowhere to go back to, but close() is allowed, and the tab
+  //     simply disappears.
+  function stepAside() {
     if (history.length > 1) {
       outcome.reason = 'went back';
-      setTimeout(() => { try { history.back(); } catch { /* stay */ } }, 120);
-    } else {
-      outcome.reason = 'nowhere to go back to';
+      setTimeout(() => { try { history.back(); } catch { /* stay */ } }, 150);
+      return;
     }
+    outcome.reason = 'closing this tab';
+    setTimeout(() => {
+      try { window.close(); } catch { /* refused: main.js says so instead */ }
+    }, 150);
   }
 
   // Opens the window. The features are a REQUEST — measured to be ignored
@@ -169,10 +184,16 @@
   N4DU.ownWindow = {
     NAME, outcome, remember, isOwnWindow,
     stopAsking() { try { localStorage.setItem(OPT_OUT, '1'); } catch { /* ignore */ } },
-    // The button path: no "should we?" checks, because you asked for it.
-    // `want` is in INNER pixels, which is what the interface measures; the
-    // few pixels of frame are made up by the window resizing itself.
-    open(want) { return !!spawn(want || readStored()); },
+    // The button path: no "should we?" checks, because you asked for it, and
+    // a click is a user gesture — which is the whole reason this route needs
+    // no permission from anybody. `want` is in INNER pixels, which is what
+    // the interface measures; the few pixels of frame are made up by the
+    // window resizing itself.
+    open(want) {
+      const win = spawn(want || readStored());
+      if (win) stepAside();
+      return !!win;
+    },
   };
 
   popOut();
