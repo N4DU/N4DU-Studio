@@ -1,0 +1,272 @@
+/* N4DU Studio — sizes and shapes.
+   The compact window the launcher opens, and what the layout does when the
+   window is too short or too narrow for the arrangement it would prefer.
+   Loaded last, on purpose: these rules exist to override the ones above. */
+
+/* ── THE COMPACT WINDOW ──
+   Half the area of the old one, and not by scaling everything down: the
+   previews stay big enough to recognise and the buttons big enough to hit.
+   What shrinks is the padding, the label column and the wasted width. */
+@media (max-width: 560px) {
+  :root { --gap: 11px; --pad: 10px; }
+  .convert { gap: 10px; padding: 11px; }
+  .conv-row { grid-template-columns: 58px 1fr; gap: 7px; }
+  .conv-pair { grid-template-columns: 58px 1fr; }
+  .conv-pair .conv-label.second { text-align: left; }
+  .conv-label { font-size: .7rem; }
+  .conv-fields { gap: 5px; }
+  .conv-fields input[type=number] { width: 62px; padding: 4px 6px; font-size: .75rem; }
+  .conv-fields select { padding: 4px 5px; font-size: .75rem; }
+  .conv-fields .unit, .conv-note { font-size: .66rem; }
+  .conv-title { font-size: .66rem; letter-spacing: .07em; }
+  .conv-sub { font-size: .66rem; }
+  .btn-ghost.tiny { padding: 2px 7px; font-size: .65rem; }
+  /* Eight formats have to fit on one line at 452px. They needed 368px of a
+     365px row, so TIFF fell to a second row on its own and cost a whole
+     line of window height for one word. */
+  .pill { font-size: .67rem; padding: 3px 7px; }
+  .pills.tight { gap: 3px; }
+  /* Tiles: narrower, but the picture inside keeps its height. */
+  .file-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+  .file-tile { padding: 6px 4px 5px; gap: 3px; }
+  .file-thumb { height: 56px; }
+  .file-tile-name { font-size: .62rem; }
+  .file-tile-meta { font-size: .58rem; }
+  .conv-estimate { font-size: .71rem; }
+  .conv-actions { padding-top: 9px; gap: 8px; }
+  /* Buttons keep a real hit area — this is what must not shrink. */
+  .conv-buttons .btn-accent, .conv-buttons .btn-primary { padding: 8px 11px; font-size: .74rem; }
+  .conv-buttons .bi { width: 13px; height: 13px; }
+  .check.inline { font-size: .66rem; }
+  /* The drop zone, tightened. In a short window its three lines were
+     crushed together and overlapping — the text was the first thing to look
+     broken. Less padding, less leading, smaller sub-lines: the same words,
+     with room to breathe. */
+  .conv-drop { padding: 12px 10px; gap: 2px; }
+  .drop-label { font-size: .82rem; margin-top: 4px; }
+  .drop-sub { font-size: .69rem; line-height: 1.35; }
+  .drop-sub.dim { font-size: .64rem; line-height: 1.3; }
+  .drop-icon.small { width: 22px; height: 22px; }
+  .titlebar { gap: 8px; padding: 0 8px; }
+  .brand span { font-size: .84rem; }
+  .status-hint { font-size: .62rem; }
+}
+
+/* A window of its own already says "N4DU Studio" in its own title bar, so
+   the wordmark here is the same name twice, one line below the other. The
+   mark stays — it is the icon, not the name — and the row it sat in gets
+   thinner, which is height the drop zone badly wants back. */
+body.app-window .brand span { display: none; }
+body.app-window .titlebar { padding: 0 10px; }
+
+/* The converter in a window of its own: no bar of our own at all.
+   The operating system draws one directly above, so ours was a second grey
+   strip saying the same thing. Help, Settings and Editor move into the Files
+   row (js/main.js: placeChrome), which already had space to the right, and
+   the status bar goes with it — at rest it only ever said "Ready".
+   The editor keeps both: its bar carries Undo, Open, Copy, Replace and
+   Download, and its status line carries the picture's dimensions. */
+body.app-window.mode-convert .titlebar,
+body.app-window.mode-convert .statusbar { display: none; }
+body.app-window.mode-convert .app { grid-template-rows: 1fr; }
+body.app-window.mode-edit .app { grid-template-rows: 40px 1fr 22px; }
+
+/* The three that came down from the bar sit at the end of the Files row,
+   sized to belong beside Add files and Clear rather than tower over them. */
+/* One box, so the row breaks before the three rather than through them. */
+.head-chrome {
+  display: flex; align-items: center; gap: 6px;
+  margin-left: auto; flex-shrink: 0;
+}
+.head-chrome[hidden] { display: none; }
+body.app-window.mode-convert .conv-head .icon-btn {
+  width: 24px; height: 24px; border-color: var(--border2);
+}
+body.app-window.mode-convert .conv-head .icon-btn svg { width: 14px; height: 14px; }
+body.app-window.mode-convert .conv-head .mode-btn {
+  padding: 3px 9px; font-size: .68rem;
+}
+body.app-window.mode-convert .conv-head .mode-btn .bi { width: 12px; height: 12px; }
+
+/* All that reclaimed height goes to one place: the box you drop files on,
+   which was the only part of the window looking squashed. */
+/* Only where there is room for it. flex: 1 1 auto already hands the drop
+   zone every pixel the settings rows do not want, so this floor never did
+   anything at the normal window height — but below about 432px it stopped
+   the box shrinking at all, and it overran its panel and painted itself
+   over the Format / Size / Weight rows. Up to 101px of overlap, and a click
+   anywhere in that band opened the file picker instead of the control that
+   was visibly underneath the pointer. */
+@media (min-height: 440px) {
+  body.app-window.mode-convert .conv-drop { min-height: 226px; }
+}
+body.app-window.mode-convert .conv-drop .drop-label { font-size: .88rem; }
+body.app-window.mode-convert .conv-drop .drop-sub { font-size: .72rem; }
+body.app-window.mode-convert .conv-drop .drop-icon.small { width: 26px; height: 26px; }
+body.app-window.mode-convert .conv-drop { gap: 4px; }
+.conv-label { font-size: .74rem; color: var(--muted); }
+.conv-fields { display: flex; align-items: center; gap: 7px; }
+.conv-fields input[type=number] {
+  background: var(--bg); border: 1px solid var(--border2);
+  border-radius: 7px; color: var(--text); font-family: var(--fb);
+  font-size: .8rem; padding: 5px 8px; width: 86px;
+}
+.conv-fields input[type=number]:focus,
+.conv-fields select:focus { outline: none; border-color: var(--accent); }
+.conv-fields select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.conv-fields input[type=range] { flex: 1; max-width: 220px; }
+.conv-fields select {
+  background: var(--bg); border: 1px solid var(--border2);
+  border-radius: 7px; color: var(--text); font-family: var(--fb);
+  font-size: .8rem; padding: 5px 7px;
+}
+.conv-fields .unit, .conv-note { font-size: .72rem; color: var(--faint); }
+.pills.tight { display: flex; flex-wrap: wrap; gap: 5px; }
+
+/* A format this browser cannot write stays visible and says so. Hiding it
+   would leave you wondering where AVIF went. */
+.pill.unsupported {
+  border-style: dashed;
+  color: var(--faint);
+  text-decoration: line-through;
+}
+.pill.unsupported.active {
+  background: rgba(255,95,95,.12);
+  border-color: var(--danger);
+  color: var(--danger);
+  text-decoration: none;
+}
+.warn-line {
+  font-size: .72rem;
+  color: var(--danger);
+  background: rgba(255,95,95,.07);
+  border: 1px solid rgba(255,95,95,.3);
+  border-radius: 7px;
+  padding: 7px 9px;
+  line-height: 1.5;
+}
+.warn-line[hidden] { display: none; }
+
+.conv-actions {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  gap: 11px;
+}
+.conv-estimate {
+  font-size: .78rem;
+  color: var(--muted);
+  font-family: var(--fh);
+  min-height: 1.1em;
+}
+.conv-estimate.warn { color: var(--danger); }
+.conv-progress { display: flex; align-items: center; gap: 10px; }
+.conv-progress[hidden] { display: none; }
+.conv-progress-bar {
+  flex: 1; height: 5px; border-radius: 3px;
+  background: var(--surface2); overflow: hidden;
+}
+.conv-progress-bar span {
+  display: block; height: 100%; width: 0;
+  background: var(--accent); transition: width .18s;
+}
+.conv-progress-text { font-size: .7rem; color: var(--muted); white-space: nowrap; }
+/* Wraps for the same reason the Files row does: below about 430px wide the
+   two buttons plus the Separate box no longer fit on one line, and Convert
+   ran off the right edge. A second line beats an unreachable button. */
+.conv-buttons { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.conv-buttons .btn-accent, .conv-buttons .btn-primary { padding: 8px 14px; }
+.check.inline { flex: 1; font-size: .72rem; }
+
+/* The mode button: present, findable, and deliberately quiet — the editor
+   is the second thing this app does, not the first. */
+.mode-btn {
+  display: flex; align-items: center; gap: 6px;
+  background: transparent;
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  color: var(--muted);
+  font-family: var(--fb);
+  font-size: .74rem;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.mode-btn:hover { color: var(--accent); border-color: var(--accent); }
+.mode-btn .bi { width: 13px; height: 13px; }
+
+/* ── SHORT AND NARROW WINDOWS ──
+   The panels must never scroll, so spacing and control sizes shrink
+   instead. */
+@media (max-height: 780px) {
+  :root { --gap: 12px; --pad: 11px; }
+  .tool { padding: 6px 2px 5px; font-size: .67rem; }
+  .tool svg { width: 17px; height: 17px; }
+  .preview-frame { width: 62px; height: 62px; }
+  .drop-steps { margin-top: 12px; gap: 4px; }
+  .dropzone { padding: 24px 32px; }
+}
+@media (max-height: 660px) {
+  :root { --gap: 8px; --pad: 9px; }
+  .section { gap: 6px; }
+  .section-title { font-size: .61rem; letter-spacing: .1em; }
+  .tool span { display: none; }          /* icons only when very short */
+  .tool { padding: 7px 2px; }
+  .tool-grid { grid-template-columns: repeat(4, 1fr); }
+  .drop-steps { display: none; }
+  .status-hint { display: none; }
+}
+@media (max-width: 1180px) {
+  .workspace { grid-template-columns: 180px 1fr 220px; }
+  .title-file { display: none; }
+}
+
+/* The editor in a narrow window.
+   Three fixed-ish columns need about 830px. Below that the right-hand panel
+   and the title bar's Copy / Replace / Download simply sat off the edge of
+   the screen — and since html,body are overflow:hidden there was no scrollbar
+   to reach them. The editor became a dead end: no way to export, no way to
+   change anything, only the Converter button to escape by.
+
+   This is a real place to be. The desktop window is 452px wide in the
+   converter, and once the window has been resized by hand window-size.js
+   stops growing it, so pressing Editor lands you here. The web page in a
+   narrow window lands here too.
+
+   One column, and the page is allowed to scroll — a scrollbar is a far
+   smaller price than an unreachable Download button. */
+@media (max-width: 900px) {
+  /* The title-bar row is a fixed 48px in the main grid. Once the bar is
+     allowed to wrap it grows taller than that, and the workspace was drawn
+     straight over the top of it — the buttons were visible but unclickable. */
+  /* The app-window rule further down is more specific, so it has to be
+     named here too or it pins the row back to a fixed height and the
+     workspace covers the wrapped bar again. */
+  body.mode-edit .app,
+  body.app-window.mode-edit .app { grid-template-rows: auto 1fr 24px; }
+  body.mode-edit .workspace {
+    grid-template-columns: 1fr;
+    grid-auto-rows: max-content;
+    overflow-y: auto;
+  }
+  body.mode-edit .panel { overflow: visible; }
+  body.mode-edit .panel-left, body.mode-edit .panel-right { border: 0; }
+  /* The stage still wants to be the biggest thing on the page. */
+  body.mode-edit .stage { min-height: 46vh; }
+  /* The title bar wraps rather than pushing its buttons off the edge. */
+  body.mode-edit .titlebar { flex-wrap: wrap; height: auto; padding: 6px 8px; }
+  /* The button group is one flex item, so letting the BAR wrap only moved the
+     whole group down a line — still 690px wide in a 452px window. It has to
+     take the full width and wrap its own children. */
+  body.mode-edit .title-actions {
+    flex-wrap: wrap;
+    width: 100%;
+    flex-shrink: 1;
+    justify-content: flex-start;
+  }
+  body.mode-edit .title-actions .sep { display: none; }
+  /* Tools read better as a row when they are not in a narrow column. */
+  body.mode-edit .tool-grid { display: flex; flex-wrap: wrap; }
+  /* One column puts the instruction hundreds of pixels down the page, so the
+     top of the window is clear again — and 104px would land on the tools. */
+  body.mode-edit .toast { top: 60px; }
+}

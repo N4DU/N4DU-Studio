@@ -1,0 +1,310 @@
+/* N4DU Studio — the converter, which is what the program opens in.
+   A list of files, three settings, two buttons — plus the notice that offers
+   to move the whole thing into a window of its own. */
+
+/* ── THE CONVERTER ──
+   The view the app opens in: a batch of files, three settings, two
+   buttons. Sized like a tool, not like a web page — on a wide screen the
+   whole thing stays a narrow column instead of stretching out. */
+/* The converter fills its window — capping the width inside a window that
+   is already the right size left black bars down both sides.
+   (The window sizes itself to the batch: js/ui/window-size.js.) */
+body.mode-convert .app { max-width: none; }
+
+/* ── THE SAME TOOL, WHATEVER IT IS IN ──
+   A browser tab cannot be resized by the page, so there is no point drawing
+   a small window inside a big one: it just looks like something failed to
+   load. The tool fills whatever it is given — a tab, or the compact window
+   the launcher opens — and only the file grid changes shape. */
+body.mode-convert .app { max-width: none; }
+
+/* On a wide screen the settings would stretch to absurd line lengths, so
+   they stay a readable column while the file list uses the whole width. */
+.conv-settings { max-width: 760px; width: 100%; }
+
+/* What the web version cannot do, said where it costs nothing. */
+.status-sell {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  white-space: nowrap;
+}
+.status-sell:hover { border-bottom-color: var(--accent); }
+.status-sell[hidden] { display: none; }
+
+body.mode-convert .workspace,
+body.mode-convert .edit-only { display: none !important; }
+/* The converter has a list, not one open file, so the editor's filename
+   slot has nothing to say here. */
+body.mode-convert .title-file { display: none; }
+/* With the filename slot hidden there is nothing left to fill the middle of
+   the bar, so the three buttons drift in towards the centre. Push the whole
+   group into the right-hand corner, kept together — that is where a title
+   bar's controls belong. */
+body.mode-convert .title-actions { margin-left: auto; }
+body.mode-edit .convert,
+body.mode-edit .convert-only { display: none !important; }
+
+.convert {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: var(--gap);
+  min-height: 0;
+  overflow: hidden;
+}
+.conv-block {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+/* ── THE LAUNCH NOTICE ──
+   Over everything, on arrival, when the browser refused to open the window
+   by itself. It has one job and one button: pressing it is the fix, and
+   opening a window from a click is something every browser allows.
+
+   The shape is deliberate. It reads as a thing to act on rather than a thing
+   to dismiss: the illustration says what will happen, the button is the only
+   coloured surface in the card, and the way out is a small × in the corner
+   rather than a second button competing for the same reflex. */
+.modal-launch {
+  position: relative;
+  width: min(390px, 92vw);
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 26px 26px 22px;
+  border-color: rgba(232,255,71,.28);
+  box-shadow: 0 24px 80px rgba(0,0,0,.7), 0 0 0 1px rgba(232,255,71,.06) inset;
+}
+.launch-x {
+  position: absolute; top: 8px; right: 10px;
+  background: none; border: 0; color: var(--muted);
+  font-size: 1.15rem; line-height: 1; cursor: pointer;
+  padding: 4px 7px; border-radius: 6px;
+}
+.launch-x:hover { color: var(--text); background: var(--surface2); }
+.launch-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* A big window with a small one inside it: the whole message, before a word
+   of it is read. */
+.launch-icon svg {
+  width: 58px; height: 41px;
+  fill: none; stroke: var(--border2); stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+.launch-icon .fill {
+  fill: rgba(232,255,71,.14);
+  stroke: var(--accent); stroke-width: 1.8;
+}
+.modal-launch .modal-title { font-size: 1.02rem; }
+.launch-body {
+  color: var(--muted); font-size: .84rem; line-height: 1.5;
+  max-width: 30ch;
+}
+.launch-body b { color: var(--text); font-weight: 600; }
+.launch-go {
+  width: 100%;
+  padding: 11px 18px;
+  font-size: .88rem;
+  justify-content: center;
+}
+.launch-fine {
+  color: var(--faint); font-size: .72rem; line-height: 1.45;
+  max-width: 34ch;
+}
+.launch-fine b { color: var(--muted); font-weight: 600; }
+/* A column of its own, so the drop zone can give ground when the window is
+   short. As a plain block it kept its full height and spilled straight over
+   the settings underneath — at 452x400 the dashed box ran 45px into the
+   format row. */
+.conv-files {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.conv-files .file-grid { min-height: 0; }
+/* Nothing loaded, so there is nothing for the estimate line to estimate.
+   "Add some files to begin." only held the download buttons a whole line
+   away from the settings, and in a small window that line is worth more to
+   the drop zone. Only in the launcher's window: the page in a browser tab
+   has height to spare and is left exactly as it was. */
+body.app-window.no-files .conv-estimate { display: none; }
+
+.conv-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  /* Allowed to take a second line. This row holds a variable number of
+     things — the folder offer only turns up when the file came from disk,
+     and in the launcher's window Help, Settings and Editor live here too.
+     Without this it stayed one line whatever happened: at 452px wide the
+     Editor button ran to x=490, off the edge of the window, and the summary
+     was crushed into a column 79px tall reading one word per line. */
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.conv-title {
+  font-family: var(--fh);
+  font-size: .74rem;
+  font-weight: 700;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+/* One line, shortened with an ellipsis when there is not room for it all.
+   min-width:0 is the part that matters: without it a flex item refuses to
+   shrink below its longest word, which is what turned "94 KB total, 1 on
+   disk" into a narrow vertical stack. */
+.conv-sub {
+  font-size: .72rem; color: var(--muted); flex: 1 1 auto;
+  min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.btn-ghost.tiny { padding: 3px 9px; font-size: .7rem; }
+/* The folder offer: present enough to notice the moment one file arrives
+   from the file explorer, without shouting. */
+.btn-ghost.tiny.accent { border-color: var(--accent); color: var(--accent); }
+.btn-ghost.tiny.accent:hover { background: rgba(232,255,71,.1); }
+.btn-ghost.tiny[hidden] { display: none; }
+
+/* The file list is the one thing here allowed to scroll: fifty files have
+   to go somewhere, and shrinking them further would make the previews
+   useless. */
+.file-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  /* Rows keep their natural height and the list scrolls. Without this the
+     rows share whatever height is available, and twenty files squash the
+     previews down to a few pixels each. */
+  grid-auto-rows: max-content;
+  gap: 8px;
+  align-content: start;
+}
+.file-grid:empty { display: none; }
+
+.file-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 6px 7px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  cursor: pointer;
+  font-family: var(--fb);
+  color: var(--text);
+  transition: border-color .12s, background .12s;
+  overflow: hidden;
+}
+.file-tile:hover { border-color: var(--border2); background: var(--surface2); }
+.file-tile.selected { border-color: var(--accent); background: rgba(232,255,71,.06); }
+.file-thumb {
+  width: 100%;
+  height: 68px;
+  object-fit: contain;
+  background:
+    conic-gradient(var(--check-b) 25%, var(--check-a) 0 50%,
+                   var(--check-b) 0 75%, var(--check-a) 0) 0 0/12px 12px;
+  border-radius: 5px;
+}
+.file-tile-name {
+  font-size: .68rem;
+  width: 100%;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-tile-meta { font-size: .63rem; color: var(--muted); }
+.file-tile.st-done  { border-color: rgba(95,255,170,.4); }
+.file-tile.st-done .file-tile-meta { color: var(--success); }
+.file-tile.st-error { border-color: rgba(255,95,95,.5); }
+.file-tile.st-error .file-tile-meta { color: var(--danger); }
+.file-tile.st-working { opacity: .65; }
+
+/* A dot means "this one came from your disk", so it is obvious before you
+   press Replace which files can actually be overwritten. */
+.file-tile-disk {
+  position: absolute; top: 5px; left: 6px;
+  font-size: .5rem; color: var(--accent);
+  line-height: 1;
+}
+/* Was --faint on --surface: 2:1 contrast, invisible until hovered. With
+   forty files loaded the only control anybody could find was Clear, which
+   removes all of them. */
+.file-tile-x {
+  position: absolute; top: 2px; right: 3px;
+  font-size: .9rem; color: var(--muted);
+  line-height: 1; padding: 2px 4px;
+  background: none; border: 0; border-radius: 5px; cursor: pointer;
+}
+.file-tile-x:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px; color: var(--danger);
+}
+.file-tile-x:hover { color: var(--danger); }
+
+.conv-drop {
+  border: 1.5px dashed var(--border2);
+  border-radius: 11px;
+  padding: 22px 16px;
+  text-align: center;
+  cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  transition: border-color .15s, background .15s;
+  /* Shrinks to whatever room is left rather than overflowing the panel.
+     The heading stays readable because the sub-lines go first. */
+  flex: 1 1 auto;
+  min-height: 0;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* On a full browser tab the drop zone had the whole page to itself and grew
+   into an enormous stretched rectangle — very wide, very tall, holding two
+   lines of text. It still takes the room going spare, but it stays SQUARE
+   while doing it: the height drives, the width follows, and it sits in the
+   middle of the panel.
+
+   Only in a browser tab. The window the launcher opens is small and wide,
+   and a square there would be a narrow box floating in a wide panel — and
+   it is gated above the compact width for the same reason. */
+@media (min-width: 561px) {
+  body:not(.app-window) .conv-drop {
+    aspect-ratio: 1 / 1;
+    width: auto;
+    max-width: 100%;
+    margin: 0 auto;
+  }
+}
+.conv-drop:hover, .conv-drop.over { border-color: var(--accent); background: rgba(232,255,71,.04); }
+.conv-drop[hidden] { display: none; }
+.drop-icon.small { width: 30px; height: 30px; }
+.drop-sub.dim { color: var(--faint); font-size: .68rem; }
+
+/* Settings: one row per decision, labels in a fixed column so the eye
+   runs straight down the values. */
+.conv-row {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+/* Size and weight side by side. Below 560px they stack, because two of
+   these do not fit across a narrow window without squeezing the fields to
+   the point of being unusable. */
+.conv-pair {
+  /* Everything hugs the left: a stretching first column pushed "Max" to
+     the far side of a wide window, miles from the field it labels. */
+  grid-template-columns: 76px auto auto auto;
+  justify-content: start;
+  column-gap: 14px;
+}
+.conv-label.second { text-align: right; }
+
