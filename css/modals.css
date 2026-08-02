@@ -1,0 +1,310 @@
+/* N4DU Studio — dialogs, the toast, and the settings sheet.
+   Everything that arrives on top of the interface rather than inside it. */
+
+/* ── MODALS ── */
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.6);
+  backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 500;
+  padding: 20px;
+}
+.modal-backdrop[hidden] { display: none; }
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 14px;
+  padding: 20px 24px;
+  width: min(460px, 92vw);
+  display: flex; flex-direction: column; gap: 14px;
+  box-shadow: 0 24px 80px rgba(0,0,0,.6);
+  max-height: 92vh;
+  overflow-y: auto;
+}
+.modal-wide { width: min(560px, 94vw); }
+.modal-title {
+  font-family: var(--fh);
+  font-size: 1rem;
+  font-weight: 700;
+  text-align: center;
+}
+/* Pinned to the bottom of the scrolling modal. At the desktop window's own
+   size the Replace and Cancel buttons were sliced through the middle of
+   their labels at the window edge, and Settings' Done button sat 400px
+   below the fold along with the sentence explaining why its two switches
+   were greyed out. */
+.modal-actions {
+  display: flex; justify-content: flex-end; gap: 8px;
+  margin-top: 2px;
+  position: sticky;
+  bottom: -20px;                 /* cancels the modal's own bottom padding */
+  padding: 10px 0 12px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  z-index: 1;
+}
+.modal-actions .btn-accent, .modal-actions .btn-ghost { padding: 8px 18px; }
+
+/* Help contents */
+.help-list {
+  display: flex; flex-direction: column; gap: 11px;
+  padding-left: 20px;
+  font-size: .82rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.help-list b { color: var(--text); }
+.help-list em { color: var(--accent); font-style: normal; }
+.help-list::marker { color: var(--accent); }
+.help-note {
+  font-size: .75rem;
+  color: var(--faint);
+  text-align: center;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+/* Swap row: old file → new file */
+.swap-row {
+  display: flex; align-items: center; justify-content: center;
+  gap: 16px;
+}
+.swap-arrow {
+  font-size: 1.6rem;
+  color: var(--accent);
+  font-family: var(--fh);
+  flex-shrink: 0;
+}
+
+.file-card {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 8px; width: 145px;
+}
+
+/* Windows-style file sheet: paper with a folded corner and the image
+   thumbnail inside. */
+.file-doc {
+  position: relative;
+  width: 88px; height: 106px;
+  background: #ececec;
+  border-radius: 3px 14px 3px 3px;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 3px 12px rgba(0,0,0,.45);
+}
+.file-doc::before {           /* folded corner */
+  content: '';
+  position: absolute; top: 0; right: 0;
+  width: 0; height: 0;
+  border-style: solid;
+  border-width: 0 14px 14px 0;
+  border-color: transparent var(--surface) #c9c9c9 transparent;
+}
+.file-doc canvas {
+  max-width: 70px; max-height: 84px;
+  display: block;
+  border-radius: 2px;
+}
+.file-doc.empty {
+  background: transparent;
+  border: 2px dashed var(--border2);
+  box-shadow: none;
+}
+.file-doc.empty::before { display: none; }
+.file-doc.empty canvas { display: none; }
+.file-doc-empty {
+  display: none;
+  color: var(--faint);
+  font-size: 1.6rem;
+  font-family: var(--fh);
+}
+.file-doc.empty .file-doc-empty { display: block; }
+
+.file-name {
+  font-size: .71rem;
+  color: var(--muted);
+  text-align: center;
+  word-break: break-all;
+  max-width: 145px;
+  line-height: 1.4;
+}
+
+/* Browser-only notice inside the replace dialog */
+.locked-note {
+  background: rgba(255,95,95,.07);
+  border: 1px solid rgba(255,95,95,.35);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: .74rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.locked-note strong { color: var(--danger); }
+.locked-note code {
+  font-family: var(--fh);
+  color: var(--text);
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.locked-note[hidden] { display: none; }
+
+/* Browser-only mode: still prominent (this is a headline feature), but the
+   dashed edge marks it as needing the desktop launcher. Greying it out made
+   it read as unimportant. */
+.btn-swap.locked {
+  border-style: dashed;
+  background: rgba(232,255,71,.05);
+}
+.btn-swap.locked:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(232,255,71,.14);
+}
+
+/* Editable name for the new file */
+.file-rename {
+  display: flex; align-items: center;
+  width: 100%;
+}
+.file-rename input {
+  flex: 1; min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: 6px 0 0 6px;
+  border-right: none;
+  color: var(--text);
+  font-family: var(--fb);
+  font-size: .77rem;
+  padding: 5px 8px;
+}
+.file-rename input:focus { outline: none; border-color: var(--accent); }
+.file-rename input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.file-rename input:disabled { opacity: .6; }
+.file-rename .file-ext {
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 0 6px 6px 0;
+  color: var(--accent);
+  font-family: var(--fh);
+  font-size: .77rem;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+
+/* ── TOAST ── */
+.toast {
+  position: fixed; bottom: 38px; left: 50%;
+  transform: translateX(-50%) translateY(16px);
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: 8px; padding: 9px 18px; font-size: .82rem;
+  opacity: 0; transition: opacity .2s, transform .2s;
+  pointer-events: none; white-space: nowrap; z-index: 999;
+  max-width: 90vw; overflow: hidden; text-overflow: ellipsis;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* In the converter the action buttons live at the bottom of a small window,
+   so a toast anchored there would sit on top of them. */
+body.mode-convert .toast { bottom: auto; top: 60px; transform: translateX(-50%) translateY(-16px); }
+body.mode-convert .toast.show { transform: translateX(-50%) translateY(0); }
+/* And in the editor it landed exactly on the Corners / Zoom bars under the
+   stage, covering the slider, its label and its reset button. At the top it
+   then landed on the line that explains the current tool — which sits at
+   y68-98 — so every action covered the sentence telling you what the tool
+   you had just picked does. Below it instead, over the picture itself,
+   where it hides nothing that has to be read. */
+body.mode-edit .toast { bottom: auto; top: 104px; transform: translateX(-50%) translateY(-16px); }
+body.mode-edit .toast.show { transform: translateX(-50%) translateY(0); }
+.toast.ok  { border-color: var(--success); color: var(--success); }
+.toast.err { border-color: var(--danger);  color: var(--danger); }
+
+/* ── SETTINGS ── */
+/* Each row is a switch plus an explanation: these flip real things in the
+   operating system, so the wording carries as much weight as the control. */
+.setting {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 14px;
+  align-items: start;
+  padding: 13px 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.setting-name {
+  font-size: .82rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.setting-name em { font-style: normal; color: var(--accent); }
+.setting-desc {
+  margin-top: 5px;
+  font-size: .74rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.setting-desc b { color: var(--text); font-weight: 600; }
+.setting-status {
+  margin-top: 6px;
+  font-size: .7rem;
+  color: var(--faint);
+  line-height: 1.5;
+}
+.setting-status:empty { display: none; }
+
+/* Switch */
+.switch { display: block; margin-top: 2px; cursor: pointer; }
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0; height: 0;
+}
+.switch .track {
+  display: block;
+  width: 40px; height: 22px;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: 999px;
+  position: relative;
+  transition: background .15s, border-color .15s;
+}
+.switch .track::after {
+  content: "";
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--faint);
+  transition: transform .15s, background .15s;
+}
+.switch input:checked + .track {
+  background: rgba(232,255,71,.16);
+  border-color: var(--accent);
+}
+.switch input:checked + .track::after {
+  transform: translateX(18px);
+  background: var(--accent);
+}
+.switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+.switch input:disabled + .track { opacity: .4; }
+.switch input:disabled { cursor: not-allowed; }
+.setting:has(input:disabled) { opacity: .75; }
+
+.setting-foot {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 0 2px;
+}
+.link-btn.danger { color: var(--danger); align-self: flex-start; }
+.link-btn.danger:hover { color: #ff8a8a; }
+
+/* The honest limitations, kept where the switches are rather than hidden */
+.fine-print {
+  font-size: .71rem;
+  color: var(--faint);
+  line-height: 1.6;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.fine-print b { color: var(--muted); }
+.fine-print em { font-style: normal; color: var(--muted); }
+
