@@ -934,6 +934,35 @@ def browser_profile():
     return os.path.join(state_dir(create=True), "browser")
 
 
+def open_when_ready(url, seconds=8):
+    """Opens the interface once the server can actually answer for it.
+
+    The browser used to be launched on a half-second timer — a guess, and on
+    a slow machine the wrong one. What the person then saw was not a slow
+    launch but a broken one: a browser sitting on "page not found" while the
+    launcher cheerfully printed the address it had failed to reach.
+
+    So ask. One real request against our own port, retried until it answers,
+    and only then hand the address to a browser. If it never answers, say so
+    rather than opening a window onto nothing.
+    """
+    deadline = time.time() + seconds
+    probe = urllib.request.Request(url, headers={"X-N4DU": "1"})
+    while time.time() < deadline:
+        if _shutdown["event"].is_set():
+            return
+        try:
+            with urllib.request.urlopen(probe, timeout=1) as res:
+                if res.status == 200:
+                    trace("boot", "answering after {:.0f} ms".format(
+                        (seconds - (deadline - time.time())) * 1000), "2")
+                    open_interface(url)
+                    return
+        except Exception:
+            time.sleep(0.05)
+    event(SYM["warn"], "The server did not answer in time; not opening a window.", "33")
+
+
 def open_interface(url):
     """Compact window when the setting allows it and a browser supports it,
     otherwise an ordinary tab."""
@@ -998,10 +1027,6 @@ def main():
             return
         except RuntimeError as exc:
             fatal(str(exc))
-
-    # An entry left over from an older version is rewritten now, quietly.
-    # Waiting for someone to toggle a setting is how a fix never arrives.
-    repaired = shell_integration.repair_if_stale()
 
     if args["open"]:
         # Keep only what we can actually open; complain only if none survive.
@@ -1087,14 +1112,33 @@ def main():
             release_start_lock()
     atexit.register(clear_session)
 
+    # Answering comes first, before anything that can be slow.
+    #
+    # The socket is bound by start_server(), but nothing was READING it until
+    # here, and everything above used to include the registry work below —
+    # which on Windows can reach PowerShell and its thirty-second timeout.
+    # A launcher that has printed a URL nobody can load yet is how "page not
+    # found" happens, and it happens on exactly the machines where the
+    # platform work is slowest.
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    # An entry left over from an older version is rewritten now, quietly, and
+    # off the critical path: waiting for someone to toggle a setting is how a
+    # fix never arrives, but so is holding up the launch to do it.
+    def repair_quietly():
+        try:
+            if shell_integration.repair_if_stale():
+                event(SYM["ok"], "Right-click entry brought up to date", "92")
+        except Exception:
+            pass          # a broken registry must never stop the program
+    threading.Thread(target=repair_quietly, daemon=True).start()
+
     # The technical view, or the plain one. Both say where the interface is;
     # the difference is everything underneath.
     if console.verbose():
         report(url, port)
     else:
         banner(url)
-    if repaired:
-        event(SYM["ok"], "Right-click entry brought up to date", "92")
     if args["open"]:
         event(SYM["open"], "Opened: " + (os.path.abspath(args["open"][0])
                                          if len(args["open"]) == 1
@@ -1102,7 +1146,6 @@ def main():
         for waiting in _pending:
             trace("token", "{}  {}".format(waiting["token"][:8], waiting["path"]), "2")
     threading.Thread(target=watchdog, args=(time.time(),), daemon=True).start()
-    threading.Thread(target=server.serve_forever, daemon=True).start()
     if args["browser"]:
         # From here on, a file arriving joins this window instead of opening
         # one of its own.
@@ -1111,8 +1154,7 @@ def main():
         # return from main(), and then have the interpreter sit waiting for
         # this timer — which duly opened a browser window pointing at a
         # server that had just gone.
-        opener = threading.Timer(0.5, lambda: open_interface(url))
-        opener.daemon = True
+        opener = threading.Thread(target=open_when_ready, args=(url,), daemon=True)
         opener.start()
 
     try:
