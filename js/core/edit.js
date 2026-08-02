@@ -83,8 +83,21 @@
     redoStack = [];   // a new edit invalidates the redo trail
   }
 
+  // Undo and redo end whatever stroke is in progress, and they have to.
+  //
+  // Ctrl+Z with the brush still held popped the stroke's one and only
+  // snapshot, so the canvas came back clean — and then the drag carried on
+  // painting the restored surface with no history entry behind it. Let go
+  // and you had a painted picture with Undo greyed out: the paint could
+  // never be taken back, for the rest of the session.
+  //
+  // Dropping strokeBase is the whole fix. The next segment finds no base
+  // and starts a fresh stroke of its own (see paintStroke and blurStroke),
+  // which snapshots first, so the rest of the drag is one more undo step
+  // rather than pixels from nowhere.
   function undo() {
     if (!undoStack.length) return false;
+    strokeBase = null;
     redoStack.push(snapshot());
     trimHistory(redoStack);
     surface = undoStack.pop();
@@ -94,6 +107,7 @@
 
   function redo() {
     if (!redoStack.length) return false;
+    strokeBase = null;
     undoStack.push(snapshot());
     trimHistory(undoStack);
     surface = redoStack.pop();

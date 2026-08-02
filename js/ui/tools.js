@@ -165,10 +165,15 @@
 
       case 'crop': {
         const box = N4DU.editorCanvas.selectionRect();
-        if (!box) return true;
-        const local = N4DU.editorCanvas.toScreen(e);
-        const handle = N4DU.cropBox.hitTest(local.x, local.y, box);
-        // Clicking well outside the box starts a brand new one.
+        const local = box ? N4DU.editorCanvas.toScreen(e) : null;
+        // No box at all counts as clicking outside one. Rotate, flip, undo
+        // and redo all clear the selection while leaving Crop selected, and
+        // this used to swallow the press and do nothing: the tool went
+        // completely dead, with Apply and Reset both greyed out and no way
+        // to draw a new box without picking another tool and coming back.
+        const handle = box
+          ? N4DU.cropBox.hitTest(local.x, local.y, box)
+          : 'outside';
         if (handle === 'outside') {
           // The picture rarely fills the stage, so a click that begins in the
           // grey letterbox band lands OUTSIDE the picture — a negative x, or
