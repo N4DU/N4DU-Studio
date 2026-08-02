@@ -964,56 +964,62 @@ body.mode-edit .convert-only { display: none !important; }
   gap: 9px;
 }
 
-/* The one line that explains why this is a tab and not the window. Quiet on
-   purpose: it is an explanation, not an alarm. */
-.conv-notice {
-  display: flex; align-items: center; gap: 10px;
-  background: var(--surface); border: 1px solid var(--border2);
-  border-left: 3px solid var(--accent);
-  border-radius: 9px; padding: 8px 10px 8px 12px;
-  font-size: .76rem; color: var(--muted); line-height: 1.4;
-}
-.conv-notice[hidden] { display: none; }
-.conv-notice #windowNoticeText { flex: 1; min-width: 0; }
-.conv-notice b { color: var(--text); font-weight: 600; }
+/* ── THE LAUNCH NOTICE ──
+   Over everything, on arrival, when the browser refused to open the window
+   by itself. It has one job and one button: pressing it is the fix, and
+   opening a window from a click is something every browser allows.
 
-/* When the browser refused, this is the only thing on screen that can put it
-   right — and the browser's own "Pop-ups blocked" bubble has already closed
-   by the time most people look up. So it carries real weight: the accent
-   colour, room to breathe, and the second line spelling out where the
-   control it left behind actually is. */
-.conv-notice.loud {
-  background: linear-gradient(180deg, rgba(232,255,71,.07), rgba(232,255,71,.02));
-  border-color: rgba(232,255,71,.34);
-  border-left-width: 4px;
-  align-items: flex-start;
-  padding: 12px 12px 12px 14px;
-  font-size: .8rem;
-  color: var(--text);
+   The shape is deliberate. It reads as a thing to act on rather than a thing
+   to dismiss: the illustration says what will happen, the button is the only
+   coloured surface in the card, and the way out is a small × in the corner
+   rather than a second button competing for the same reflex. */
+.modal-launch {
+  position: relative;
+  width: min(390px, 92vw);
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 26px 26px 22px;
+  border-color: rgba(232,255,71,.28);
+  box-shadow: 0 24px 80px rgba(0,0,0,.7), 0 0 0 1px rgba(232,255,71,.06) inset;
 }
-.conv-notice.loud .how {
-  display: block; margin-top: 5px; color: var(--muted); font-size: .75rem;
+.launch-x {
+  position: absolute; top: 8px; right: 10px;
+  background: none; border: 0; color: var(--muted);
+  font-size: 1.15rem; line-height: 1; cursor: pointer;
+  padding: 4px 7px; border-radius: 6px;
 }
-/* The button is the fix, so it looks like the fix. */
-.conv-notice.loud #windowNoticeAction {
-  flex-shrink: 0; align-self: center;
-  background: var(--accent); border-color: var(--accent); color: #000;
-  font-family: var(--fh); font-weight: 700;
-  font-size: .78rem; padding: 8px 14px;
+.launch-x:hover { color: var(--text); background: var(--surface2); }
+.launch-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* A big window with a small one inside it: the whole message, before a word
+   of it is read. */
+.launch-icon svg {
+  width: 58px; height: 41px;
+  fill: none; stroke: var(--border2); stroke-width: 1.6;
+  stroke-linejoin: round;
 }
-.conv-notice.loud #windowNoticeAction:hover {
-  background: var(--accent2); border-color: var(--accent2);
+.launch-icon .fill {
+  fill: rgba(232,255,71,.14);
+  stroke: var(--accent); stroke-width: 1.8;
 }
-.conv-notice.loud .notice-x { display: none; }
-.notice-x {
-  background: none; border: 0; color: var(--muted); cursor: pointer;
-  font-size: 1rem; line-height: 1; padding: 2px 5px; border-radius: 5px;
-  flex-shrink: 0;
+.modal-launch .modal-title { font-size: 1.02rem; }
+.launch-body {
+  color: var(--muted); font-size: .84rem; line-height: 1.5;
+  max-width: 30ch;
 }
-.notice-x:hover { color: var(--text); }
-.notice-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-/* Never in the compact window: it exists to explain the compact window. */
-body.app-window .conv-notice { display: none; }
+.launch-body b { color: var(--text); font-weight: 600; }
+.launch-go {
+  width: 100%;
+  padding: 11px 18px;
+  font-size: .88rem;
+  justify-content: center;
+}
+.launch-fine {
+  color: var(--faint); font-size: .72rem; line-height: 1.45;
+  max-width: 34ch;
+}
+.launch-fine b { color: var(--muted); font-weight: 600; }
 /* A column of its own, so the drop zone can give ground when the window is
    short. As a plain block it kept its full height and spilled straight over
    the settings underneath — at 452x400 the dashed box ran 45px into the

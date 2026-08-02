@@ -472,73 +472,55 @@
     hideWindowNotice();
   }
 
-  // What happened before the page was painted, in words.
+  // What happened before the page was painted.
   //
-  // Three outcomes worth a sentence, and one worth nothing. Being refused by
-  // the pop-up blocker is the DEFAULT on a first visit, not a fault — so it
-  // is explained calmly, with the fix, and it can be dismissed forever.
+  // Shown over everything, on arrival, and only when the browser refused to
+  // open the window by itself. One button, because there is only one thing
+  // worth doing: opening a window from a click is something every browser
+  // allows, so nothing has to be permitted in advance.
+  //
+  // The way out is a small x rather than a second button. A notice with a
+  // "Later" next to its "Yes" gets dismissed by reflex, and this one only
+  // appears when there is something real to gain by reading it.
   function showWindowNotice() {
-    const box = document.getElementById('windowNotice');
-    const text = document.getElementById('windowNoticeText');
-    const action = document.getElementById('windowNoticeAction');
-    const close = document.getElementById('windowNoticeClose');
+    const box = document.getElementById('windowModal');
     if (!box) return;
-
-    close.addEventListener('click', () => { box.hidden = true; N4DU.windowSize.fit(); });
-
     if (inOwnWindow() || bridge.active) return;   // this IS the window
 
     const { tried, opened, reason } = ownWindow.outcome;
-    if (opened) {
-      // It is out there, but this tab could neither go back nor close.
-      text.innerHTML = '<b>N4DU Studio opened in its own window.</b> '
-                     + 'You can close this tab.';
-      action.hidden = false;
-      action.textContent = 'Bring it to the front';
-      action.addEventListener('click', () => openInOwnWindow());
-      box.hidden = false;
-      return;
-    }
 
-    if (tried && reason === 'blocked') {
-      // One button, and no permission needed for it.
-      //
-      // Opening a window from a click is something every browser allows —
-      // that is precisely what the pop-up blocker is drawing the line
-      // around. So the fix on offer is the button, not a tour of the
-      // browser's settings; the permission is mentioned second, as the way
-      // to stop being asked, for people who want that.
-      //
-      // And it does not close. The browser's own "Pop-ups blocked" bubble
-      // has already gone by the time most people look up, and a notice you
-      // can dismiss by accident is a notice you never see again. It goes
-      // away when it is no longer true, which is when you press the button.
-      box.classList.add('loud');
-      close.hidden = true;
-      text.innerHTML =
-        '<b>This is the full-page version.</b> N4DU Studio is made for a '
-        + 'small window of its own — press the button and it opens, at the '
-        + 'size it is meant to be.'
-        + '<span class="how">One press, every time you open it. To skip even '
-        + 'that: allow pop-ups for this page in your browser, and from then '
-        + 'on it opens on its own.'
-        + (location.protocol === 'file:'
-            ? ' Or open <b>main.pyw</b> instead, which needs none of this.'
-            : '')
-        + '</span>';
-      action.hidden = false;
-      action.textContent = 'Open in its own window';
-      action.classList.add('primary');
-      action.addEventListener('click', () => openInOwnWindow());
-      box.hidden = false;
-      return;
-    }
-    // Anything else — a screen too small to bother, or turned off — is not
-    // worth a sentence.
+    // It went out into its own window but this page could neither go back
+    // nor close. Nothing to decide, so nothing to interrupt anybody with —
+    // the title bar's own Window button brings it back to the front.
+    if (opened) return;
+    if (!(tried && reason === 'blocked')) return;
+
+    const local = location.protocol === 'file:';
+    document.getElementById('windowModalBody').innerHTML =
+      'N4DU Studio is made for a <b>small window of its own</b>, and this '
+      + 'browser does not let a page open one without being asked.';
+    document.getElementById('windowModalFine').innerHTML = local
+      ? 'Opening <b>main.pyw</b> instead skips this every time.'
+      : 'To skip this step in future, allow pop-ups for this page.';
+
+    const go = document.getElementById('windowModalGo');
+    const shut = () => { box.hidden = true; N4DU.windowSize.fit(); };
+
+    go.addEventListener('click', () => { openInOwnWindow(); shut(); });
+    document.getElementById('windowModalClose').addEventListener('click', shut);
+    // Escape closes it; clicking the dimmed background does not. Missing a
+    // notice by clicking slightly off target is exactly the accident this
+    // is trying to avoid.
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && !box.hidden) shut();
+    });
+
+    box.hidden = false;
+    go.focus();
   }
 
   function hideWindowNotice() {
-    const box = document.getElementById('windowNotice');
+    const box = document.getElementById('windowModal');
     if (box) box.hidden = true;
   }
 
