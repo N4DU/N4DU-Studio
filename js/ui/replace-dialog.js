@@ -48,6 +48,9 @@
     $('dstStem').value = stem;
 
     $('replaceModal').hidden = false;
+    // Focus goes in, and stays in, until it closes — see js/ui/modal.js.
+    // The name field, because that is what somebody came here to change.
+    N4DU.modal.opened($('replaceModal'), $('dstStem'));
     paintSource();            // name and empty/filled state immediately…
     drawDestThumb();
     syncModal();
@@ -56,6 +59,7 @@
 
   function close() {
     $('replaceModal').hidden = true;
+    N4DU.modal.closed($('replaceModal'));
     releaseSource();
   }
 

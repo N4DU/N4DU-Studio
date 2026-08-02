@@ -59,7 +59,11 @@
       : 'To skip this step in future, allow pop-ups for this page.';
 
     const go = document.getElementById('windowModalGo');
-    const shut = () => { box.hidden = true; N4DU.windowSize.fit(); };
+    const shut = () => {
+      box.hidden = true;
+      N4DU.modal.closed(box);
+      N4DU.windowSize.fit();
+    };
 
     go.addEventListener('click', () => { openInOwnWindow(); shut(); });
     document.getElementById('windowModalClose').addEventListener('click', shut);
@@ -71,7 +75,9 @@
     });
 
     box.hidden = false;
-    go.focus();
+    // It already put focus on the one button that helps; this keeps it in
+    // the sheet, and hands it back on close — see js/ui/modal.js.
+    N4DU.modal.opened(box, go);
   }
 
   function hideWindowNotice() {
