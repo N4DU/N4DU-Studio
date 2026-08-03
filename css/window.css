@@ -140,6 +140,16 @@ body.app-window.mode-convert .conv-drop { gap: 4px; }
    two buttons plus the Separate box no longer fit on one line, and Convert
    ran off the right edge. A second line beats an unreachable button. */
 .conv-buttons { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* Equal columns, sized by the wider label. Nothing is hard-coded and
+   nothing is measured in script: if either wording ever changes, or the
+   font does, they still come out the same as each other. */
+.conv-go {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 8px;
+  min-width: 0;
+}
 .conv-buttons .btn-accent, .conv-buttons .btn-primary { padding: 8px 14px; }
 /* Centred. The buttons take their natural width — the wording is whatever
    it is and the padding either side of it is equal — which is what makes
