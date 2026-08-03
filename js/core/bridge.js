@@ -269,16 +269,8 @@
   // The folder comes back as a TOKEN, never as a path this page could have
   // typed: the same rule the whole bridge keeps. What the page holds is a
   // receipt for a place the person picked in their own file dialog.
-  // `names` are the files about to be written. The answer says which of them
-  // the chosen folder already has, so the page can put the "replace or keep
-  // both?" question once, up front — instead of discovering it file by file
-  // with half the batch already on disk.
-  bridge.pickDestination = async (names = []) => {
-    const res = await fetch('/api/pick-folder', {
-      method: 'POST',
-      headers: { ...HDR, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ names }),
-    });
+  bridge.pickDestination = async () => {
+    const res = await fetch('/api/pick-folder', { method: 'POST', headers: HDR });
     if (res.status === 204) return null;              // cancelled
     if (!res.ok) throw new Error((await safeJson(res)).error || 'Could not ask.');
     return res.json();

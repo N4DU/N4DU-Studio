@@ -501,7 +501,6 @@
   initControls(refresh);
   initTools(refresh);
   initReplaceDialog(afterReplace);
-  N4DU.clashDialog.init();
   initHelp();
   document.getElementById('btnPopWindow').addEventListener('click', openInOwnWindow);
   N4DU.settings.initSettings();

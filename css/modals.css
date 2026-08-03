@@ -306,3 +306,16 @@ body.mode-edit .toast.show { transform: translateX(-50%) translateY(0); }
 .fine-print b { color: var(--muted); }
 .fine-print em { font-style: normal; color: var(--muted); }
 
+
+/* The licence notice at the foot of the help dialog. Quiet: it has to be
+   there and easy to find, not competing with the instructions above it. */
+.help-legal {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+  font-size: .68rem;
+  line-height: 1.5;
+  color: var(--faint);
+}
+.help-legal a { color: var(--muted); }
+.help-legal a:hover { color: var(--accent); }

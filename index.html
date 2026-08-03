@@ -22,17 +22,17 @@
 <!-- Five files, loaded in this order and only this order: base declares the
      custom properties everything else reads, and window.css exists to
      override what came before it. -->
-<link rel="stylesheet" href="css/base.css?v=2026.08.02g">
-<link rel="stylesheet" href="css/editor.css?v=2026.08.02g">
-<link rel="stylesheet" href="css/modals.css?v=2026.08.02g">
-<link rel="stylesheet" href="css/converter.css?v=2026.08.02g">
-<link rel="stylesheet" href="css/window.css?v=2026.08.02g">
+<link rel="stylesheet" href="css/base.css?v=2026.08.03a">
+<link rel="stylesheet" href="css/editor.css?v=2026.08.03a">
+<link rel="stylesheet" href="css/modals.css?v=2026.08.03a">
+<link rel="stylesheet" href="css/converter.css?v=2026.08.03a">
+<link rel="stylesheet" href="css/window.css?v=2026.08.03a">
 <!-- In the HEAD on purpose, and this one is not moveable.
      It decides whether this document should be running in a window of its
      own, and it has to decide before the browser paints a full-width tab
      holding an interface built for 452 pixels. Everything else loads at the
      end of the body, where scripts belong. -->
-<script src="js/own-window.js?v=2026.08.02g"></script>
+<script src="js/own-window.js?v=2026.08.03a"></script>
 </head>
 <body class="mode-convert">
 
@@ -189,18 +189,15 @@
       </div>
       <div class="conv-buttons">
         <!-- Where the converted files go. A menu, in the space the Separate
-             checkbox used to occupy, because this window is 452 pixels wide
-             and every row the controls grow is a row of your files you stop
-             being able to see. Four answers, no extra height, and nothing
-             on screen that is only meaningful some of the time.
-             The folder itself is asked for when you press Convert. -->
+             checkbox used to occupy: this window is 452 pixels wide and a
+             row of controls is a row of your files you stop being able to
+             see. The folder itself is asked for when you press Convert. -->
         <select id="batchDest" class="dest-pick"
                 aria-label="Where the converted files go"
                 title="Where the converted files go">
           <option value="zip">.zip</option>
           <option value="separate">Separate</option>
           <option value="folder" hidden>To a folder…</option>
-          <option value="move" hidden>Move to a folder…</option>
         </select>
         <button class="btn-primary btn-swap" id="btnReplaceAll" disabled>
           <svg class="bi"><use href="#i-swap"/></svg> Replace originals
@@ -208,6 +205,23 @@
         <button class="btn-accent" id="btnConvertAll" disabled>
           <svg class="bi"><use href="#i-down"/></svg> Convert &amp; download
         </button>
+      </div>
+      <!-- Only while "To a folder" is chosen. Side by side and on one line,
+           because the window grows by exactly what this takes and one line
+           is half of what two would cost. Two independent questions, so two
+           boxes: either can be on without the other. The wording is short
+           on purpose and the tooltips carry the rest. -->
+      <div class="conv-dest-opts" id="destOptions" hidden>
+        <label class="check" id="destMoveRow"
+               title="Each picture is written into the folder you choose and then removed from where it was, so it moves rather than being copied">
+          <input type="checkbox" id="destMove">
+          <span>Delete originals</span>
+        </label>
+        <label class="check"
+               title="Write over a file already called that, instead of leaving you with «foto (2).png»">
+          <input type="checkbox" id="destOverwrite">
+          <span>Overwrite same names</span>
+        </label>
       </div>
     </div>
 
@@ -507,6 +521,19 @@
     <div class="help-note">
       Nothing is uploaded anywhere. Every picture stays on this machine.
     </div>
+    <!-- The AGPL's "Appropriate Legal Notices": who holds the copyright,
+         that there is no warranty, which licence, and where the source is.
+         Here rather than in the converter because this dialog is one click
+         from every screen and costs the 452-pixel window no height at
+         all — and section 13 asks that anyone using this over a network be
+         offered the source, which the web version is. -->
+    <div class="help-legal">
+      N4DU Studio — Copyright © 2026 N4DU. Free software under the
+      <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank"
+         rel="noopener">GNU AGPL v3</a>, with no warranty of any kind.
+      <a href="https://github.com/N4DU/N4DU-Studio" target="_blank"
+         rel="noopener">Source code</a>.
+    </div>
     <div class="modal-actions">
       <button class="btn-accent" id="btnHelpClose">Got it</button>
     </div>
@@ -633,56 +660,38 @@
   </div>
 </div>
 
-<!-- Asked once, and only when it is a real question: after you have chosen
-     the folder, if something in there is already called what we are about to
-     write. A permanent checkbox for this would sit on screen being irrelevant
-     almost every time, in a window that has no room to spare. -->
-<div class="modal-backdrop" id="clashModal" hidden>
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="clashModalTitle">
-    <div class="modal-title" id="clashModalTitle">Something is already called that</div>
-    <div class="hint" id="clashText"></div>
-    <ul class="clash-list" id="clashList"></ul>
-    <div class="modal-actions">
-      <button class="btn-ghost" id="btnClashCancel">Cancel</button>
-      <button class="btn-ghost" id="btnClashKeep">Keep both</button>
-      <button class="btn-accent" id="btnClashReplace">Replace</button>
-    </div>
-  </div>
-</div>
-
 <div class="toast" id="toast"></div>
 
-<script src="js/state.js?v=2026.08.02g"></script>
-<script src="js/core/geometry.js?v=2026.08.02g"></script>
-<script src="js/core/loader.js?v=2026.08.02g"></script>
-<script src="js/core/paint.js?v=2026.08.02g"></script>
-<script src="js/core/edit.js?v=2026.08.02g"></script>
-<script src="js/core/render.js?v=2026.08.02g"></script>
-<script src="js/core/exporter.js?v=2026.08.02g"></script>
-<script src="js/core/convert.js?v=2026.08.02g"></script>
-<script src="js/core/zip.js?v=2026.08.02g"></script>
-<script src="js/core/batch.js?v=2026.08.02g"></script>
-<script src="js/core/bridge.js?v=2026.08.02g"></script>
-<script src="js/ui/toast.js?v=2026.08.02g"></script>
-<script src="js/ui/modal.js?v=2026.08.02g"></script>
-<script src="js/ui/editable-number.js?v=2026.08.02g"></script>
-<script src="js/ui/crop-box.js?v=2026.08.02g"></script>
-<script src="js/ui/dropzone.js?v=2026.08.02g"></script>
-<script src="js/ui/editor-canvas.js?v=2026.08.02g"></script>
-<script src="js/ui/previews.js?v=2026.08.02g"></script>
-<script src="js/ui/controls.js?v=2026.08.02g"></script>
-<script src="js/ui/tools.js?v=2026.08.02g"></script>
-<script src="js/ui/replace-dialog.js?v=2026.08.02g"></script>
-<script src="js/ui/clash-dialog.js?v=2026.08.02g"></script>
-<script src="js/ui/settings.js?v=2026.08.02g"></script>
-<script src="js/ui/batch-run.js?v=2026.08.02g"></script>
-<script src="js/ui/batch-ui.js?v=2026.08.02g"></script>
-<script src="js/ui/window-size.js?v=2026.08.02g"></script>
-<script src="js/ui/deliver.js?v=2026.08.02g"></script>
-<script src="js/ui/help.js?v=2026.08.02g"></script>
-<script src="js/ui/launch-notice.js?v=2026.08.02g"></script>
-<script src="js/ui/handover.js?v=2026.08.02g"></script>
-<script src="js/ui/shortcuts.js?v=2026.08.02g"></script>
-<script src="js/main.js?v=2026.08.02g"></script>
+<script src="js/state.js?v=2026.08.03a"></script>
+<script src="js/core/geometry.js?v=2026.08.03a"></script>
+<script src="js/core/loader.js?v=2026.08.03a"></script>
+<script src="js/core/paint.js?v=2026.08.03a"></script>
+<script src="js/core/edit.js?v=2026.08.03a"></script>
+<script src="js/core/render.js?v=2026.08.03a"></script>
+<script src="js/core/exporter.js?v=2026.08.03a"></script>
+<script src="js/core/convert.js?v=2026.08.03a"></script>
+<script src="js/core/zip.js?v=2026.08.03a"></script>
+<script src="js/core/batch.js?v=2026.08.03a"></script>
+<script src="js/core/bridge.js?v=2026.08.03a"></script>
+<script src="js/ui/toast.js?v=2026.08.03a"></script>
+<script src="js/ui/modal.js?v=2026.08.03a"></script>
+<script src="js/ui/editable-number.js?v=2026.08.03a"></script>
+<script src="js/ui/crop-box.js?v=2026.08.03a"></script>
+<script src="js/ui/dropzone.js?v=2026.08.03a"></script>
+<script src="js/ui/editor-canvas.js?v=2026.08.03a"></script>
+<script src="js/ui/previews.js?v=2026.08.03a"></script>
+<script src="js/ui/controls.js?v=2026.08.03a"></script>
+<script src="js/ui/tools.js?v=2026.08.03a"></script>
+<script src="js/ui/replace-dialog.js?v=2026.08.03a"></script>
+<script src="js/ui/settings.js?v=2026.08.03a"></script>
+<script src="js/ui/batch-run.js?v=2026.08.03a"></script>
+<script src="js/ui/batch-ui.js?v=2026.08.03a"></script>
+<script src="js/ui/window-size.js?v=2026.08.03a"></script>
+<script src="js/ui/deliver.js?v=2026.08.03a"></script>
+<script src="js/ui/help.js?v=2026.08.03a"></script>
+<script src="js/ui/launch-notice.js?v=2026.08.03a"></script>
+<script src="js/ui/handover.js?v=2026.08.03a"></script>
+<script src="js/ui/shortcuts.js?v=2026.08.03a"></script>
+<script src="js/main.js?v=2026.08.03a"></script>
 </body>
 </html>
