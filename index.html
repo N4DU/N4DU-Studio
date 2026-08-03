@@ -22,17 +22,17 @@
 <!-- Five files, loaded in this order and only this order: base declares the
      custom properties everything else reads, and window.css exists to
      override what came before it. -->
-<link rel="stylesheet" href="css/base.css?v=2026.08.03d">
-<link rel="stylesheet" href="css/editor.css?v=2026.08.03d">
-<link rel="stylesheet" href="css/modals.css?v=2026.08.03d">
-<link rel="stylesheet" href="css/converter.css?v=2026.08.03d">
-<link rel="stylesheet" href="css/window.css?v=2026.08.03d">
+<link rel="stylesheet" href="css/base.css?v=2026.08.03e">
+<link rel="stylesheet" href="css/editor.css?v=2026.08.03e">
+<link rel="stylesheet" href="css/modals.css?v=2026.08.03e">
+<link rel="stylesheet" href="css/converter.css?v=2026.08.03e">
+<link rel="stylesheet" href="css/window.css?v=2026.08.03e">
 <!-- In the HEAD on purpose, and this one is not moveable.
      It decides whether this document should be running in a window of its
      own, and it has to decide before the browser paints a full-width tab
      holding an interface built for 452 pixels. Everything else loads at the
      end of the body, where scripts belong. -->
-<script src="js/own-window.js?v=2026.08.03d"></script>
+<script src="js/own-window.js?v=2026.08.03e"></script>
 </head>
 <body class="mode-convert">
 
@@ -199,14 +199,21 @@
           <option value="separate">Separate</option>
           <option value="folder" hidden>To a folder…</option>
         </select>
-        <button class="btn-primary btn-swap" id="btnReplaceAll" disabled>
-          <svg class="bi"><use href="#i-swap"/></svg> Replace originals
-        </button>
-        <!-- One word, and it never changes: see syncBatch in batch-ui.js.
-             Where the files go is the menu's job, two controls to the left. -->
-        <button class="btn-accent" id="btnConvertAll" disabled>
-          <svg class="bi"><use href="#i-down"/></svg> Convert
-        </button>
+        <!-- The two of them in a box of their own, and the box is a grid of
+             equal columns: whichever label is longer decides the width and
+             the other one matches it. Two buttons that do the same KIND of
+             thing, side by side, at two different sizes read as a mistake —
+             and "Convert" is one short word against "Replace originals". -->
+        <div class="conv-go">
+          <button class="btn-primary btn-swap" id="btnReplaceAll" disabled>
+            <svg class="bi"><use href="#i-swap"/></svg> Replace originals
+          </button>
+          <!-- One word, and it never changes: see syncBatch in batch-ui.js.
+               Where the files go is the menu's job, two controls to the left. -->
+          <button class="btn-accent" id="btnConvertAll" disabled>
+            <svg class="bi"><use href="#i-down"/></svg> Convert
+          </button>
+        </div>
       </div>
       <!-- Only while "To a folder" is chosen. Side by side and on one line,
            because the window grows by exactly what this takes and one line
@@ -664,36 +671,36 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="js/state.js?v=2026.08.03d"></script>
-<script src="js/core/geometry.js?v=2026.08.03d"></script>
-<script src="js/core/loader.js?v=2026.08.03d"></script>
-<script src="js/core/paint.js?v=2026.08.03d"></script>
-<script src="js/core/edit.js?v=2026.08.03d"></script>
-<script src="js/core/render.js?v=2026.08.03d"></script>
-<script src="js/core/exporter.js?v=2026.08.03d"></script>
-<script src="js/core/convert.js?v=2026.08.03d"></script>
-<script src="js/core/zip.js?v=2026.08.03d"></script>
-<script src="js/core/batch.js?v=2026.08.03d"></script>
-<script src="js/core/bridge.js?v=2026.08.03d"></script>
-<script src="js/ui/toast.js?v=2026.08.03d"></script>
-<script src="js/ui/modal.js?v=2026.08.03d"></script>
-<script src="js/ui/editable-number.js?v=2026.08.03d"></script>
-<script src="js/ui/crop-box.js?v=2026.08.03d"></script>
-<script src="js/ui/dropzone.js?v=2026.08.03d"></script>
-<script src="js/ui/editor-canvas.js?v=2026.08.03d"></script>
-<script src="js/ui/previews.js?v=2026.08.03d"></script>
-<script src="js/ui/controls.js?v=2026.08.03d"></script>
-<script src="js/ui/tools.js?v=2026.08.03d"></script>
-<script src="js/ui/replace-dialog.js?v=2026.08.03d"></script>
-<script src="js/ui/settings.js?v=2026.08.03d"></script>
-<script src="js/ui/batch-run.js?v=2026.08.03d"></script>
-<script src="js/ui/batch-ui.js?v=2026.08.03d"></script>
-<script src="js/ui/window-size.js?v=2026.08.03d"></script>
-<script src="js/ui/deliver.js?v=2026.08.03d"></script>
-<script src="js/ui/help.js?v=2026.08.03d"></script>
-<script src="js/ui/launch-notice.js?v=2026.08.03d"></script>
-<script src="js/ui/handover.js?v=2026.08.03d"></script>
-<script src="js/ui/shortcuts.js?v=2026.08.03d"></script>
-<script src="js/main.js?v=2026.08.03d"></script>
+<script src="js/state.js?v=2026.08.03e"></script>
+<script src="js/core/geometry.js?v=2026.08.03e"></script>
+<script src="js/core/loader.js?v=2026.08.03e"></script>
+<script src="js/core/paint.js?v=2026.08.03e"></script>
+<script src="js/core/edit.js?v=2026.08.03e"></script>
+<script src="js/core/render.js?v=2026.08.03e"></script>
+<script src="js/core/exporter.js?v=2026.08.03e"></script>
+<script src="js/core/convert.js?v=2026.08.03e"></script>
+<script src="js/core/zip.js?v=2026.08.03e"></script>
+<script src="js/core/batch.js?v=2026.08.03e"></script>
+<script src="js/core/bridge.js?v=2026.08.03e"></script>
+<script src="js/ui/toast.js?v=2026.08.03e"></script>
+<script src="js/ui/modal.js?v=2026.08.03e"></script>
+<script src="js/ui/editable-number.js?v=2026.08.03e"></script>
+<script src="js/ui/crop-box.js?v=2026.08.03e"></script>
+<script src="js/ui/dropzone.js?v=2026.08.03e"></script>
+<script src="js/ui/editor-canvas.js?v=2026.08.03e"></script>
+<script src="js/ui/previews.js?v=2026.08.03e"></script>
+<script src="js/ui/controls.js?v=2026.08.03e"></script>
+<script src="js/ui/tools.js?v=2026.08.03e"></script>
+<script src="js/ui/replace-dialog.js?v=2026.08.03e"></script>
+<script src="js/ui/settings.js?v=2026.08.03e"></script>
+<script src="js/ui/batch-run.js?v=2026.08.03e"></script>
+<script src="js/ui/batch-ui.js?v=2026.08.03e"></script>
+<script src="js/ui/window-size.js?v=2026.08.03e"></script>
+<script src="js/ui/deliver.js?v=2026.08.03e"></script>
+<script src="js/ui/help.js?v=2026.08.03e"></script>
+<script src="js/ui/launch-notice.js?v=2026.08.03e"></script>
+<script src="js/ui/handover.js?v=2026.08.03e"></script>
+<script src="js/ui/shortcuts.js?v=2026.08.03e"></script>
+<script src="js/main.js?v=2026.08.03e"></script>
 </body>
 </html>
