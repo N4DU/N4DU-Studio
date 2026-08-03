@@ -315,7 +315,47 @@ body.app-window.no-files .conv-estimate { display: none; }
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 16px;
-  margin-top: 2px;
+  /* It opens and closes over the same sixth of a second the window takes to
+     change size, and that is the whole point of animating it rather than
+     just showing it.
+     With nothing in the list, the drop zone is the part that takes whatever
+     room is left over — so the instant this panel appeared, the drop zone
+     lost its height in one frame and spent the next tenth of a second
+     getting it back as the window grew. Squash, then stretch, for a panel
+     that is two words tall. Grown at the same rate as the window, the two
+     cancel out and nothing moves but the edge of the window.
+
+     ONE property moves, and only one. The room above the panel is padding
+     rather than a margin, so it is inside the box that max-height is
+     clipping and travels with it — two properties easing at once are two
+     chances to disagree, and the window has to be able to work out the
+     final height in a single reading. */
+  box-sizing: border-box;
+  overflow: hidden;
+  max-height: 0;
+  padding-top: calc(var(--actions-gap) + 2px);
+  /* Shut, it must occupy nothing at all — and a flex parent still puts its
+     row gap either side of a child of zero height, so the gap is cancelled
+     here, once, in both states. Without it the empty converter stood eleven
+     pixels taller than it used to for a panel nobody could see. */
+  margin-top: calc(-1 * var(--actions-gap));
+  opacity: 0;
+  visibility: hidden;
+  transition: max-height .16s cubic-bezier(.33, 1, .68, 1),
+              opacity .1s linear,
+              visibility 0s .16s;
+}
+.conv-dest-opts.open {
+  opacity: 1;
+  visibility: visible;
+  transition: max-height .16s cubic-bezier(.33, 1, .68, 1),
+              opacity .1s linear .06s,
+              visibility 0s;
+}
+/* Somebody who has asked their system not to animate things gets the panel
+   appearing and disappearing, which is what they asked for. */
+@media (prefers-reduced-motion: reduce) {
+  .conv-dest-opts, .conv-dest-opts.open { transition: none; }
 }
 .conv-dest-opts .check { font-size: .72rem; white-space: nowrap; }
 .conv-dest-opts .check input:disabled + span { opacity: .45; }
