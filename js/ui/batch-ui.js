@@ -367,7 +367,7 @@
     $('btnConvertAll').title = toDisk()
       ? 'You will be asked which folder when you press this'
       : '';
-    $('btnConvertAll').innerHTML = buttonLabel(totals);
+    $('btnConvertAll').innerHTML = buttonLabel();
     reserveButtonWidth();
 
     const rep = $('btnReplaceAll');
@@ -388,18 +388,15 @@
 
   // Every wording the Convert button can carry. Kept in one list because
   // the button is sized to the longest of them, not to the one showing.
-  const CONVERT_LABELS = [
-    'Convert &amp; download',
-    'Convert &amp; download .zip',
-    'Convert &amp; save',
-  ];
+  //
+  // Two, not three. It used to say "Convert & download .zip" for a batch,
+  // and those three extra characters were the widest the button ever got —
+  // wide enough to push the whole row onto a second line in the compact
+  // window, to say something the menu six pixels to its left already says.
+  const CONVERT_LABELS = ['Convert &amp; download', 'Convert &amp; save'];
 
-  function buttonLabel(totals) {
-    const what = toDisk()
-      ? 'Convert &amp; save'
-      : (totals.count > 1 && opts.deliver !== 'separate'
-        ? 'Convert &amp; download .zip'
-        : 'Convert &amp; download');
+  function buttonLabel() {
+    const what = toDisk() ? 'Convert &amp; save' : 'Convert &amp; download';
     return `<svg class="bi"><use href="#i-down"/></svg> ${what}`;
   }
 

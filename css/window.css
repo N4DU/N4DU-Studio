@@ -127,11 +127,22 @@ body.app-window.mode-convert .conv-drop { gap: 4px; }
    ran off the right edge. A second line beats an unreachable button. */
 .conv-buttons { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .conv-buttons .btn-accent, .conv-buttons .btn-primary { padding: 8px 14px; }
+/* Centred, and it matters: the Convert button is held at the width of the
+   longest wording it can carry, so whenever it says something shorter there
+   is spare room inside it. Left-aligned, that room all piles up on one side
+   and the button reads as broken rather than as roomy. */
+.conv-buttons .btn-accent, .conv-buttons .btn-primary { justify-content: center; }
+/* The buttons keep to the right-hand end of the row, whatever is to their
+   left. */
+.conv-buttons #btnReplaceAll { margin-left: auto; }
 .check.inline { flex: 1; font-size: .72rem; }
-/* Sits exactly where the Separate checkbox used to, and takes the same
-   share of the row: this line must not get taller than it already was. */
+/* Sits exactly where the Separate checkbox used to. It does NOT stretch:
+   in a full-width browser tab — which is what you get before the pop-up
+   permission is granted — flex: 1 made this menu as wide as the screen and
+   shoved both buttons off to the far right. It takes the room it needs and
+   gives the rest back. */
 .dest-pick {
-  flex: 1; min-width: 0;
+  flex: 0 1 auto; min-width: 0; max-width: 190px;
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border2);
@@ -280,7 +291,11 @@ body.app-window.mode-convert .conv-drop { gap: 4px; }
   .conv-buttons .btn-accent, .conv-buttons .btn-primary { padding: 8px 11px; font-size: .74rem; }
   .conv-buttons .bi { width: 13px; height: 13px; }
   .check.inline { font-size: .66rem; }
-  .dest-pick { font-size: .66rem; padding: 4px 5px; }
+  /* In the compact window the row is tight enough that the menu taking the
+     leftover space is what keeps everything on one line — which is how it
+     looked before, and it looked right. The cap above is for wide browser
+     tabs, where there is no leftover worth taking. */
+  .dest-pick { font-size: .66rem; padding: 4px 5px; flex: 1 1 auto; max-width: none; }
   /* The drop zone, tightened. In a short window its three lines were
      crushed together and overlapping — the text was the first thing to look
      broken. Less padding, less leading, smaller sub-lines: the same words,

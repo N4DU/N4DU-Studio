@@ -121,10 +121,61 @@
     if (Math.abs(w - window.outerWidth) < SLACK && Math.abs(h - window.outerHeight) < SLACK) {
       return;   // already the right size; resizing again would only flicker
     }
-    try {
-      window.resizeTo(Math.round(w), Math.round(h));
-      asked = { w: Math.round(w), h: Math.round(h), at: Date.now() };
-    } catch { /* a normal tab: nothing to do, and nothing broken */ }
+    glideTo(Math.round(w), Math.round(h));
+  }
+
+  // Growing and shrinking, over about a sixth of a second.
+  //
+  // One resizeTo is one jump: the window snaps to its new height while the
+  // page inside it reflows to a size it does not have yet, so for a frame
+  // the drop zone is squashed and the file grid has rewrapped — and then it
+  // all pops into place. Choosing "To a folder" moves the window 27 pixels
+  // and that was enough to read as a glitch rather than as a panel opening.
+  //
+  // A handful of steps costs nothing and turns the jump into a movement.
+  // Only for small changes: coming back from the editor is 1240x880 to
+  // 452x440 and there is nothing pleasant about watching that crawl.
+  const GLIDE_MS = 160;
+  const GLIDE_MAX = 260;      // beyond this a jump is the kinder answer
+  let gliding = null;
+
+  function glideTo(w, h) {
+    cancelAnimationFrame(gliding);
+    const from = { w: window.outerWidth, h: window.outerHeight };
+    // Recorded once, and as the DESTINATION: the steps on the way are not
+    // sizes anybody asked for, and treating them as such would make the
+    // window's own movement look like somebody dragging its corner.
+    asked = { w, h, at: Date.now() };
+    const far = Math.abs(w - from.w) > GLIDE_MAX || Math.abs(h - from.h) > GLIDE_MAX;
+    if (far || !window.requestAnimationFrame) {
+      try { window.resizeTo(w, h); } catch { /* a normal tab: nothing to do */ }
+      return;
+    }
+    const t0 = (globalThis.performance || Date).now();
+    let sent = null;
+    const step = () => {
+      const now = (globalThis.performance || Date).now();
+      const k = Math.min(1, (now - t0) / GLIDE_MS);
+      // Fast at first, gentle at the end: the eye follows the start and
+      // forgives the finish, which is the opposite of a linear ramp.
+      const e = 1 - Math.pow(1 - k, 3);
+      const at = { w: Math.round(from.w + (w - from.w) * e),
+                   h: Math.round(from.h + (h - from.h) * e) };
+      // The tail of an ease-out rounds to the same pixel several frames
+      // running. Asking the window manager for the size it already has is
+      // work for nothing, and on some of them it is a visible flicker.
+      try {
+        if (!sent || sent.w !== at.w || sent.h !== at.h) {
+          window.resizeTo(at.w, at.h);
+          sent = at;
+        }
+      } catch { return; }        // a normal tab: stop, nothing is broken
+      // The clock keeps running while this glides, so the destination is
+      // re-stamped: a resize event arriving mid-glide is ours, not yours.
+      asked.at = Date.now();
+      if (k < 1) gliding = requestAnimationFrame(step);
+    };
+    step();
   }
 
   // Called after anything that changes the contents.
