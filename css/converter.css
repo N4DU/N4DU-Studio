@@ -305,14 +305,18 @@ body.app-window.no-files .conv-estimate { display: none; }
 .conv-label.second { text-align: right; }
 
 /* The two boxes under the buttons, and the only thing in this panel that
-   changes the window's height by appearing. Tight on purpose: the window
-   grows by exactly these two lines and not a pixel more. */
+   changes the window's height by appearing. One line, side by side: this is
+   the whole reason the window is allowed to grow at all, so it grows by a
+   single line of text and not a pixel more. It may still wrap to two on a
+   very narrow window, which is the right way to run out of room — an
+   unreadable box is worse than a taller panel. */
 .conv-dest-opts {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
   margin-top: 2px;
 }
-.conv-dest-opts .check { font-size: .72rem; }
+.conv-dest-opts .check { font-size: .72rem; white-space: nowrap; }
 .conv-dest-opts .check input:disabled + span { opacity: .45; }
 
