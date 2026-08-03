@@ -330,25 +330,38 @@ body.app-window.no-files .conv-estimate { display: none; }
      clipping and travels with it — two properties easing at once are two
      chances to disagree, and the window has to be able to work out the
      final height in a single reading. */
-  box-sizing: border-box;
-  overflow: hidden;
+  /* A flex item in a column will not shrink below its own content unless it
+     is told to: max-height: 0 was being overruled by that automatic
+     minimum. */
+  min-height: 0;
   max-height: 0;
-  padding-top: calc(var(--actions-gap) + 2px);
-  /* Shut, it must occupy nothing at all — and a flex parent still puts its
-     row gap either side of a child of zero height, so the gap is cancelled
-     here, once, in both states. Without it the empty converter stood eleven
-     pixels taller than it used to for a panel nobody could see. */
+  /* Shut, this must take up nothing whatsoever, and two things stand in the
+     way. A flex parent keeps its row gap either side of a child of zero
+     height — cancelled here by a negative margin of exactly that gap. And
+     padding cannot be clipped by max-height: a border box is never smaller
+     than its own padding, so a padding-top of ten pixels was a panel ten
+     pixels tall that nobody could see, and the window and the panel then
+     disagreed about their heights by exactly that much. So the space above
+     the panel is the parent's gap, uncovered by letting the margin return
+     to zero — no padding anywhere in the moving part. */
   margin-top: calc(-1 * var(--actions-gap));
   opacity: 0;
   visibility: hidden;
   transition: max-height .16s cubic-bezier(.33, 1, .68, 1),
+              margin-top .16s cubic-bezier(.33, 1, .68, 1),
               opacity .1s linear,
               visibility 0s .16s;
 }
 .conv-dest-opts.open {
+  /* A floor to open to if nothing sets an exact one. batch-ui.js puts the
+     real height on the element as an inline style, which wins — this is
+     only so the panel is never stuck shut if that never happens. */
+  max-height: 4rem;
+  margin-top: 0;
   opacity: 1;
   visibility: visible;
   transition: max-height .16s cubic-bezier(.33, 1, .68, 1),
+              margin-top .16s cubic-bezier(.33, 1, .68, 1),
               opacity .1s linear .06s,
               visibility 0s;
 }

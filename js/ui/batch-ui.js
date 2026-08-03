@@ -138,10 +138,7 @@
       opts.deliver = e.target.value;
       save();
       // The two boxes below appear and disappear with this, and the window
-      // grows and shrinks by exactly their height. And the Convert button
-      // names what it is about to hand you: changing where things go and
-      // leaving the button describing the old answer is how you end up with
-      // a zip you did not ask for.
+      // grows and shrinks by exactly their height.
       syncBatch();
       // Right now, not in sixty milliseconds: the panel has just started
       // opening and the window has to set off with it.
@@ -366,11 +363,27 @@
     // "Converted 158 of 158 files" — a true-sounding sentence about a job
     // it had silently made smaller.
     const ready = totals.count > 0 && usable && !working() && !batch.loading();
+    // The green button never changes. Not its wording, not its width, not
+    // where it is.
+    //
+    // It used to name the destination — "Convert & download .zip",
+    // "Convert & save" — and every one of those was a different number of
+    // pixels, so the button changed size and moved as you chose things. The
+    // ways round that are all worse than the problem: hold it at the width
+    // of the longest wording and it carries a pocket of empty colour most of
+    // the time; centre the label inside that pocket and the eye still reads
+    // it as off-centre, because the icon is part of what gets centred.
+    //
+    // So the wording is not the place to say where the files go. The menu
+    // immediately to the left of this button already says it, and says it
+    // better — it is the control you use to choose. The button says what it
+    // does, which never changes, and the tooltip carries the detail.
     $('btnConvertAll').disabled = !ready;
     $('btnConvertAll').title = toDisk()
       ? 'You will be asked which folder when you press this'
-      : '';
-    $('btnConvertAll').innerHTML = buttonLabel();
+      : (totals.count > 1 && opts.deliver !== 'separate'
+        ? 'Everything comes back in one .zip'
+        : 'Downloaded one file at a time');
 
     const rep = $('btnReplaceAll');
     rep.disabled = !ready || (bridge.active && totals.replaceable === 0);
@@ -386,11 +399,6 @@
     updateEstimate();
     // The window follows the batch: one file needs far less room than forty.
     if (N4DU.windowSize) N4DU.windowSize.fit();
-  }
-
-  function buttonLabel() {
-    const what = toDisk() ? 'Convert &amp; save' : 'Convert &amp; download';
-    return `<svg class="bi"><use href="#i-down"/></svg> ${what}`;
   }
 
   // Which of the four destinations are on offer, and which is chosen.
