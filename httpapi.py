@@ -39,6 +39,7 @@ from config import (
 )
 from appstate import (
     SECRET, state_dir, load_settings, save_settings, tidy_state, purge_state,
+    load_window_size, save_window_size,
     remember_file, lookup_file, retarget_file, forget_everything,
 )
 from diskio import (
@@ -372,11 +373,37 @@ class Handler(BaseHTTPRequestHandler):
             return self._replace()
         if path == "/api/settings":
             return self._settings()
+        if path == "/api/window":
+            return self._window()
         if path == "/api/adopt":
             return self._adopt()
         self.send_error(404)
 
     # ── Endpoints ──
+    def _window(self):
+        """Remembers the size the window really came out as.
+
+        The launcher has to name a size before the window exists, and the one
+        thing it cannot know from outside is the frame — an --app window still
+        draws a title bar, and how tall that is depends on the platform, the
+        theme and the display scaling. So the page measures the finished
+        article and says so, and the next launch opens at exactly that. No
+        opening at a guess and correcting itself in front of you.
+        """
+        try:
+            raw = self._body()
+        except UploadError as exc:
+            return self._json({"error": str(exc)}, exc.status)
+        try:
+            asked = json.loads(raw.decode("utf-8"))
+            w, h = asked["w"], asked["h"]
+        except (ValueError, AttributeError, KeyError, TypeError):
+            return self._json({"error": "Malformed request."}, 400)
+        stored = save_window_size(w, h)
+        if stored:
+            trace("window size remembered: {}x{}".format(int(w), int(h)))
+        return self._json({"ok": stored})
+
     def _pick_folder(self):
         """Asks where the converted files should go.
 

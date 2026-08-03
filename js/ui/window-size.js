@@ -169,6 +169,11 @@
     lastApply.outer = { w: window.outerWidth, h: window.outerHeight };
     if (Math.abs(w - window.outerWidth) < SLACK && Math.abs(h - window.outerHeight) < SLACK) {
       lastApply.why = 'already there';
+      // Nothing to do IS the window having been sized: the launcher got it
+      // right. Without this the first real change of the session — opening
+      // the destination panel — would be taken for the startup correction
+      // and jump instead of gliding.
+      if (!sizedOnce) { sizedOnce = true; reportSize(); }
       return;   // already the right size; resizing again would only flicker
     }
     // Twice ignored is twice too many. Some environments do not honour
@@ -196,6 +201,7 @@
   const GLIDE_MS = 160;
   const GLIDE_MAX = 260;      // beyond this a jump is the kinder answer
   let gliding = null;
+  let sizedOnce = false;     // has the window been sized once already?
   // How many times in a row a resize was asked for and simply not granted.
   //
   // Some environments ignore resizeTo outright — a window manager that
@@ -210,6 +216,22 @@
   function glideTo(w, h) {
     cancelAnimationFrame(gliding);
     const from = { w: window.outerWidth, h: window.outerHeight };
+    // The first one is a jump, never a glide.
+    //
+    // The launcher opens the window at roughly the right size and the page
+    // corrects whatever is left over — the title bar an --app window draws
+    // is not something Python can measure from outside. Animating that
+    // correction turns "the window opened" into "the window opened and then
+    // resized itself in front of me", which reads as a fault whichever
+    // direction it goes in. Done in one step, inside the first moments of
+    // the page appearing, there is nothing to see.
+    if (!sizedOnce) {
+      sizedOnce = true;
+      asked = { w, h, at: Date.now() };
+      try { window.resizeTo(w, h); } catch { /* a normal tab: nothing to do */ }
+      reportSize();
+      return;
+    }
     // Recorded once, and as the DESTINATION: the steps on the way are not
     // sizes anybody asked for, and treating them as such would make the
     // window's own movement look like somebody dragging its corner.
@@ -254,6 +276,30 @@
       if (k < 1) gliding = requestAnimationFrame(step);
     };
     step();
+  }
+
+  // Tells the helper what the window really came out as, once, a moment
+  // after it has settled — so the NEXT launch opens at exactly that size and
+  // has nothing to correct. The frame is the part the launcher cannot know
+  // from outside: an --app window still draws a title bar, and how tall it
+  // is depends on the platform, the theme and the display scaling.
+  //
+  // Only from a window of our own, and only a size that was actually
+  // granted: reporting the size of a browser tab would teach the launcher
+  // to open at the size of somebody's maximised browser.
+  let reported = false;
+  function reportSize() {
+    if (reported) return;
+    reported = true;
+    setTimeout(() => {
+      if (!N4DU.ownWindow || !N4DU.ownWindow.isOwnWindow()) return;
+      if (!N4DU.bridge || !N4DU.bridge.rememberWindow) return;
+      // The window has to have taken the size we asked for. If it did not,
+      // what it is now is not something to teach anybody.
+      if (asked && (Math.abs(window.outerWidth - asked.w) > 24 ||
+                    Math.abs(window.outerHeight - asked.h) > 24)) return;
+      N4DU.bridge.rememberWindow(window.outerWidth, window.outerHeight);
+    }, 900);
   }
 
   // Was the last thing we asked for ever granted?
@@ -364,16 +410,19 @@
   // the sizing can be checked in a normal page, where resizeTo does nothing.
   const measure = () => ({ w: WIDTH, h: Math.max(MIN_H, convertHeight()) });
 
-  // Immediately, before anything is painted: start at the smallest useful
-  // size and grow from there.
+  // Nothing is applied here, at parse time, and that is the point.
   //
-  // The launcher gives the window its own browser profile so --window-size
-  // is honoured, but a window can still arrive too large — a browser that
-  // ignores the flag, or a session restored from somewhere. Shrinking first
-  // turns that into growing into place, which reads as the window settling
-  // rather than as a glitch. In a normal tab resizeTo does nothing and this
-  // costs nothing.
-  apply(WIDTH, MIN_H);
+  // There used to be an apply(WIDTH, MIN_H) on this line: shrink first, then
+  // grow into place. It ran before the layout had settled, so its idea of
+  // the height was whatever the window happened to be — it asked for the
+  // size the window already was, marked the window as sized, and left the
+  // real correction to be ANIMATED a moment later. Open, pause, resize:
+  // exactly the thing it was there to avoid.
+  //
+  // The launcher opens the window at the size the page settled on last time
+  // (appstate.load_window_size), so there is usually nothing to correct at
+  // all. When there is — a first run, a new screen, a different scaling —
+  // the first fit() does it in one step, off a layout that is real.
 
   // What this module currently believes, for the tests: whether it has
   // stepped aside, and what it last asked for.

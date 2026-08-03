@@ -52,6 +52,11 @@
      flex parent keeps its row gap around a child of zero height — and
      window.css narrows it for the compact window. */
   --actions-gap: 11px;
+  /* The icon plus the gap after it, in a button whose label is icon + word.
+     Centring that content as one block puts the word off-centre by half of
+     this; the green Convert button gives it back as padding on the right.
+     window.css narrows it where the icon is smaller. */
+  --label-lead: 21px;
 }
 
 html, body { height: 100%; overflow: hidden; }

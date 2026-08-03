@@ -289,6 +289,18 @@
     return res.json();
   };
 
+  // What the window really came out as, frame included, so the next launch
+  // can open at exactly that instead of at an estimate. Fire and forget: if
+  // it does not arrive, the only cost is one correction next time.
+  bridge.rememberWindow = (w, h) => {
+    if (!bridge.active) return;
+    fetch('/api/window', {
+      method: 'POST',
+      headers: { ...HDR, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ w, h }),
+    }).catch(() => { /* the helper went away; nothing here is essential */ });
+  };
+
   bridge.setOnFolderChanged = (fn) => { onFolderChanged = fn || (() => {}); };
   bridge.setOnPending = (fn) => { onPending = fn || (() => {}); };
   // Told when the helper stops answering, or starts again — so the

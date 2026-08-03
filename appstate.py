@@ -102,6 +102,59 @@ def save_settings(settings):
         pass  # settings are a convenience; failing to store them is not fatal
 
 
+# ── The window's real size ──────────────────────────────────────────
+# What the page settled on last time, in OUTER pixels — frame included.
+#
+# The launcher has to name a size before the window exists, and the part it
+# cannot know is the frame: an --app window still draws a title bar, and how
+# tall that is depends on the platform, the theme and the display scaling.
+# So the first launch opens at an estimate, the page corrects it once, and
+# what it corrected to is written down here. Every launch after that opens
+# at the right size and the page has nothing to do.
+_WINDOW_LIMITS = {"w": (320, 4000), "h": (240, 4000)}
+
+
+def load_window_size():
+    """(width, height) in outer pixels, or None if nothing sensible is
+    stored. Never trusted blindly: a file that has been edited, or written
+    by a version that measured differently, must not open a window off the
+    side of the screen."""
+    try:
+        with open(_state_file("window.json"), "r", encoding="utf-8") as fh:
+            saved = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    try:
+        w, h = int(saved["w"]), int(saved["h"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    lo_w, hi_w = _WINDOW_LIMITS["w"]
+    lo_h, hi_h = _WINDOW_LIMITS["h"]
+    if lo_w <= w <= hi_w and lo_h <= h <= hi_h:
+        return (w, h)
+    return None
+
+
+def save_window_size(w, h):
+    """Remembers what the page settled on. Out-of-range values are dropped
+    rather than stored: the point of this file is to open the window right,
+    and a bad number in it is worse than no file at all."""
+    try:
+        w, h = int(w), int(h)
+    except (TypeError, ValueError):
+        return False
+    lo_w, hi_w = _WINDOW_LIMITS["w"]
+    lo_h, hi_h = _WINDOW_LIMITS["h"]
+    if not (lo_w <= w <= hi_w and lo_h <= h <= hi_h):
+        return False
+    try:
+        with open(_state_file("window.json", create=True), "w", encoding="utf-8") as fh:
+            json.dump({"w": w, "h": h}, fh)
+    except OSError:
+        return False
+    return True
+
+
 def _forget(name):
     try:
         os.remove(_state_file(name))
@@ -352,4 +405,5 @@ def forget_everything():
     """The user asked the program to leave no trace: drop the settings now,
     and take the folder away as soon as this run's marker is released."""
     _forget("settings.json")
+    _forget("window.json")
     _state["purge_on_exit"] = True
