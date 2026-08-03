@@ -137,6 +137,18 @@
         apply(EDITOR.w, EDITOR.h);
         return;
       }
+      // Files still arriving. Right-clicking a folder hands over twenty of
+      // them, each one repainting the list and asking for a size — so the
+      // window jumped twenty times on its way to the right shape, which
+      // looks like a fault rather than like settling. Worse, a window
+      // manager answering those requests late made one of them look like
+      // the user resizing the window by hand, and that switches this file
+      // off for the session: the window then stayed at whatever size it
+      // happened to be, holding a list far too long for it, with a
+      // scrollbar. Wait for the last file and size once — nothing is being
+      // polled for here: the batch reports again when the load finishes,
+      // and that report comes back through here.
+      if (N4DU.batch && N4DU.batch.loading()) return;
       // Width first, height second. How many rows the file grid needs
       // depends on how wide it is, so measuring before the width has
       // settled — coming back from the editor, say — sizes the window for a
@@ -166,10 +178,26 @@
       // clamp what it grants — so only a change well after our request, and
       // well away from what we asked for, counts as the user's doing.
       if (Date.now() - asked.at < 700) return;
-      const off = Math.abs(window.outerWidth - asked.w) > 24 ||
-                  Math.abs(window.outerHeight - asked.h) > 24;
-      if (!off) return;
-      manual = true;
+      const off = () => Math.abs(window.outerWidth - asked.w) > 24 ||
+                        Math.abs(window.outerHeight - asked.h) > 24;
+      if (!off()) return;
+      // And it has to still be true a moment later. A window manager
+      // animating or deferring one of OUR resizes delivers the event late
+      // and at an in-between size, which reads exactly like somebody
+      // dragging the corner — and getting that wrong switches the sizing
+      // off for the rest of the session, which is how a window full of
+      // files ended up stuck at the size it had when the first one arrived.
+      // Nobody drags a corner and puts it back within 400ms.
+      setTimeout(() => {
+        if (!asked || !off()) return;
+        manual = true;
+        settled();
+      }, 400);
+    });
+  }
+
+  // What to do once a resize really was the user's.
+  function settled() {
       // And remembered, so the next launch opens at the size you chose.
       // Re-opening the link re-loads the window, and without this it would
       // shrink back to 452 every time — undoing a deliberate resize is the
@@ -179,7 +207,6 @@
       // cycle, so a window resized and reopened a few times crept steadily
       // larger for no reason anybody asked for.
       if (N4DU.ownWindow) N4DU.ownWindow.remember(window.innerWidth, window.innerHeight);
-    });
   }
 
   // The size the converter would ask for, without asking for it. Exposed so

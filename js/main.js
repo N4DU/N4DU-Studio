@@ -247,13 +247,17 @@
   // so right-clicking five images where two were corrupt said "Added 5
   // files" over a list holding three, and said nothing about the two.
   async function addFromDisk(picked) {
-    let added = 0;
-    const failed = [];
-    for (const one of picked) {
-      const r = await batch.add([one.file], { token: one.token, path: one.path });
-      added += r.added;
-      failed.push(...r.failed);
-    }
+    // One call for the whole lot, with one piece of metadata per file.
+    // Twenty separate calls meant the list finished loading twenty times,
+    // and everything watching for "the batch has settled" acted on each of
+    // them: opening a folder of twenty pictures resized the window twenty
+    // times on its way to the right shape, and one of those resizes landing
+    // late was enough for the window to decide the size had been set by
+    // hand — after which it stayed compact, holding a list far too long
+    // for it, with a scrollbar.
+    const { added, failed } = await batch.add(
+      picked.map(one => one.file),
+      picked.map(one => ({ token: one.token, path: one.path })));
     if (failed.length) {
       toast(`${failed.length} file${failed.length > 1 ? 's' : ''} could not be read`, 'err');
     }
@@ -497,6 +501,7 @@
   initControls(refresh);
   initTools(refresh);
   initReplaceDialog(afterReplace);
+  N4DU.clashDialog.init();
   initHelp();
   document.getElementById('btnPopWindow').addEventListener('click', openInOwnWindow);
   N4DU.settings.initSettings();
@@ -599,6 +604,12 @@
   // is where you happened to be last time is wrong when the app has just
   // been handed a fresh batch of files — which is how it is usually opened.
   setMode('convert');
+
+  // The door every file from the disk comes through: the startup queue, a
+  // right-click, the folder offer. Exposed because it is the only way to
+  // exercise "a folder of twenty pictures just arrived" without a file
+  // explorer, and that is a thing worth being able to test.
+  N4DU.addFromDisk = addFromDisk;
 
   bridge.init()
     .then(openStartupFile)

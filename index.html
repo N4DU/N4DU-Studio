@@ -187,35 +187,21 @@
         <div class="conv-progress-bar"><span id="batchProgressBar"></span></div>
         <span class="conv-progress-text" id="batchProgressText"></span>
       </div>
-      <!-- Where the converted files go. Three answers, one at a time, so
-           they are pills like every other either/or in this panel rather
-           than a checkbox that has to mean three things. -->
-      <div class="conv-row conv-dest">
-        <label class="conv-label" id="destLabel">Save as</label>
-        <div class="pills tight" id="batchDest" role="radiogroup" aria-labelledby="destLabel">
-          <button class="pill active" data-dest="zip" role="radio" aria-checked="true"
-                  title="Everything in one archive">.zip</button>
-          <button class="pill" data-dest="separate" role="radio" aria-checked="false"
-                  title="One download per file">Separate</button>
-          <button class="pill" data-dest="folder" role="radio" aria-checked="false" hidden
-                  title="Write them straight into a folder you choose">Into a folder…</button>
-        </div>
-      </div>
-      <!-- Only while "Into a folder" is chosen. Two independent questions,
-           so two checkboxes; they are not alternatives to each other. -->
-      <div class="conv-dest-opts" id="destOptions" hidden>
-        <button class="btn-ghost tiny" id="btnPickDest">Choose folder…</button>
-        <span class="conv-note" id="destPath">no folder chosen yet</span>
-        <label class="check inline" title="The picture is written to the new folder and then removed from where it was">
-          <input type="checkbox" id="destMove">
-          <span>Move (delete the original)</span>
-        </label>
-        <label class="check inline" title="Instead of leaving you with «foto (2).png»">
-          <input type="checkbox" id="destOverwrite">
-          <span>Overwrite anything already called that</span>
-        </label>
-      </div>
       <div class="conv-buttons">
+        <!-- Where the converted files go. A menu, in the space the Separate
+             checkbox used to occupy, because this window is 452 pixels wide
+             and every row the controls grow is a row of your files you stop
+             being able to see. Four answers, no extra height, and nothing
+             on screen that is only meaningful some of the time.
+             The folder itself is asked for when you press Convert. -->
+        <select id="batchDest" class="dest-pick"
+                aria-label="Where the converted files go"
+                title="Where the converted files go">
+          <option value="zip">.zip</option>
+          <option value="separate">Separate</option>
+          <option value="folder" hidden>To a folder…</option>
+          <option value="move" hidden>Move to a folder…</option>
+        </select>
         <button class="btn-primary btn-swap" id="btnReplaceAll" disabled>
           <svg class="bi"><use href="#i-swap"/></svg> Replace originals
         </button>
@@ -647,6 +633,23 @@
   </div>
 </div>
 
+<!-- Asked once, and only when it is a real question: after you have chosen
+     the folder, if something in there is already called what we are about to
+     write. A permanent checkbox for this would sit on screen being irrelevant
+     almost every time, in a window that has no room to spare. -->
+<div class="modal-backdrop" id="clashModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="clashModalTitle">
+    <div class="modal-title" id="clashModalTitle">Something is already called that</div>
+    <div class="hint" id="clashText"></div>
+    <ul class="clash-list" id="clashList"></ul>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="btnClashCancel">Cancel</button>
+      <button class="btn-ghost" id="btnClashKeep">Keep both</button>
+      <button class="btn-accent" id="btnClashReplace">Replace</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script src="js/state.js?v=2026.08.02g"></script>
@@ -670,6 +673,7 @@
 <script src="js/ui/controls.js?v=2026.08.02g"></script>
 <script src="js/ui/tools.js?v=2026.08.02g"></script>
 <script src="js/ui/replace-dialog.js?v=2026.08.02g"></script>
+<script src="js/ui/clash-dialog.js?v=2026.08.02g"></script>
 <script src="js/ui/settings.js?v=2026.08.02g"></script>
 <script src="js/ui/batch-run.js?v=2026.08.02g"></script>
 <script src="js/ui/batch-ui.js?v=2026.08.02g"></script>

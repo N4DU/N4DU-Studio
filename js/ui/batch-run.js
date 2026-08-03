@@ -18,7 +18,7 @@
   // Filled in by batch-ui.js, which owns the settings and the repaint.
   let deps = {
     optsFor: () => ({}), fmtFor: () => 'png', opts: {}, KEEP: 'keep',
-    syncBatch: () => {}, limitLabel: () => '',
+    syncBatch: () => {}, limitLabel: () => '', toDisk: () => false,
     renderGrid: () => {}, cancelEstimate: () => {}, afterRun: () => {},
   };
 
@@ -39,6 +39,19 @@
       return;
     }
     working = true;
+    // Where to, asked now rather than kept as a setting — and asked before
+    // anything is converted. Finding out the answer is "cancel" after
+    // grinding through fifty pictures is fifty pictures of somebody's time.
+    // Cancelling here costs nothing and leaves the list exactly as it was.
+    // `working` is already true, so the buttons are locked while the system
+    // dialog is up and a second press cannot open a second one.
+    let dest = null;
+    if (!replace && deps.toDisk()) {
+      deps.syncBatch();
+      dest = await askWhereTo();
+      if (!dest) { working = false; deps.syncBatch(); return; }
+    }
+
     // The estimate is about to be wrong about everything: it runs on the
     // selected file and holds a decoded copy of it, and this is going to
     // decode every file in turn. Cancelling it here is not tidiness — an
@@ -111,7 +124,7 @@
     $('batchProgress').hidden = true;
     working = false;
 
-    const delivery = produced.length ? await deliver(produced) : null;
+    const delivery = produced.length ? await deliver(produced, dest) : null;
 
     deps.syncBatch();
     // A run works from the list as it stood when it started. Files can still
@@ -128,8 +141,8 @@
 
   // Sends the results out: one archive by default, separate downloads when
   // asked. Fifty individual downloads is a fifty-prompt browser fight.
-  async function deliver(produced) {
-    if (deps.opts.deliver === 'folder') return saveIntoFolder(produced);
+  async function deliver(produced, dest) {
+    if (dest) return saveIntoFolder(produced, dest);
     if (produced.length === 1 || deps.opts.deliver === 'separate') {
       for (const file of produced) {
         download(file.blob, file.name);
@@ -145,13 +158,47 @@
     download(archive, `n4du-${tag}-${stamp}.zip`);
   }
 
-  // Straight onto the disk, into a folder chosen beforehand. The browser
-  // never sees these as downloads, so nothing lands in Downloads and nothing
+  // Asks for the folder, and — in the same breath — whether anything in it
+  // is already called what we are about to write.
+  //
+  // One dialog, one question, at the moment you asked for the work. The
+  // collision question is only put when there IS a collision, which is why
+  // it is not a permanent tick-box: almost every run would carry it on
+  // screen doing nothing, in a window that has no room to spare.
+  //
+  // Returns { token, name, overwrite } or null when you backed out.
+  async function askWhereTo() {
+    // The output names are known before a single pixel is converted: the
+    // format is a setting, not a discovery. So the collision can be found
+    // out now rather than halfway through.
+    const names = batch.items.map(it => outputName(it.name, deps.fmtFor(it)));
+    let picked;
+    try {
+      picked = await bridge.pickDestination(names);
+    } catch (err) {
+      toast(err.message, 'err');
+      return null;
+    }
+    if (!picked) return null;                    // cancelled, and that is fine
+    const taken = picked.taken || [];
+    let overwrite = false;
+    if (taken.length) {
+      const answer = await N4DU.clashDialog.ask(taken, picked.name);
+      if (answer === 'cancel') return null;
+      overwrite = answer === 'replace';
+    }
+    return { token: picked.token, name: picked.name, overwrite };
+  }
+
+  // Straight onto the disk, into the folder just chosen. The browser never
+  // sees these as downloads, so nothing lands in Downloads and nothing
   // arrives named «foto (2).png» unless we were the ones who renamed it —
   // and when we were, the toast says so rather than letting you find out
   // later.
-  async function saveIntoFolder(produced) {
-    const { destToken, destMove, destOverwrite } = deps.opts;
+  async function saveIntoFolder(produced, dest) {
+    const destToken = dest.token;
+    const destMove = deps.opts.deliver === 'move';
+    const destOverwrite = dest.overwrite;
     if (!destToken) { toast('No folder chosen, so nothing was saved', 'err'); return; }
     let written = 0, renamed = 0, overwritten = 0, moved = 0, failed = 0;
     let lastError = '';
