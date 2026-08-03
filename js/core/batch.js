@@ -37,19 +37,27 @@
 
   // meta: { token, path } when the file came from the disk bridge, which is
   // what makes replacing it in place possible later.
+  //
+  // It may also be an ARRAY, one entry per file. A folder handed over by the
+  // file explorer is twenty files with twenty different paths, and adding
+  // them one call at a time meant the list finished loading twenty times
+  // over — which every listener took as "the batch is settled now", so the
+  // window resized itself once per picture on its way to the right shape.
   async function addFiles(files, meta = {}) {
     const incoming = [...files].slice(0, Math.max(0, MAX_ITEMS - items.length));
     const skipped = files.length - incoming.length;
+    const each = Array.isArray(meta);
     const failed = [];
     let duplicates = 0;
     let lastPaint = 0;
 
-    for (const file of incoming) {
+    for (const [at, file] of incoming.entries()) {
+      const meta_ = each ? (meta[at] || {}) : meta;
       // The same file can arrive twice — the explorer handing it over while
       // the folder offer also lists it, or the same selection opened twice.
       // A path is the identity here; pasted images have none and are always
       // treated as new.
-      if (meta.path && items.some(it => it.path === meta.path)) { duplicates++; continue; }
+      if (meta_.path && items.some(it => it.path === meta_.path)) { duplicates++; continue; }
       const item = {
         id: nextId++,
         file,
@@ -57,8 +65,8 @@
         size: file.size,
         w: 0, h: 0,
         thumb: null,
-        token: meta.token || null,
-        path: meta.path || null,
+        token: meta_.token || null,
+        path: meta_.path || null,
         edited: null,       // a bitmap handed back by the editor
         status: 'ready',    // ready | working | done | error
         result: null,
@@ -67,7 +75,7 @@
       try {
         // Only meaningful for a single file: one bitmap cannot stand in for
         // several different pictures.
-        await measure(item, incoming.length === 1 ? meta.decoded : null);
+        await measure(item, incoming.length === 1 ? meta_.decoded : null);
         items.push(item);
         if (selectedId === null) selectedId = item.id;
       } catch {

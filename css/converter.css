@@ -304,25 +304,17 @@ body.app-window.no-files .conv-estimate { display: none; }
 }
 .conv-label.second { text-align: right; }
 
-/* The two extra questions that only "Into a folder" raises. Indented to
-   the value column so they read as belonging to the row above rather than
-   as two more settings of their own. */
-.conv-dest-opts {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: 6px 10px;
-  margin: 6px 0 0 86px;
+/* The names already taken in the chosen folder. Scrolls rather than growing
+   the dialog past the screen: forty collisions is a list, not a wall. */
+.clash-list {
+  margin: 10px 0 0;
+  padding: 8px 10px 8px 26px;
+  max-height: 150px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: .74rem;
+  color: var(--muted);
 }
-.conv-dest-opts .check { grid-column: 1 / -1; }
-/* The chosen folder, which is the one thing here worth reading in full. */
-.conv-dest-opts #destPath {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* No folder chosen yet is not an error, but it is the reason the Convert
-   button is refusing, so it does not get to look like ordinary grey text. */
-.conv-dest-opts #destPath.warn { color: var(--muted); font-style: italic; }
-.conv-dest-opts .check input:disabled + span { opacity: .45; }
+.clash-list li { margin: 2px 0; word-break: break-all; }
 
