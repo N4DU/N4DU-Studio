@@ -84,7 +84,7 @@ from appstate import (  # noqa: E402
 )
 from diskio import (  # noqa: E402
     ALLOWED_EXT, OPENABLE_EXT, PICK_TIMEOUT,
-    native_pick, target_path, replace_file, openable, _natural_key, _safe_stem,
+    native_pick, target_path, replace_file, openable, _natural_key, _safe_stem, images_in,
 )
 from httpapi import Handler, NoFreePort, start_server, settings_status  # noqa: E402
 from pagestate import (  # noqa: E402
@@ -340,10 +340,30 @@ def main():
             fatal(str(exc))
 
     if args["open"]:
+        # A folder means the pictures inside it. Right-clicking a folder — or
+        # empty space inside one — hands over the folder itself, and "open
+        # this" then means every image sitting in it, in reading order.
+        # Expanded before anything else looks at the list, so the rest of the
+        # program only ever sees files.
+        spread, barren = [], []
+        for given in args["open"]:
+            if os.path.isdir(given):
+                found = images_in(given)
+                # Not a reason to stop here. Selecting five photographs and
+                # an empty folder together and getting "there are no
+                # pictures in Backups" — with the five photographs refused
+                # along with it — is the wrong answer to the right question.
+                if not found:
+                    barren.append(os.path.basename(os.path.abspath(given)) or given)
+                spread.extend(found)
+            else:
+                spread.append(given)
         # Keep only what we can actually open; complain only if none survive.
-        usable = [p for p in args["open"] if openable(p)[0]]
+        usable = [p for p in spread if openable(p)[0]]
         if not usable:
-            fatal(openable(args["open"][0])[1])
+            fatal("There are no pictures in {}.".format(barren[0]) if barren
+                  else openable(spread[0])[1] if spread
+                  else "Nothing to open was given.")
         args["open"] = usable
 
     # Is somebody already running? Asked EVERY time, not only when files were

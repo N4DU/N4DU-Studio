@@ -32,7 +32,15 @@
     maxKb: null,
     maxUnit: 'KB',
     resize: { mode: 'keep', value: 1920 },
-    separate: false,
+    // Where the converted files go: 'zip', 'separate', or 'folder' — one
+    // archive, one download each, or written straight into a folder you
+    // choose. The last one only exists with the desktop helper running,
+    // because only it can open a folder dialog and write to disk.
+    deliver: 'zip',
+    destToken: null,      // a receipt for the folder, never a path
+    destName: '',         // just its name, for the line under the buttons
+    destMove: false,      // delete the original once the new one is down
+    destOverwrite: false, // replace a file already called that
   };
 
   // The real output format for one file. Anything we cannot write back —
@@ -119,14 +127,22 @@
       }
       changed();
     });
-    $('batchSeparate').addEventListener('change', e => {
-      opts.separate = e.target.checked;
+    $('batchDest').addEventListener('click', e => {
+      const pill = e.target.closest('.pill');
+      if (!pill) return;
+      opts.deliver = pill.dataset.dest;
       save();
-      // The Convert button names what it is about to hand you — "Convert &
-      // download .zip", or without the .zip for separate files. Ticking the
-      // box changed the behaviour and left the button describing the old
-      // one, until some unrelated repaint happened to correct it.
+      // The Convert button names what it is about to hand you. Changing
+      // where things go and leaving the button describing the old answer is
+      // how you end up with a zip you did not ask for.
       syncBatch();
+    });
+    $('btnPickDest').addEventListener('click', chooseDestination);
+    $('destMove').addEventListener('change', e => {
+      opts.destMove = e.target.checked; save(); syncBatch();
+    });
+    $('destOverwrite').addEventListener('change', e => {
+      opts.destOverwrite = e.target.checked; save(); syncBatch();
     });
 
     $('btnConvertAll').addEventListener('click', () => run(false));
@@ -140,6 +156,20 @@
 
     batch.setOnChange(syncBatch);
     syncBatch();
+  }
+
+  async function chooseDestination() {
+    if (!bridge.active) { toast('Choosing a folder needs the desktop version', 'err'); return; }
+    try {
+      const picked = await bridge.pickDestination();
+      if (!picked) return;                       // cancelled, and that is fine
+      opts.destToken = picked.token;
+      opts.destName = picked.name || picked.folder;
+      save();
+      syncBatch();
+    } catch (err) {
+      toast(err.message, 'err');
+    }
   }
 
   function readLimit() {
@@ -163,7 +193,11 @@
     try {
       localStorage.setItem(STORE, JSON.stringify({
         fmt: opts.fmt, quality: opts.quality, maxKb: opts.maxKb,
-        maxUnit: opts.maxUnit, resize: opts.resize, separate: opts.separate,
+        maxUnit: opts.maxUnit, resize: opts.resize,
+        // The folder token is deliberately not kept: it is a receipt from
+        // this run of the helper and means nothing to the next one.
+        deliver: opts.deliver, destMove: opts.destMove,
+        destOverwrite: opts.destOverwrite,
       }));
     } catch { /* private mode, or file:// — the app works without it */ }
   }
@@ -179,11 +213,17 @@
       if (saved.resize && RESIZE_MODES[saved.resize.mode]) {
         opts.resize = { mode: saved.resize.mode, value: Number(saved.resize.value) || 1920 };
       }
-      opts.separate = !!saved.separate;
+      // 'separate' was a checkbox before there were three places to send
+      // things. A setting saved by the old version still means what it said.
+      if (['zip', 'separate', 'folder'].includes(saved.deliver)) opts.deliver = saved.deliver;
+      else if (saved.separate) opts.deliver = 'separate';
+      opts.destMove = !!saved.destMove;
+      opts.destOverwrite = !!saved.destOverwrite;
     }
     $('batchQuality').value = Math.round(opts.quality * 100);
     $('batchMaxUnit').value = opts.maxUnit;
-    $('batchSeparate').checked = opts.separate;
+    $('destMove').checked = opts.destMove;
+    $('destOverwrite').checked = opts.destOverwrite;
     if (opts.maxKb) {
       $('batchMaxSize').value = opts.maxUnit === 'MB'
         ? parseFloat((opts.maxKb / 1024).toFixed(3))
@@ -328,7 +368,12 @@
     // "Converted 158 of 158 files" — a true-sounding sentence about a job
     // it had silently made smaller.
     const ready = totals.count > 0 && usable && !working() && !batch.loading();
-    $('btnConvertAll').disabled = !ready;
+    // Converting straight into a folder needs the folder first. Starting
+    // anyway and asking at the end would mean converting fifty files to
+    // find out the answer is "cancel".
+    const addressed = opts.deliver !== 'folder' || !!opts.destToken;
+    $('btnConvertAll').disabled = !ready || !addressed;
+    $('btnConvertAll').title = addressed ? '' : 'Choose the folder to write into first';
     $('btnConvertAll').innerHTML = buttonLabel(totals);
 
     const rep = $('btnReplaceAll');
@@ -340,15 +385,62 @@
         : 'None of these files came from your disk, so there is nothing to overwrite')
       : 'Overwriting files needs the desktop version';
 
+    syncDestination(totals);
+
     updateEstimate();
     // The window follows the batch: one file needs far less room than forty.
     if (N4DU.windowSize) N4DU.windowSize.fit();
   }
 
   function buttonLabel(totals) {
-    const many = totals.count > 1 && !opts.separate;
+    if (opts.deliver === 'folder') {
+      const where = opts.destName ? ` into ${opts.destName}` : ' into a folder';
+      return `<svg class="bi"><use href="#i-down"/></svg> Convert &amp; save${where}`;
+    }
+    const many = totals.count > 1 && opts.deliver !== 'separate';
     const what = many ? 'Convert &amp; download .zip' : 'Convert &amp; download';
     return `<svg class="bi"><use href="#i-down"/></svg> ${what}`;
+  }
+
+  // Where the files go, and which questions about that are worth asking.
+  //
+  // Both extra options are about a file landing on your disk under a name we
+  // chose, which only happens on the "into a folder" route: a browser
+  // download cannot overwrite anything (it invents «foto (2).png» and does
+  // not tell us) and cannot confirm it arrived, so offering to delete the
+  // original alongside it would be offering to lose the picture. So the
+  // panel belongs to that one mode — and inside it, Move is only offered
+  // when there is an original to move, which is not true of a pasted or
+  // dragged-from-the-web image that never had a path.
+  function syncDestination(totals) {
+    const pills = $('batchDest');
+    // Writing into a folder is the helper's job. In a plain tab the option
+    // is not disabled-looking, it is absent: there is nothing to explain.
+    for (const pill of pills.querySelectorAll('.pill')) {
+      if (pill.dataset.dest === 'folder') pill.hidden = !bridge.active;
+    }
+    // A setting remembered from a desktop session, reopened in a tab.
+    if (opts.deliver === 'folder' && !bridge.active) { opts.deliver = 'zip'; save(); }
+    for (const pill of pills.querySelectorAll('.pill')) {
+      const on = pill.dataset.dest === opts.deliver;
+      pill.classList.toggle('active', on);
+      pill.setAttribute('aria-checked', on ? 'true' : 'false');
+    }
+
+    const folder = opts.deliver === 'folder';
+    $('destOptions').hidden = !folder;
+    if (!folder) return;
+
+    $('destPath').textContent = opts.destName || 'no folder chosen yet';
+    $('destPath').classList.toggle('warn', !opts.destToken);
+    $('btnPickDest').textContent = opts.destToken ? 'Change folder…' : 'Choose folder…';
+    $('btnPickDest').disabled = working();
+
+    // Nothing to move when nothing came from disk.
+    const movable = totals.replaceable > 0;
+    $('destMove').closest('.check').hidden = !movable;
+    $('destMove').disabled = !movable || working();
+    $('destOverwrite').disabled = working();
   }
 
   // The file list. Each tile is the picture, its name, and what happened to

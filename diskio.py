@@ -57,11 +57,76 @@ else:
 sys.stdout.write("\\n".join(p for p in paths if p))
 """
 
+# Choosing a FOLDER rather than a file. A separate script because
+# askdirectory is a different call, and because giving the file picker a
+# "folders too" mode would make every other caller worry about which it got.
+_FOLDER_SCRIPT = """
+import sys, tkinter as tk
+from tkinter import filedialog
+root = tk.Tk(); root.withdraw()
+root.attributes("-topmost", True)
+chosen = filedialog.askdirectory(title=sys.argv[1] if len(sys.argv) > 1
+                                 else "N4DU Studio", mustexist=True)
+sys.stdout.write(chosen or "")
+"""
+
 _PICK_TITLES = {
     "open":      "N4DU Studio - Open image",
     "open-many": "N4DU Studio - Choose images to convert",
     "target":    "N4DU Studio - Choose the file to replace",
+    "dest":      "N4DU Studio - Where should the converted files go?",
 }
+
+
+def native_pick_folder():
+    """The folder the user chose, or None when they cancelled.
+
+    Same shape as native_pick: a child process, because tkinter insists on
+    owning a main thread and this server has none to give it.
+    """
+    test = os.environ.get("N4DU_TEST_FOLDER")     # hook for automated tests
+    if test is not None:
+        return test or None
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    flags = {"creationflags": 0x08000000} if os.name == "nt" else {}
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", _FOLDER_SCRIPT, _PICK_TITLES["dest"]],
+            capture_output=True, encoding="utf-8", env=env,
+            timeout=PICK_TIMEOUT, **flags)
+    except subprocess.TimeoutExpired:
+        return None
+    if proc.returncode != 0:
+        detail = (proc.stderr or "").strip().splitlines()
+        raise RuntimeError(
+            "Could not open the system dialog"
+            + (f" ({detail[-1][:120]})" if detail else "") + ".")
+    chosen = (proc.stdout or "").strip()
+    return chosen if chosen and os.path.isdir(chosen) else None
+
+
+def images_in(folder, limit=400):
+    """Every picture sitting directly in this folder, in reading order.
+
+    Not recursive, on purpose: right-clicking a folder means "the pictures
+    in here", and walking into a photo library three levels deep would hand
+    back thousands of files nobody asked for.
+    """
+    try:
+        names = sorted(os.listdir(folder), key=_natural_key)
+    except OSError:
+        return []
+    found = []
+    for name in names:
+        full = os.path.join(folder, name)
+        if os.path.splitext(name)[1].lower().lstrip(".") not in OPENABLE_EXT:
+            continue
+        if not os.path.isfile(full):
+            continue
+        found.append(full)
+        if len(found) >= limit:
+            break
+    return found
 
 
 def native_pick(intent="open"):
@@ -269,6 +334,85 @@ def replace_file(original, data, ext, new_stem=None, overwrite=False):
         except OSError as exc:
             warning = f"Could not delete {os.path.basename(original)} ({exc.strerror})."
     return target, warning
+
+
+def save_into(folder, name, data, overwrite=False):
+    """Writes one converted picture into a folder the user chose.
+
+    Returns (path, what_happened) where what_happened is "written",
+    "overwritten" or "renamed" — the caller says out loud which it was,
+    because those are three different things to have done to somebody's
+    disk and only one of them is what they expected.
+
+    overwrite=False is the safe default and it does NOT fail on a clash: it
+    finds a free name, the way the file explorer would. Ticking the box is
+    how you say "no, that one, replace it" — which is the whole point of
+    the box, since otherwise you get foto (2).png and have to go and tidy up
+    afterwards.
+    """
+    if not os.path.isdir(folder):
+        raise ValueError("That folder is not there any more.")
+    stem = _safe_stem(name)
+    ext = os.path.splitext(name)[1].lower().lstrip(".")
+    if ext not in ALLOWED_EXT:
+        raise ValueError(f"Extension not allowed: {ext}")
+    if not stem:
+        raise ValueError("Empty file name.")
+
+    target = os.path.join(folder, f"{stem}.{ext}")
+    # The name must land inside the folder that was chosen and nowhere else.
+    if os.path.dirname(os.path.abspath(target)) != os.path.abspath(folder):
+        raise ValueError("Invalid file name.")
+
+    outcome = "written"
+    if os.path.exists(target):
+        if overwrite:
+            outcome = "overwritten"
+        else:
+            target = _free_name(folder, stem, ext)
+            outcome = "renamed"
+
+    tmp = os.path.join(folder, _temp_name(os.path.basename(target)))
+    try:
+        with open(tmp, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, target)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return target, outcome
+
+
+def _free_name(folder, stem, ext):
+    """foto.png, foto (2).png, foto (3).png — the shape Windows uses, so a
+    folder that already has some of ours does not end up with two different
+    naming schemes side by side."""
+    for n in range(2, 1000):
+        candidate = os.path.join(folder, f"{stem} ({n}).{ext}")
+        if not os.path.exists(candidate):
+            return candidate
+    # A thousand of them is not a name problem any more.
+    return os.path.join(folder, f"{stem} ({secrets.token_hex(4)}).{ext}")
+
+
+def discard(path):
+    """Removes a file the user asked to move rather than copy.
+
+    Only ever called AFTER the new one is safely on disk, and it says
+    whether it managed it: a picture that could not be deleted is a picture
+    that is now in two places, and the person deserves to hear that rather
+    than find out later.
+    """
+    try:
+        os.remove(path)
+        return True
+    except OSError:
+        return False
 
 
 def _natural_key(name):

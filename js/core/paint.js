@@ -57,24 +57,33 @@
     pctx.drawImage(src, rx, ry, rw, rh, dx, dy, rw, rh);
     stretchEdges(pctx, dx, dy, rw, rh);
 
+    if (hasFilter()) {
+      // Straight into the destination, margins and all: the canvas edge
+      // does the cropping. Blurring into a third full-size offscreen first
+      // and then copying the middle out of it is the same picture and one
+      // more 12-megapixel allocation and copy — on "blur the whole photo"
+      // that was most of a second of the wait.
+      ctx.save();
+      ctx.clearRect(0, 0, w, h);
+      ctx.filter = `blur(${radius}px)`;
+      ctx.drawImage(padded, -m, -m);
+      ctx.restore();
+      return;
+    }
+
+    // No filter: box passes by hand, which need the pixels somewhere real.
     const blurred = new OffscreenCanvas(padded.width, padded.height);
     const bctx = blurred.getContext('2d');
-    if (hasFilter()) {
-      bctx.filter = `blur(${radius}px)`;
-      bctx.drawImage(padded, 0, 0);
-      bctx.filter = 'none';
-    } else {
-      bctx.drawImage(padded, 0, 0);
-      const img = bctx.getImageData(0, 0, blurred.width, blurred.height);
-      const r = Math.max(1, Math.round(radius * 0.6));
-      premultiply(img.data);
-      for (let pass = 0; pass < 3; pass++) {
-        boxBlurPass(img.data, blurred.width, blurred.height, r, true);
-        boxBlurPass(img.data, blurred.width, blurred.height, r, false);
-      }
-      unpremultiply(img.data);
-      bctx.putImageData(img, 0, 0);
+    bctx.drawImage(padded, 0, 0);
+    const img = bctx.getImageData(0, 0, blurred.width, blurred.height);
+    const r = Math.max(1, Math.round(radius * 0.6));
+    premultiply(img.data);
+    for (let pass = 0; pass < 3; pass++) {
+      boxBlurPass(img.data, blurred.width, blurred.height, r, true);
+      boxBlurPass(img.data, blurred.width, blurred.height, r, false);
     }
+    unpremultiply(img.data);
+    bctx.putImageData(img, 0, 0);
 
     ctx.clearRect(0, 0, w, h);
     ctx.drawImage(blurred, m, m, w, h, 0, 0, w, h);

@@ -86,7 +86,16 @@
           if (wrote && wrote.name) item.name = wrote.name;
           replaced++;
         } else {
-          produced.push({ name: outputName(item.name, deps.fmtFor(item)), blob: out.blob });
+          produced.push({
+            name: outputName(item.name, deps.fmtFor(item)),
+            blob: out.blob,
+            // Carried for the "into a folder" route only, where moving means
+            // deleting this exact file once the new one is down. A file that
+            // was pasted or dragged from a web page has no token, and
+            // nothing about it can be deleted.
+            token: item.token || null,
+            item,
+          });
         }
         done++;
       } catch (err) {
@@ -102,7 +111,7 @@
     $('batchProgress').hidden = true;
     working = false;
 
-    if (produced.length) await deliver(produced);
+    const delivery = produced.length ? await deliver(produced) : null;
 
     deps.syncBatch();
     // A run works from the list as it stood when it started. Files can still
@@ -111,7 +120,7 @@
     // "Added 1 file", then "Converted 40 of 40 files", with 41 in the list
     // and 40 in the zip, and nothing saying which one had been left out.
     const late = batch.items.filter(it => !targets.includes(it)).length;
-    report({ replace, done, failed, replaced, overCap, total: targets.length, late });
+    report({ replace, done, failed, replaced, overCap, total: targets.length, late, delivery });
     // Replacing renames files on disk, so what is left in the folder has
     // just changed. Whoever offers the rest of the folder needs to hear it.
     deps.afterRun({ replace, replaced });
@@ -120,7 +129,8 @@
   // Sends the results out: one archive by default, separate downloads when
   // asked. Fifty individual downloads is a fifty-prompt browser fight.
   async function deliver(produced) {
-    if (produced.length === 1 || deps.opts.separate) {
+    if (deps.opts.deliver === 'folder') return saveIntoFolder(produced);
+    if (produced.length === 1 || deps.opts.deliver === 'separate') {
       for (const file of produced) {
         download(file.blob, file.name);
         // Browsers drop downloads fired in a tight loop.
@@ -135,15 +145,66 @@
     download(archive, `n4du-${tag}-${stamp}.zip`);
   }
 
-  function report({ replace, done, failed, replaced, overCap, total, late = 0 }) {
+  // Straight onto the disk, into a folder chosen beforehand. The browser
+  // never sees these as downloads, so nothing lands in Downloads and nothing
+  // arrives named «foto (2).png» unless we were the ones who renamed it —
+  // and when we were, the toast says so rather than letting you find out
+  // later.
+  async function saveIntoFolder(produced) {
+    const { destToken, destMove, destOverwrite } = deps.opts;
+    if (!destToken) { toast('No folder chosen, so nothing was saved', 'err'); return; }
+    let written = 0, renamed = 0, overwritten = 0, moved = 0, failed = 0;
+    let lastError = '';
+    for (const file of produced) {
+      try {
+        const res = await bridge.saveInto(destToken, file.name, file.blob, {
+          overwrite: destOverwrite,
+          source: destMove ? file.token : null,
+        });
+        if (res.outcome === 'renamed') renamed++;
+        else if (res.outcome === 'overwritten') overwritten++;
+        else written++;
+        if (res.removed) moved++;
+        // Only a move changes what this card is. Without one the original
+        // is still sitting where it was and the copy in the other folder is
+        // a copy — repointing the card at it made the SECOND run convert
+        // «uno (2).webp» instead of «uno.webp», so ticking Overwrite
+        // overwrote the wrong file and left the first one untouched.
+        if (file.item && res.removed) {
+          file.item.path = res.path;
+          file.item.name = res.name || file.item.name;
+          file.item.token = null;   // the original it pointed at is gone
+        }
+      } catch (err) {
+        failed++;
+        lastError = shortError(err);
+        if (file.item) { file.item.status = 'error'; file.item.error = lastError; }
+      }
+    }
+    const bits = [];
+    const saved = written + renamed + overwritten;
+    bits.push(`saved ${saved} of ${produced.length}`);
+    if (overwritten) bits.push(`${overwritten} replaced an existing file`);
+    // The one outcome nobody asked for, so it is never left unsaid.
+    if (renamed) bits.push(`${renamed} kept a new name — something was already called that`);
+    if (moved) bits.push(`${moved} original${moved > 1 ? 's' : ''} removed`);
+    if (failed) bits.push(`${failed} could not be saved — ${lastError}`);
+    deps.renderGrid();
+    return { bits, failed };
+  }
+
+  function report({ replace, done, failed, replaced, overCap, total, late = 0, delivery = null }) {
     if (!total) { toast('Nothing to do', ''); return; }
     const bits = [];
     if (replace) bits.push(`Overwrote ${replaced} of ${total} file${total > 1 ? 's' : ''}`);
     else bits.push(`Converted ${done} of ${total} file${total > 1 ? 's' : ''}`);
+    // Converting and saving are two things that can go differently, so the
+    // line reports both rather than one number standing in for both.
+    if (delivery) bits.push(...delivery.bits);
     if (overCap) bits.push(`${overCap} could not get under ${deps.limitLabel()}`);
     if (failed) bits.push(`${failed} failed`);
     if (late) bits.push(`${late} arrived after this run started — press again for ${late > 1 ? 'them' : 'it'}`);
-    toast(bits.join(' · '), failed || overCap ? 'err' : 'ok');
+    toast(bits.join(' · '), failed || overCap || (delivery && delivery.failed) ? 'err' : 'ok');
   }
 
   function progress(index, total, name) {
