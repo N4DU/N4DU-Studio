@@ -50,11 +50,25 @@
       // natural height instead of the height it happens to have.
       content += block.classList.contains('conv-files')
         ? naturalFilesHeight(block)
-        : block.offsetHeight;
+        : block.offsetHeight + midGrowth(block);
     }
     // A couple of pixels of headroom: rounding a fraction the wrong way
     // clips the last row of files and puts a scrollbar on a list that fits.
     return chrome + pad + gap * Math.max(0, blocks.length - 1) + content + 4;
+  }
+
+  // Anything inside this block that is part-way through opening or closing.
+  //
+  // The destination options slide open over 160ms, so for most of that time
+  // offsetHeight reports a panel that is neither shut nor open — and sizing
+  // the window to a height that is about to change is how the window ends up
+  // chasing the panel instead of moving with it. scrollHeight is the height
+  // it is heading for; the difference is what has not arrived yet.
+  function midGrowth(block) {
+    const panel = block.querySelector('.conv-dest-opts');
+    if (!panel) return 0;
+    return (panel.classList.contains('open') ? panel.scrollHeight : 0)
+           - panel.offsetHeight;
   }
 
   function naturalFilesHeight(block) {
@@ -158,6 +172,9 @@
       const k = Math.min(1, (now - t0) / GLIDE_MS);
       // Fast at first, gentle at the end: the eye follows the start and
       // forgives the finish, which is the opposite of a linear ramp.
+      // easeOutCubic. The panel below uses cubic-bezier(.33,1,.68,1), which
+      // is the same curve: the two have to agree or they pull against each
+      // other and something in between gets squeezed.
       const e = 1 - Math.pow(1 - k, 3);
       const at = { w: Math.round(from.w + (w - from.w) * e),
                    h: Math.round(from.h + (h - from.h) * e) };
@@ -179,11 +196,17 @@
   }
 
   // Called after anything that changes the contents.
+  //
+  // `now` skips the settle time, for the one case that needs it: a control
+  // that starts its own animation in the same breath. The window and that
+  // animation have to set off together — sixty milliseconds of the panel
+  // opening while the window has not moved is sixty milliseconds of the
+  // drop zone being squashed to make room, which is the jolt this whole
+  // arrangement exists to avoid.
   let pending = null;
-  function fit() {
+  function fit(now = false) {
     clearTimeout(pending);
-    // One frame of settle time: this runs right after the list is redrawn.
-    pending = setTimeout(() => {
+    const measure_ = () => {
       if (document.body.classList.contains('mode-edit')) {
         apply(EDITOR.w, EDITOR.h);
         return;
@@ -210,7 +233,11 @@
         return;
       }
       apply(WIDTH, convertHeight());
-    }, 60);
+    };
+    // One frame of settle time by default: this usually runs right after
+    // the list has been redrawn.
+    if (now) measure_();
+    else pending = setTimeout(measure_, 60);
   }
 
   function init() {

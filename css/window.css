@@ -103,7 +103,7 @@ body.app-window.mode-convert .conv-drop { gap: 4px; }
 .conv-actions {
   border-top: 1px solid var(--border);
   padding-top: 12px;
-  gap: 11px;
+  gap: var(--actions-gap);
 }
 .conv-estimate {
   font-size: .78rem;
@@ -127,20 +127,20 @@ body.app-window.mode-convert .conv-drop { gap: 4px; }
    ran off the right edge. A second line beats an unreachable button. */
 .conv-buttons { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .conv-buttons .btn-accent, .conv-buttons .btn-primary { padding: 8px 14px; }
-/* Centred, and it matters: the Convert button is held at the width of the
-   longest wording it can carry, so whenever it says something shorter there
-   is spare room inside it. Left-aligned, that room all piles up on one side
-   and the button reads as broken rather than as roomy. */
+/* Centred. The buttons take their natural width — the wording is whatever
+   it is and the padding either side of it is equal — which is what makes
+   the green one look right whichever of its two labels it is carrying.
+   Nothing is reserved and nothing is padded out: with the three controls
+   grouped at the left of the row, a shorter label only moves this button's
+   own right-hand edge, and nothing anybody is aiming at moves at all. */
 .conv-buttons .btn-accent, .conv-buttons .btn-primary { justify-content: center; }
-/* The buttons keep to the right-hand end of the row, whatever is to their
-   left. */
-.conv-buttons #btnReplaceAll { margin-left: auto; }
 .check.inline { flex: 1; font-size: .72rem; }
-/* Sits exactly where the Separate checkbox used to. It does NOT stretch:
-   in a full-width browser tab — which is what you get before the pop-up
-   permission is granted — flex: 1 made this menu as wide as the screen and
-   shoved both buttons off to the far right. It takes the room it needs and
-   gives the rest back. */
+/* Sits exactly where the Separate checkbox used to, and the three of them
+   stay together at the left-hand end of the row.
+   It does NOT stretch. In a full-width browser tab — which is what you get
+   before the pop-up permission is granted — flex: 1 made this menu as wide
+   as the screen, and the two buttons ended up marooned at the far edge with
+   a thousand pixels of nothing between them and the thing they belong to. */
 .dest-pick {
   flex: 0 1 auto; min-width: 0; max-width: 190px;
   background: var(--bg);
@@ -286,16 +286,12 @@ body.app-window.mode-convert .conv-drop { gap: 4px; }
   .file-tile-name { font-size: .62rem; }
   .file-tile-meta { font-size: .58rem; }
   .conv-estimate { font-size: .71rem; }
-  .conv-actions { padding-top: 9px; gap: 8px; }
+  .conv-actions { --actions-gap: 8px; padding-top: 9px; }
   /* Buttons keep a real hit area — this is what must not shrink. */
   .conv-buttons .btn-accent, .conv-buttons .btn-primary { padding: 8px 11px; font-size: .74rem; }
   .conv-buttons .bi { width: 13px; height: 13px; }
   .check.inline { font-size: .66rem; }
-  /* In the compact window the row is tight enough that the menu taking the
-     leftover space is what keeps everything on one line — which is how it
-     looked before, and it looked right. The cap above is for wide browser
-     tabs, where there is no leftover worth taking. */
-  .dest-pick { font-size: .66rem; padding: 4px 5px; flex: 1 1 auto; max-width: none; }
+  .dest-pick { font-size: .66rem; padding: 4px 5px; }
   /* The drop zone, tightened. In a short window its three lines were
      crushed together and overlapping — the text was the first thing to look
      broken. Less padding, less leading, smaller sub-lines: the same words,

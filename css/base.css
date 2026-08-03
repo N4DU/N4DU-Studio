@@ -47,6 +47,11 @@
   /* Vertical rhythm. Tightened on short windows so the panels never scroll. */
   --gap:      18px;
   --pad:      14px;
+  /* The gap between the rows of the actions block. It is named because the
+     destination panel has to cancel exactly this much while it is shut — a
+     flex parent keeps its row gap around a child of zero height — and
+     window.css narrows it for the compact window. */
+  --actions-gap: 11px;
 }
 
 html, body { height: 100%; overflow: hidden; }

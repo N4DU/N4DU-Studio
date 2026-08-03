@@ -143,6 +143,9 @@
       // leaving the button describing the old answer is how you end up with
       // a zip you did not ask for.
       syncBatch();
+      // Right now, not in sixty milliseconds: the panel has just started
+      // opening and the window has to set off with it.
+      if (N4DU.windowSize) N4DU.windowSize.fit(true);
     });
     $('destMove').addEventListener('change', e => {
       opts.destMove = e.target.checked; save();
@@ -368,7 +371,6 @@
       ? 'You will be asked which folder when you press this'
       : '';
     $('btnConvertAll').innerHTML = buttonLabel();
-    reserveButtonWidth();
 
     const rep = $('btnReplaceAll');
     rep.disabled = !ready || (bridge.active && totals.replaceable === 0);
@@ -386,46 +388,9 @@
     if (N4DU.windowSize) N4DU.windowSize.fit();
   }
 
-  // Every wording the Convert button can carry. Kept in one list because
-  // the button is sized to the longest of them, not to the one showing.
-  //
-  // Two, not three. It used to say "Convert & download .zip" for a batch,
-  // and those three extra characters were the widest the button ever got —
-  // wide enough to push the whole row onto a second line in the compact
-  // window, to say something the menu six pixels to its left already says.
-  const CONVERT_LABELS = ['Convert &amp; download', 'Convert &amp; save'];
-
   function buttonLabel() {
     const what = toDisk() ? 'Convert &amp; save' : 'Convert &amp; download';
     return `<svg class="bi"><use href="#i-down"/></svg> ${what}`;
-  }
-
-  // The Convert button keeps one width, whatever it happens to say.
-  //
-  // Its wording changes with the destination and with how many files are in
-  // the list — ".zip" is three characters that were moving the whole row
-  // sideways every time you touched the menu, which is exactly the kind of
-  // thing that makes a button hard to hit twice in a row. So the button is
-  // measured against every wording it can ever carry and given the widest as
-  // a floor. Measured rather than guessed: the font size changes with the
-  // window, so a number written here would be wrong at one of the two sizes.
-  let reservedFor = '';
-  function reserveButtonWidth() {
-    const btn = $('btnConvertAll');
-    // Once per font size. Re-measuring on every repaint would be six layout
-    // flushes a keystroke while somebody drags the quality slider.
-    const key = getComputedStyle(btn).font + '|' + btn.offsetWidth;
-    if (key === reservedFor) return;
-    const held = btn.innerHTML;
-    btn.style.minWidth = '0px';
-    let widest = 0;
-    for (const label of CONVERT_LABELS) {
-      btn.innerHTML = `<svg class="bi"><use href="#i-down"/></svg> ${label}`;
-      widest = Math.max(widest, btn.getBoundingClientRect().width);
-    }
-    btn.innerHTML = held;
-    btn.style.minWidth = Math.ceil(widest) + 'px';
-    reservedFor = getComputedStyle(btn).font + '|' + btn.offsetWidth;
   }
 
   // Which of the four destinations are on offer, and which is chosen.
@@ -448,8 +413,19 @@
     // The two boxes, and the only place in this panel allowed to change the
     // window's height by appearing: they are the whole reason the window may
     // grow, and it grows by exactly them.
+    // A class, not `hidden`: the panel grows and shrinks over the same sixth
+    // of a second as the window, and display:none has no in-between.
+    //
+    // The height is set in pixels rather than left to a max-height big
+    // enough for anything. A max-height of 4rem animating a panel 27 pixels
+    // tall reaches the end of the real movement in the first third of the
+    // time and then spends the rest going nowhere, which is exactly the
+    // out-of-step that puts the panel fully open while the window has not
+    // begun to move.
+    const panel = $('destOptions');
     const folder = toDisk();
-    $('destOptions').hidden = !folder;
+    panel.style.maxHeight = folder ? panel.scrollHeight + 'px' : '0px';
+    panel.classList.toggle('open', folder);
     if (!folder) return;
     // Nothing to delete when nothing in the list came off the disk — a
     // picture pasted or dragged in from a web page never had a file.
