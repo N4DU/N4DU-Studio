@@ -60,6 +60,21 @@ EXTENSIONS = (
 # Where Windows keeps per-user, per-extension context menu verbs.
 _KEY_FMT = r"Software\Classes\SystemFileAssociations\{ext}\shell\{verb}"
 
+# And where it keeps the two ways of right-clicking a FOLDER, which are not
+# the same thing and both have to be registered separately:
+#
+#   Directory              the folder's own icon, right-clicked from outside
+#   Directory\Background    empty space INSIDE the folder, with nothing selected
+#
+# They also need different arguments. The first gets %1, the folder that was
+# clicked. The second gets %V, "the folder this window is showing" — %1 there
+# is nothing at all, which is why a Background entry written like the other
+# one opens the program on no files and looks broken.
+_DIR_KEYS = (
+    (r"Software\Classes\Directory\shell\{verb}", "%1"),
+    (r"Software\Classes\Directory\Background\shell\{verb}", "%V"),
+)
+
 _unsupported_reason = unsupported_reason
 
 
@@ -164,6 +179,21 @@ def enable():
         for ext in touched:
             _remove_ext(reg, ext)
         raise RuntimeError("Windows refused the change: {}".format(exc))
+    # Folders, both ways of right-clicking one. Written after the extensions
+    # so a refusal here leaves the file entry working rather than half of it.
+    for template, arg in _DIR_KEYS:
+        key_path = template.format(verb=VERB_KEY)
+        try:
+            with reg.CreateKey(reg.HKEY_CURRENT_USER, key_path) as key:
+                reg.SetValueEx(key, "MUIVerb", 0, reg.REG_SZ, VERB_LABEL)
+                if icon:
+                    reg.SetValueEx(key, "Icon", 0, reg.REG_SZ, icon)
+            with reg.CreateKey(reg.HKEY_CURRENT_USER, key_path + r"\command") as key:
+                reg.SetValueEx(key, "", 0, reg.REG_SZ,
+                               command_line(entry=ENTRY).replace('"%1"', f'"{arg}"'))
+        except OSError:
+            pass    # a folder entry is a bonus; the file entries are the point
+
     # Send To goes in alongside: it is the only route that hands over a whole
     # selection, so the two belong to the same switch.
     install_sendto()
@@ -178,6 +208,13 @@ def disable():
         raise RuntimeError(unsupported_reason() or "Not supported on this system.")
     for ext in EXTENSIONS:
         _remove_ext(reg, ext)
+    for template, _ in _DIR_KEYS:
+        key_path = template.format(verb=VERB_KEY)
+        for full in (key_path + r"\command", key_path):
+            try:
+                reg.DeleteKey(reg.HKEY_CURRENT_USER, full)
+            except OSError:
+                pass
     remove_sendto()
     notify_shell()
     return status()

@@ -264,6 +264,31 @@
   bridge.collect = collect;
   bridge.siblings = siblings;
   bridge.replaceByToken = replaceByToken;
+  // Where converted files should go, and putting them there.
+  //
+  // The folder comes back as a TOKEN, never as a path this page could have
+  // typed: the same rule the whole bridge keeps. What the page holds is a
+  // receipt for a place the person picked in their own file dialog.
+  bridge.pickDestination = async () => {
+    const res = await fetch('/api/pick-folder', { method: 'POST', headers: HDR });
+    if (res.status === 204) return null;              // cancelled
+    if (!res.ok) throw new Error((await safeJson(res)).error || 'Could not ask.');
+    return res.json();
+  };
+
+  // `source` is the token of the picture this one came from, and passing it
+  // is what turns a copy into a move: the server deletes it, but only after
+  // the new file is safely down.
+  bridge.saveInto = async (destToken, name, blob, { overwrite, source } = {}) => {
+    const q = new URLSearchParams({ dest: destToken });
+    if (source) q.set('source', source);
+    const headers = { ...HDR, 'X-N4DU-Name': encodeURIComponent(name) };
+    if (overwrite) headers['X-N4DU-Overwrite'] = '1';
+    const res = await fetch('/api/save?' + q, { method: 'POST', headers, body: blob });
+    if (!res.ok) throw new Error((await safeJson(res)).error || 'Could not save.');
+    return res.json();
+  };
+
   bridge.setOnFolderChanged = (fn) => { onFolderChanged = fn || (() => {}); };
   bridge.setOnPending = (fn) => { onPending = fn || (() => {}); };
   // Told when the helper stops answering, or starts again — so the

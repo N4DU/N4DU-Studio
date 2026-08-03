@@ -43,7 +43,8 @@ from appstate import (
 )
 from diskio import (
     OPENABLE_EXT, PICK_TIMEOUT,
-    native_pick, target_path, replace_file, openable, _natural_key, _safe_stem,
+    native_pick, native_pick_folder, images_in, save_into, discard,
+    target_path, replace_file, openable, _natural_key, _safe_stem,
 )
 from pagestate import (
     _page, _pending, _pending_lock, _picking,
@@ -363,6 +364,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "key": SECRET})
         if path == "/api/pick":
             return self._pick()
+        if path == "/api/pick-folder":
+            return self._pick_folder()
+        if path == "/api/save":
+            return self._save()
         if path == "/api/replace":
             return self._replace()
         if path == "/api/settings":
@@ -372,6 +377,75 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     # ── Endpoints ──
+    def _pick_folder(self):
+        """Asks where the converted files should go.
+
+        Comes back with a TOKEN, not just a path. The page never gets to
+        name a folder on this disk — the same rule the rest of this file
+        keeps — so what it holds afterwards is a receipt for a place the
+        person picked themselves.
+        """
+        if not _picking.acquire(blocking=False):
+            return self._json({"error": "A file dialog is already open."}, 409)
+        try:
+            folder = native_pick_folder()
+        except RuntimeError as exc:
+            return self._json({"error": str(exc)}, 501)
+        finally:
+            _picking.release()
+        if not folder:
+            self._started = True
+            self._status = 204
+            self.send_response(204)      # cancelled
+            self.end_headers()
+            return
+        event(SYM["open"], "Saving into: " + folder, "0")
+        return self._json({"token": remember_file(folder), "folder": folder,
+                           "name": os.path.basename(folder.rstrip("/\\")) or folder})
+
+    def _save(self):
+        """Writes one converted picture into the chosen folder.
+
+        Three things it can do, and it says which: written, overwritten, or
+        renamed because something was already called that. And, when asked,
+        it deletes the picture this one came from — but only after the new
+        file is safely down, and only ever a file the page already held a
+        token for. "Move" is a copy that went well followed by a delete;
+        doing it in the other order is how people lose photographs.
+        """
+        query = parse_qs(urlparse(self.path).query)
+        folder = lookup_file(query.get("dest", [""])[0])
+        if not folder or not os.path.isdir(folder):
+            return self._json({"error": "Choose where to save first."}, 400)
+        name = unquote(self.headers.get("X-N4DU-Name", "") or "")
+        overwrite = self.headers.get("X-N4DU-Overwrite") == "1"
+        source = lookup_file(query.get("source", [""])[0])
+        try:
+            data = self._body()
+        except UploadError as exc:
+            return self._json({"error": str(exc)}, exc.status)
+        if not data:
+            return self._json({"error": "No data received."}, 400)
+        try:
+            target, outcome = save_into(folder, name, data, overwrite)
+        except ValueError as exc:
+            return self._json({"error": str(exc)}, 400)
+        except OSError as exc:
+            return self._json({"error": "Could not write {}: {}.".format(
+                os.path.basename(name), exc.strerror or "the system refused it")}, 400)
+
+        # Only now, and only if the original is a different file from the one
+        # just written. Asking to move a picture into the folder it is
+        # already in must not delete the result.
+        removed = False
+        if source and os.path.abspath(source) != os.path.abspath(target):
+            removed = discard(source)
+        event(SYM["swap"], "{}: {}{}".format(
+            outcome.capitalize(), os.path.basename(target),
+            "  (original removed)" if removed else ""), "96")
+        return self._json({"path": target, "name": os.path.basename(target),
+                           "outcome": outcome, "removed": removed})
+
     def _pick(self):
         intent = parse_qs(urlparse(self.path).query).get("intent", ["open"])[0]
         # One dialog at a time: without this, repeated calls stack up native
