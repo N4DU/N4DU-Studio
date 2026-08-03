@@ -78,6 +78,7 @@ import httpapi           # noqa: E402  everything the browser can ask for
 from appstate import (  # noqa: E402
     SECRET, MAX_SESSIONS, LOCK_STALE,
     state_dir, load_settings, save_settings, tidy_state, purge_state,
+    load_window_size,
     write_session, clear_session, read_session,
     acquire_start_lock, release_start_lock,
     remember_file, lookup_file, retarget_file, forget_everything,
@@ -283,7 +284,7 @@ def open_interface(url):
     # up goes to the part of the window that actually does something.
     if load_settings()["appWindow"] and shell_integration.open_app_window(
             url + ("&" if "?" in url else "?") + "app=1",
-            profile=browser_profile()):
+            profile=browser_profile(), size=load_window_size()):
         return
     webbrowser.open(url)
 

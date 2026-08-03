@@ -151,6 +151,17 @@ body.app-window.mode-convert .conv-drop { gap: 4px; }
   min-width: 0;
 }
 .conv-buttons .btn-accent, .conv-buttons .btn-primary { padding: 8px 14px; }
+/* The green button's label, optically centred.
+   Its content is an icon, a gap and a word, and centring that as one block
+   puts the WORD off to the right by half the icon and half the gap — which
+   is what the eye reads, because the eye is looking at the word. So the
+   whole block moves left by exactly that half: 21 pixels of extra padding
+   on the right shifts the content box's centre 10.5 to the left, and the
+   word lands on the middle of the button.
+   Only this one. "Replace originals" is the longer label and it is what
+   decides the width of both, so its content fills its box and there is
+   nothing to move. */
+.conv-go .btn-accent { padding-right: calc(14px + var(--label-lead)); }
 /* Centred. The buttons take their natural width — the wording is whatever
    it is and the padding either side of it is equal — which is what makes
    the green one look right whichever of its two labels it is carrying.
@@ -314,6 +325,8 @@ body.app-window.mode-convert .conv-drop { gap: 4px; }
   /* Buttons keep a real hit area — this is what must not shrink. */
   .conv-buttons .btn-accent, .conv-buttons .btn-primary { padding: 8px 11px; font-size: .74rem; }
   .conv-buttons .bi { width: 13px; height: 13px; }
+  /* Smaller icon here, so a smaller nudge. */
+  .conv-go .btn-accent { --label-lead: 19px; padding-right: calc(11px + var(--label-lead)); }
   .check.inline { font-size: .66rem; }
   .dest-pick { font-size: .66rem; padding: 4px 5px; }
   /* The drop zone, tightened. In a short window its three lines were

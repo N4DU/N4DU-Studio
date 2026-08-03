@@ -17,10 +17,24 @@ import os
 import sys
 import subprocess
 
-# A small starting size so the window does not flash open large. The page
-# then measures its own contents and settles on the right height — small for
-# one file, taller for a big batch (see js/ui/window-size.js).
-_APP_FLAGS = ("--app={url}", "--window-size=452,400")
+# The size the window should already be when it appears.
+#
+# 452 wide and 440 of PAGE is what the converter asks for with nothing in it
+# and with one picture alike (MIN_H in js/ui/window-size.js). This flag is
+# the whole window though, frame included, so it carries an allowance for
+# the title bar an --app window still draws: about 34 pixels on Windows,
+# rather more on Linux. It is an estimate and it is meant to be — whatever
+# is left over, the page corrects the moment it loads, in one step and
+# without animating it.
+#
+# 400 was the old value, chosen "so the window does not flash open large".
+# It flashed open SHORT instead, and then grew in front of you, which is the
+# same fault the other way round.
+_APP_FLAGS = ("--app={url}", "--window-size={w},{h}")
+# Used until the page has told us what the window really came out as — see
+# load_window_size() in appstate.py. 440 of page plus about 34 for the title
+# bar an --app window still draws on Windows.
+DEFAULT_SIZE = (452, 474)
 
 _WINDOWS_CANDIDATES = (
     r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe",
@@ -65,9 +79,14 @@ def find_app_browser():
     return None
 
 
-def open_app_window(url, browser=None, profile=None):
+def open_app_window(url, browser=None, profile=None, size=None):
     """Opens the page in its own compact window. Returns True on success;
     the caller falls back to a normal browser tab when it returns False.
+
+    size: (width, height) of the whole window, frame included. The page
+    remembers what it settled on last time and it is passed back in here, so
+    the window opens at the right size rather than opening at a guess and
+    correcting itself in front of you.
 
     profile: a folder for the window to keep its own browser state in.
     This matters more than it looks. When Chrome is ALREADY RUNNING, a
@@ -81,7 +100,8 @@ def open_app_window(url, browser=None, profile=None):
     exe = browser or find_app_browser()
     if not exe:
         return False
-    argv = [exe] + [flag.format(url=url) for flag in _APP_FLAGS]
+    w, h = size or DEFAULT_SIZE
+    argv = [exe] + [flag.format(url=url, w=w, h=h) for flag in _APP_FLAGS]
     if profile:
         argv += ["--user-data-dir=" + profile,
                  "--no-first-run", "--no-default-browser-check",
