@@ -304,17 +304,15 @@ body.app-window.no-files .conv-estimate { display: none; }
 }
 .conv-label.second { text-align: right; }
 
-/* The names already taken in the chosen folder. Scrolls rather than growing
-   the dialog past the screen: forty collisions is a list, not a wall. */
-.clash-list {
-  margin: 10px 0 0;
-  padding: 8px 10px 8px 26px;
-  max-height: 150px;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: .74rem;
-  color: var(--muted);
+/* The two boxes under the buttons, and the only thing in this panel that
+   changes the window's height by appearing. Tight on purpose: the window
+   grows by exactly these two lines and not a pixel more. */
+.conv-dest-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
 }
-.clash-list li { margin: 2px 0; word-break: break-all; }
+.conv-dest-opts .check { font-size: .72rem; }
+.conv-dest-opts .check input:disabled + span { opacity: .45; }
 

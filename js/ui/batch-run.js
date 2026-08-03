@@ -158,36 +158,17 @@
     download(archive, `n4du-${tag}-${stamp}.zip`);
   }
 
-  // Asks for the folder, and — in the same breath — whether anything in it
-  // is already called what we are about to write.
-  //
-  // One dialog, one question, at the moment you asked for the work. The
-  // collision question is only put when there IS a collision, which is why
-  // it is not a permanent tick-box: almost every run would carry it on
-  // screen doing nothing, in a window that has no room to spare.
-  //
-  // Returns { token, name, overwrite } or null when you backed out.
+  // Where to. Asked at the moment you pressed the button, never kept.
+  // Returns { token, name } or null when you backed out.
   async function askWhereTo() {
-    // The output names are known before a single pixel is converted: the
-    // format is a setting, not a discovery. So the collision can be found
-    // out now rather than halfway through.
-    const names = batch.items.map(it => outputName(it.name, deps.fmtFor(it)));
-    let picked;
     try {
-      picked = await bridge.pickDestination(names);
+      const picked = await bridge.pickDestination();
+      // Cancelled, and that is fine — nothing has been converted yet.
+      return picked ? { token: picked.token, name: picked.name } : null;
     } catch (err) {
       toast(err.message, 'err');
       return null;
     }
-    if (!picked) return null;                    // cancelled, and that is fine
-    const taken = picked.taken || [];
-    let overwrite = false;
-    if (taken.length) {
-      const answer = await N4DU.clashDialog.ask(taken, picked.name);
-      if (answer === 'cancel') return null;
-      overwrite = answer === 'replace';
-    }
-    return { token: picked.token, name: picked.name, overwrite };
   }
 
   // Straight onto the disk, into the folder just chosen. The browser never
@@ -197,8 +178,7 @@
   // later.
   async function saveIntoFolder(produced, dest) {
     const destToken = dest.token;
-    const destMove = deps.opts.deliver === 'move';
-    const destOverwrite = dest.overwrite;
+    const { destMove, destOverwrite } = deps.opts;
     if (!destToken) { toast('No folder chosen, so nothing was saved', 'err'); return; }
     let written = 0, renamed = 0, overwritten = 0, moved = 0, failed = 0;
     let lastError = '';

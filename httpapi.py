@@ -384,26 +384,7 @@ class Handler(BaseHTTPRequestHandler):
         name a folder on this disk — the same rule the rest of this file
         keeps — so what it holds afterwards is a receipt for a place the
         person picked themselves.
-
-        The page may send the names it is about to write, and gets back the
-        ones already taken. That is what lets it ask "replace these three,
-        or keep both?" once, before any work starts, instead of either
-        asking about a collision that never happens or discovering it
-        halfway through a batch.
         """
-        wanted = []
-        try:
-            raw = self._body()
-        except UploadError as exc:
-            return self._json({"error": str(exc)}, exc.status)
-        if raw:
-            try:
-                wanted = json.loads(raw.decode("utf-8")).get("names") or []
-            except (ValueError, AttributeError):
-                return self._json({"error": "Could not read the list of names."}, 400)
-            if not isinstance(wanted, list) or len(wanted) > MAX_SIBLINGS:
-                return self._json({"error": "Could not read the list of names."}, 400)
-
         if not _picking.acquire(blocking=False):
             return self._json({"error": "A file dialog is already open."}, 409)
         try:
@@ -418,20 +399,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(204)      # cancelled
             self.end_headers()
             return
-        # Only the basename is ever consulted, so a name carrying a path
-        # cannot be used to ask whether some file elsewhere on the disk
-        # exists. The answer leaves this building either way.
-        taken = []
-        for name in wanted:
-            if not isinstance(name, str):
-                continue
-            base = os.path.basename(name.replace("\\", "/"))
-            if base and os.path.exists(os.path.join(folder, base)):
-                taken.append(base)
         event(SYM["open"], "Saving into: " + folder, "0")
         return self._json({"token": remember_file(folder), "folder": folder,
-                           "name": os.path.basename(folder.rstrip("/\\")) or folder,
-                           "taken": taken})
+                           "name": os.path.basename(folder.rstrip("/\\")) or folder})
 
     def _save(self):
         """Writes one converted picture into the chosen folder.

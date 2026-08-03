@@ -32,22 +32,23 @@
     maxKb: null,
     maxUnit: 'KB',
     resize: { mode: 'keep', value: 1920 },
-    // Where the converted files go: one archive, one download each, written
-    // into a folder you choose, or moved into it — which is the same thing
-    // plus deleting the original once the new file is safely down. The last
-    // two only exist with the desktop helper running, because only it can
-    // open a folder dialog and write to disk.
+    // Where the converted files go: one archive, one download each, or
+    // written into a folder you choose. The last only exists with the
+    // desktop helper running, because only it can open a folder dialog and
+    // write to disk.
     //
     // WHICH folder is not stored here, and deliberately. It is asked for
     // when you press Convert, and the answer lasts exactly one run: a
     // destination chosen in advance is a destination you have to remember
     // choosing, and a receipt from a helper that may not be the one running
     // by the time you press the button.
-    deliver: 'zip',        // 'zip' | 'separate' | 'folder' | 'move'
+    deliver: 'zip',        // 'zip' | 'separate' | 'folder'
+    destMove: false,       // delete the original once the new one is down
+    destOverwrite: false,  // replace a file already called that
   };
 
-  // True for the two routes that end on your disk rather than in Downloads.
-  const toDisk = () => opts.deliver === 'folder' || opts.deliver === 'move';
+  // The one route that ends on your disk rather than in Downloads.
+  const toDisk = () => opts.deliver === 'folder';
 
   // The real output format for one file. Anything we cannot write back —
   // a GIF, an SVG, an unknown extension — becomes PNG, which can hold
@@ -136,10 +137,18 @@
     $('batchDest').addEventListener('change', e => {
       opts.deliver = e.target.value;
       save();
-      // The Convert button names what it is about to hand you. Changing
-      // where things go and leaving the button describing the old answer is
-      // how you end up with a zip you did not ask for.
+      // The two boxes below appear and disappear with this, and the window
+      // grows and shrinks by exactly their height. And the Convert button
+      // names what it is about to hand you: changing where things go and
+      // leaving the button describing the old answer is how you end up with
+      // a zip you did not ask for.
       syncBatch();
+    });
+    $('destMove').addEventListener('change', e => {
+      opts.destMove = e.target.checked; save();
+    });
+    $('destOverwrite').addEventListener('change', e => {
+      opts.destOverwrite = e.target.checked; save();
     });
 
     $('btnConvertAll').addEventListener('click', () => run(false));
@@ -178,6 +187,7 @@
         fmt: opts.fmt, quality: opts.quality, maxKb: opts.maxKb,
         maxUnit: opts.maxUnit, resize: opts.resize,
         deliver: opts.deliver,
+        destMove: opts.destMove, destOverwrite: opts.destOverwrite,
       }));
     } catch { /* private mode, or file:// — the app works without it */ }
   }
@@ -193,17 +203,22 @@
       if (saved.resize && RESIZE_MODES[saved.resize.mode]) {
         opts.resize = { mode: saved.resize.mode, value: Number(saved.resize.value) || 1920 };
       }
-      // 'separate' was a checkbox before there were four places to send
-      // things, and 'move' was a tick-box beside 'folder'. A setting saved
-      // by either older version still means what it said.
-      if (['zip', 'separate', 'folder', 'move'].includes(saved.deliver)) {
-        opts.deliver = saved.deliver === 'folder' && saved.destMove ? 'move' : saved.deliver;
-      } else if (saved.separate) {
-        opts.deliver = 'separate';
+      // 'separate' was a checkbox before there were three places to send
+      // things, and for a little while moving was a fourth entry in the menu
+      // rather than a box. A setting saved by either older version still
+      // means what it said.
+      if (saved.deliver === 'move') { opts.deliver = 'folder'; opts.destMove = true; }
+      else if (['zip', 'separate', 'folder'].includes(saved.deliver)) opts.deliver = saved.deliver;
+      else if (saved.separate) opts.deliver = 'separate';
+      if (typeof saved.destMove === 'boolean' && saved.deliver !== 'move') {
+        opts.destMove = saved.destMove;
       }
+      opts.destOverwrite = !!saved.destOverwrite;
     }
     $('batchQuality').value = Math.round(opts.quality * 100);
     $('batchMaxUnit').value = opts.maxUnit;
+    $('destMove').checked = opts.destMove;
+    $('destOverwrite').checked = opts.destOverwrite;
     if (opts.maxKb) {
       $('batchMaxSize').value = opts.maxUnit === 'MB'
         ? parseFloat((opts.maxKb / 1024).toFixed(3))
@@ -353,6 +368,7 @@
       ? 'You will be asked which folder when you press this'
       : '';
     $('btnConvertAll').innerHTML = buttonLabel(totals);
+    reserveButtonWidth();
 
     const rep = $('btnReplaceAll');
     rep.disabled = !ready || (bridge.active && totals.replaceable === 0);
@@ -370,14 +386,49 @@
     if (N4DU.windowSize) N4DU.windowSize.fit();
   }
 
+  // Every wording the Convert button can carry. Kept in one list because
+  // the button is sized to the longest of them, not to the one showing.
+  const CONVERT_LABELS = [
+    'Convert &amp; download',
+    'Convert &amp; download .zip',
+    'Convert &amp; save',
+  ];
+
   function buttonLabel(totals) {
-    if (toDisk()) {
-      const what = opts.deliver === 'move' ? 'Convert &amp; move' : 'Convert &amp; save';
-      return `<svg class="bi"><use href="#i-down"/></svg> ${what}`;
-    }
-    const many = totals.count > 1 && opts.deliver !== 'separate';
-    const what = many ? 'Convert &amp; download .zip' : 'Convert &amp; download';
+    const what = toDisk()
+      ? 'Convert &amp; save'
+      : (totals.count > 1 && opts.deliver !== 'separate'
+        ? 'Convert &amp; download .zip'
+        : 'Convert &amp; download');
     return `<svg class="bi"><use href="#i-down"/></svg> ${what}`;
+  }
+
+  // The Convert button keeps one width, whatever it happens to say.
+  //
+  // Its wording changes with the destination and with how many files are in
+  // the list — ".zip" is three characters that were moving the whole row
+  // sideways every time you touched the menu, which is exactly the kind of
+  // thing that makes a button hard to hit twice in a row. So the button is
+  // measured against every wording it can ever carry and given the widest as
+  // a floor. Measured rather than guessed: the font size changes with the
+  // window, so a number written here would be wrong at one of the two sizes.
+  let reservedFor = '';
+  function reserveButtonWidth() {
+    const btn = $('btnConvertAll');
+    // Once per font size. Re-measuring on every repaint would be six layout
+    // flushes a keystroke while somebody drags the quality slider.
+    const key = getComputedStyle(btn).font + '|' + btn.offsetWidth;
+    if (key === reservedFor) return;
+    const held = btn.innerHTML;
+    btn.style.minWidth = '0px';
+    let widest = 0;
+    for (const label of CONVERT_LABELS) {
+      btn.innerHTML = `<svg class="bi"><use href="#i-down"/></svg> ${label}`;
+      widest = Math.max(widest, btn.getBoundingClientRect().width);
+    }
+    btn.innerHTML = held;
+    btn.style.minWidth = Math.ceil(widest) + 'px';
+    reservedFor = getComputedStyle(btn).font + '|' + btn.offsetWidth;
   }
 
   // Which of the four destinations are on offer, and which is chosen.
@@ -390,17 +441,25 @@
   // promising to cut something that was never anywhere.
   function syncDestination(totals) {
     const menu = $('batchDest');
-    const allowed = {
-      zip: true, separate: true,
-      folder: bridge.active,
-      move: bridge.active && totals.replaceable > 0,
-    };
+    const allowed = { zip: true, separate: true, folder: bridge.active };
     for (const option of menu.options) option.hidden = !allowed[option.value];
-    // A setting remembered from a desktop session and reopened in a tab, or
-    // "move" left over from a batch whose files have all been removed.
+    // A setting remembered from a desktop session and reopened in a tab.
     if (!allowed[opts.deliver]) { opts.deliver = 'zip'; save(); }
     menu.value = opts.deliver;
     menu.disabled = working();
+
+    // The two boxes, and the only place in this panel allowed to change the
+    // window's height by appearing: they are the whole reason the window may
+    // grow, and it grows by exactly them.
+    const folder = toDisk();
+    $('destOptions').hidden = !folder;
+    if (!folder) return;
+    // Nothing to delete when nothing in the list came off the disk — a
+    // picture pasted or dragged in from a web page never had a file.
+    const movable = totals.replaceable > 0;
+    $('destMoveRow').hidden = !movable;
+    $('destMove').disabled = !movable || working();
+    $('destOverwrite').disabled = working();
   }
 
   // The file list. Each tile is the picture, its name, and what happened to
