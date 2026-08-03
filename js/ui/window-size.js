@@ -57,18 +57,45 @@
     return chrome + pad + gap * Math.max(0, blocks.length - 1) + content + 4;
   }
 
-  // Anything inside this block that is part-way through opening or closing.
+  // The destination panel: what it takes up now, and what it is heading for.
   //
-  // The destination options slide open over 160ms, so for most of that time
-  // offsetHeight reports a panel that is neither shut nor open — and sizing
+  // Both include the row gap the flex parent puts above it, because that gap
+  // is part of what appears and disappears — shut, the panel cancels it with
+  // a negative margin of the same size, so its whole contribution is zero.
+  //
+  // "Heading for" matters because the panel slides open over 160ms: for most
+  // of that time its height is neither nothing nor everything, and sizing
   // the window to a height that is about to change is how the window ends up
-  // chasing the panel instead of moving with it. scrollHeight is the height
-  // it is heading for; the difference is what has not arrived yet.
+  // chasing the panel instead of moving with it.
+  function panelBox() {
+    const panel = document.querySelector('.conv-dest-opts');
+    if (!panel || !panel.parentElement) return { now: 0, target: 0 };
+    const gap = parseFloat(getComputedStyle(panel.parentElement).rowGap) || 0;
+    const margin = parseFloat(getComputedStyle(panel).marginTop) || 0;
+    return {
+      now: panel.offsetHeight + margin + gap,
+      target: panel.classList.contains('open') ? panel.scrollHeight + gap : 0,
+    };
+  }
+
+  // The panel's final height, added to the floor rather than left to compete
+  // with it.
+  //
+  // The floor is what the EMPTY converter needs to be usable, and with
+  // nothing in the list the layout comes in a few pixels under it — so
+  // opening a panel 27 pixels tall moved the window by six, and the drop
+  // zone quietly gave up the other twenty-one and took them back when the
+  // panel closed. The panel is not part of what the floor is for: whatever
+  // it takes, the window takes too, and nothing in between has to move.
+  function panelFloor() {
+    return panelBox().target;
+  }
+
+  // What this block will be once the panel has finished moving.
   function midGrowth(block) {
-    const panel = block.querySelector('.conv-dest-opts');
-    if (!panel) return 0;
-    return (panel.classList.contains('open') ? panel.scrollHeight : 0)
-           - panel.offsetHeight;
+    if (!block.querySelector('.conv-dest-opts')) return 0;
+    const box = panelBox();
+    return box.target - box.now;
   }
 
   function naturalFilesHeight(block) {
@@ -123,18 +150,35 @@
   // Applies a size, in INNER pixels. The window frame is measured rather
   // than assumed: it differs between Windows, macOS and Linux, and between
   // an app window and a tab.
+  let lastApply = null;      // what the last call decided, for the tests
+  const applyLog = [];
   function apply(innerW, innerH) {
-    if (!canResize()) return;
+    lastApply = { innerH, why: 'ok', open: !!document.querySelector('.conv-dest-opts.open'),
+                  floor: MIN_H + panelFloor(), n: applyLog.length };
+    applyLog.push(lastApply);
+    if (applyLog.length > 40) applyLog.shift();
+    if (!canResize()) { lastApply.why = 'manual'; return; }
     const frameW = window.outerWidth - window.innerWidth;
     const frameH = window.outerHeight - window.innerHeight;
     const maxH = (window.screen.availHeight || 1080) - 60;
     const maxW = (window.screen.availWidth || 1920) - 60;
 
     const w = Math.min(innerW + frameW, maxW);
-    const h = Math.min(Math.max(innerH, MIN_H) + frameH, maxH);
+    const h = Math.min(Math.max(innerH, MIN_H + panelFloor()) + frameH, maxH);
+    lastApply.w = w; lastApply.h = h;
+    lastApply.outer = { w: window.outerWidth, h: window.outerHeight };
     if (Math.abs(w - window.outerWidth) < SLACK && Math.abs(h - window.outerHeight) < SLACK) {
+      lastApply.why = 'already there';
       return;   // already the right size; resizing again would only flicker
     }
+    // Twice ignored is twice too many. Some environments do not honour
+    // resizeTo at all — a window manager that refuses, a kiosk, a window
+    // the person has pinned — and nothing here noticed: every repaint saw
+    // the same gap between what the window is and what it should be, and
+    // asked again, for ever. One request per repaint, for the life of the
+    // session, none of them granted.
+    if (refused() && ++ignored >= IGNORED_LIMIT) { manual = true; return; }
+    if (!refused()) ignored = 0;
     glideTo(Math.round(w), Math.round(h));
   }
 
@@ -152,6 +196,16 @@
   const GLIDE_MS = 160;
   const GLIDE_MAX = 260;      // beyond this a jump is the kinder answer
   let gliding = null;
+  // How many times in a row a resize was asked for and simply not granted.
+  //
+  // Some environments ignore resizeTo outright — a window manager that
+  // refuses, a kiosk, a browser with the window pinned. Nothing here
+  // noticed: every repaint measured the same gap between what the window is
+  // and what it should be, and asked again, for ever. Two refusals is
+  // enough to take the hint and leave the window alone, the same way a
+  // resize by hand does.
+  let ignored = 0;
+  const IGNORED_LIMIT = 2;
 
   function glideTo(w, h) {
     cancelAnimationFrame(gliding);
@@ -165,10 +219,17 @@
       try { window.resizeTo(w, h); } catch { /* a normal tab: nothing to do */ }
       return;
     }
-    const t0 = (globalThis.performance || Date).now();
+    // The clock starts on the first frame, not on this line. The panel below
+    // is animated by the browser, and its transition starts when the style
+    // change is committed — one frame after the click that caused it. Timing
+    // the window from the click instead put it a frame ahead of the panel,
+    // and a frame of disagreement between the two is a frame of the drop
+    // zone being squeezed.
+    let t0 = null;
     let sent = null;
     const step = () => {
       const now = (globalThis.performance || Date).now();
+      if (t0 === null) { t0 = now; gliding = requestAnimationFrame(step); return; }
       const k = Math.min(1, (now - t0) / GLIDE_MS);
       // Fast at first, gentle at the end: the eye follows the start and
       // forgives the finish, which is the opposite of a linear ramp.
@@ -193,6 +254,18 @@
       if (k < 1) gliding = requestAnimationFrame(step);
     };
     step();
+  }
+
+  // Was the last thing we asked for ever granted?
+  //
+  // Checked here, on the way in, rather than on a timer after the fact: by
+  // the time another size is being asked for, the previous request has had
+  // however long the page took to decide it wants a different one, which is
+  // far longer than any window manager needs.
+  function refused() {
+    if (!asked || Date.now() - asked.at < 500) return false;
+    return Math.abs(window.outerHeight - asked.h) > 24 ||
+           Math.abs(window.outerWidth - asked.w) > 24;
   }
 
   // Called after anything that changes the contents.
@@ -302,6 +375,11 @@
   // costs nothing.
   apply(WIDTH, MIN_H);
 
-  N4DU.windowSize = { init, fit, measure };
+  // What this module currently believes, for the tests: whether it has
+  // stepped aside, and what it last asked for.
+  const state = () => ({ manual, ignored, asked, floor: MIN_H + panelFloor(),
+                         last: lastApply, log: applyLog });
+
+  N4DU.windowSize = { init, fit, measure, state };
 
 })(window.N4DU ??= {});

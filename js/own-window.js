@@ -49,7 +49,12 @@
   // pointless piece of theatre.
   const MIN_SCREEN = 900;
 
-  const DEFAULT = { w: 452, h: 560 };
+  // The size the empty converter actually wants — see MIN_H in
+  // js/ui/window-size.js, which is the same number. Opening at 560 and then
+  // being resized to 440 a moment later is a window that arrives wrong and
+  // corrects itself in front of you, which reads as a fault. Asking for the
+  // right size in the first place costs nothing.
+  const DEFAULT = { w: 452, h: 440 };
 
   // Our own address without the query or the hash. Built from href rather
   // than pathname: on Windows a file:// pathname is "/C:/Users/..." and

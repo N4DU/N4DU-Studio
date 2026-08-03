@@ -42,17 +42,31 @@ body.app-window.mode-convert .conv-head .mode-btn {
 }
 body.app-window.mode-convert .conv-head .mode-btn .bi { width: 12px; height: 12px; }
 
-/* All that reclaimed height goes to one place: the box you drop files on,
-   which was the only part of the window looking squashed. */
-/* Only where there is room for it. flex: 1 1 auto already hands the drop
+/* The floor under the box you drop files on.
+   Only where there is room for it. flex: 1 1 auto already hands the drop
    zone every pixel the settings rows do not want, so this floor never did
    anything at the normal window height — but below about 432px it stopped
    the box shrinking at all, and it overran its panel and painted itself
    over the Format / Size / Weight rows. Up to 101px of overlap, and a click
    anywhere in that band opened the file picker instead of the control that
-   was visibly underneath the pointer. */
-@media (min-height: 440px) {
-  body.app-window.mode-convert .conv-drop { min-height: 226px; }
+   was visibly underneath the pointer.
+
+   200, not 226. At 226 the empty converter needed 455 pixels of window while
+   the same converter holding a picture needed 440 — so the window opened
+   BIGGER with nothing in it than it was a moment later with something, for
+   a dashed box that only ever holds three lines of text. At 200 the empty
+   layout needs 429, which is under the floor the window sets anyway, so
+   empty and one-file are the same size to the pixel. The box still reads as
+   somewhere to drop things: its three lines of text come to 67.
+
+   And the threshold is 380 rather than 440 for a reason that is not
+   cosmetic. 440 is exactly the height the window sits at, so a resize
+   passing through it switched this rule off and on — which changed the
+   height the window was measuring itself against WHILE it was moving there.
+   The window chased its own tail: up a little, down a little. Below any
+   height the app ever asks for, the rule simply stays on. */
+@media (min-height: 380px) {
+  body.app-window.mode-convert .conv-drop { min-height: 200px; }
 }
 body.app-window.mode-convert .conv-drop .drop-label { font-size: .88rem; }
 body.app-window.mode-convert .conv-drop .drop-sub { font-size: .72rem; }
